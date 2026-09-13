@@ -1,0 +1,28 @@
+{
+  "name": "@roster/ext-gemini-cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Gemini CLI for Roster: Google's coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 1,
+    "type": "gemini-cli",
+    "label": "Gemini CLI",
+    "acp": {
+      "command": [
+        "@program",
+        "--experimental-acp"
+      ],
+      "env": {
+        "google-generative-ai": {
+          "baseUrl": "GOOGLE_GEMINI_BASE_URL",
+          "key": "GEMINI_API_KEY"
+        }
+      },
+      "login": {
+        "terminal": [
+          "gemini"
+        ]
+      }
+    }
+  }
+}

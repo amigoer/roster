@@ -1,0 +1,13 @@
+docs/
+
+# node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# local data
+*.db
+*.db-journal

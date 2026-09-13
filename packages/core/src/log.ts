@@ -1,0 +1,60 @@
+import type { NormalizedEvent } from "@roster/adapter-api";
+import type { AttachmentRef } from "./attachments.js";
+
+/**
+ * Backend events plus the two kinds core writes itself. Human lines and
+ * membership notices go through the same log as everything else, so a member's
+ * catch-up is one range scan over broadcast events.
+ */
+export type CoreEvent =
+  | NormalizedEvent
+  | { type: "human.text"; display: "message"; text: string; mentions: string[]; attachments?: AttachmentRef[] }
+  | { type: "system.notice"; display: "message"; text: string };
+
+/**
+ * Two independent questions per event, answered here rather than at read time:
+ *   surface   - does it become a card in the transcript?
+ *   broadcast - do other members of the group see it on their next turn?
+ * Both are stored as columns so each query is one indexed range scan and a later
+ * rule change cannot silently rewrite what already happened.
+ *
+ * persist=false is the third answer: text deltas arrive tens of times a second
+ * and carry nothing the final message does not, so they live on the SSE wire only.
+ */
+export interface Routing {
+  persist: boolean;
+  surface: boolean;
+  broadcast: boolean;
+}
+
+const ROUTES: Record<CoreEvent["type"], Routing> = {
+  // only the finalized text is a shared external fact
+  "assistant.text": { persist: true, surface: true, broadcast: true },
+  // never broadcast: it doubles the noise and leaks one model's reasoning into another's context
+  "assistant.thinking": { persist: true, surface: true, broadcast: false },
+  "tool.start": { persist: true, surface: true, broadcast: false },
+  "tool.update": { persist: false, surface: true, broadcast: false },
+  "tool.end": { persist: true, surface: true, broadcast: false },
+  "permission.request": { persist: true, surface: true, broadcast: false },
+  "permission.decision": { persist: true, surface: true, broadcast: false },
+  // running is not unread, so these drive state only
+  "turn.start": { persist: true, surface: false, broadcast: false },
+  "turn.end": { persist: true, surface: false, broadcast: false },
+  "cost": { persist: true, surface: false, broadcast: false },
+  // a readout of the backend, restated every turn; the orchestrator keeps the latest in memory
+  "session.info": { persist: false, surface: false, broadcast: false },
+  "error": { persist: true, surface: true, broadcast: false },
+  "human.text": { persist: true, surface: true, broadcast: true },
+  // bots need to know who joined, left, or what the rules became
+  "system.notice": { persist: true, surface: true, broadcast: true },
+};
+
+export function routeOf(e: CoreEvent): Routing {
+  if (e.type === "assistant.text" && e.final !== true) {
+    return { persist: false, surface: true, broadcast: false };
+  }
+  if (e.type === "assistant.thinking") {
+    return { persist: false, surface: true, broadcast: false };
+  }
+  return ROUTES[e.type];
+}

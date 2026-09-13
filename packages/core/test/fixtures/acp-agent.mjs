@@ -1,0 +1,123 @@
+// A minimal ACP agent over stdio, enough to drive the host end to end: it
+// greets, edits one file behind a permission request when asked to, says what
+// images it was handed, and reports usage.
+import { createInterface } from "node:readline";
+
+const out = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
+const notify = (method, params) => out({ jsonrpc: "2.0", method, params });
+const reply = (id, result) => out({ jsonrpc: "2.0", id, result });
+const fail = (id, code, message) => out({ jsonrpc: "2.0", id, error: { code, message } });
+
+let nextId = 100;
+const pending = new Map();
+const request = (method, params) =>
+  new Promise((resolve) => {
+    const id = nextId++;
+    pending.set(id, resolve);
+    out({ jsonrpc: "2.0", id, method, params });
+  });
+
+const loggedOut = process.env.FAKE_ACP_LOGGED_OUT === "1";
+let options = [
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue: "m1",
+    options: [
+      { value: "m1", name: "Model One" },
+      { value: "m2", name: "Model Two" },
+    ],
+  },
+];
+const modes = { currentModeId: "ask", availableModes: [{ id: "ask", name: "Ask" }, { id: "yolo", name: "Yolo" }] };
+let cancelPrompt = null;
+
+async function prompt(id, params) {
+  const sessionId = params.sessionId;
+  const text = params.prompt.map((b) => b.text ?? "").join("");
+  const update = (u) => notify("session/update", { sessionId, update: u });
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
+  const images = params.prompt.filter((b) => b.type === "image" && b.data);
+  if (images.length > 0) {
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `saw ${images.map((b) => b.mimeType).join(",")} ` } });
+  }
+  let cancelled = false;
+  cancelPrompt = () => {
+    cancelled = true;
+  };
+  if (text.includes("#write")) {
+    update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit notes.md", kind: "edit", status: "pending", rawInput: { path: "notes.md" } });
+    const r = await request("session/request_permission", {
+      sessionId,
+      toolCall: { toolCallId: "t1", kind: "edit", rawInput: { path: "notes.md" } },
+      options: [
+        { optionId: "allow", name: "Yes", kind: "allow_once" },
+        { optionId: "reject", name: "No", kind: "reject_once" },
+      ],
+    });
+    const allowed = r?.outcome?.outcome === "selected" && r.outcome.optionId === "allow";
+    update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
+  }
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: cancelled ? "" : "done" } });
+  update({ sessionUpdate: "usage_update", used: 1200, size: 100000 });
+  cancelPrompt = null;
+  reply(id, { stopReason: cancelled ? "cancelled" : "end_turn" });
+}
+
+const rl = createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  const msg = JSON.parse(line);
+  if (msg.id !== undefined && msg.method === undefined) {
+    pending.get(msg.id)?.(msg.result);
+    pending.delete(msg.id);
+    return;
+  }
+  const { id, method, params } = msg;
+  switch (method) {
+    case "initialize":
+      reply(id, {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: false, promptCapabilities: { image: true } },
+        authMethods: [{ id: "fake-login", name: "Log in", description: "Run fake login", type: "terminal", args: ["login"] }],
+      });
+      notify("_auth/status_update", { authStatus: loggedOut ? { kind: "none", label: "Not logged in" } : { kind: "subscription", label: "Pro" } });
+      return;
+    case "session/new":
+      if (loggedOut) return fail(id, -32000, "Authentication required");
+      reply(id, { sessionId: "s1", configOptions: options, modes });
+      notify("session/update", {
+        sessionId: "s1",
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            { name: "compact", description: "Compact" },
+            { name: "review", description: "Review changes", input: { hint: "<branch>" } },
+          ],
+        },
+      });
+      return;
+    case "session/set_config_option":
+      options = options.map((o) => (o.id === params.configId ? { ...o, currentValue: params.value } : o));
+      reply(id, { configOptions: options });
+      return;
+    case "session/set_mode":
+      modes.currentModeId = params.modeId;
+      reply(id, {});
+      return;
+    case "session/prompt":
+      void prompt(id, params);
+      return;
+    case "session/cancel":
+      cancelPrompt?.();
+      return;
+    case "authenticate":
+      reply(id, {});
+      return;
+    default:
+      if (id !== undefined) fail(id, -32601, `no such method ${method}`);
+  }
+});
+rl.on("close", () => process.exit(0));

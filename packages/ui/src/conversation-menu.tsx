@@ -1,0 +1,165 @@
+import { useState } from "react";
+import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { api, type Conversation } from "./api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+export function ConversationMenu({
+  conv,
+  className,
+  onRename,
+  onGone,
+}: {
+  conv: Conversation;
+  className?: string;
+  onRename: () => void;
+  /** archived or deleted: the caller decides what to select next */
+  onGone: (id: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  const archive = async () => {
+    await api.archive(conv.id, !conv.archived);
+    if (!conv.archived) onGone(conv.id);
+  };
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            // the row is a button; without this the click selects the conversation
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              "text-muted-foreground hover:bg-background hover:text-foreground size-6 shrink-0 rounded-md opacity-0 transition-opacity group-hover/item:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
+              className,
+            )}
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuItem onSelect={onRename}>
+            <Pencil className="size-3.5" />
+            重命名
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void archive()}>
+            {conv.archived ? (
+              <>
+                <ArchiveRestore className="size-3.5" />
+                取消归档
+              </>
+            ) : (
+              <>
+                <Archive className="size-3.5" />
+                归档
+              </>
+            )}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
+            <Trash2 className="size-3.5" />
+            删除
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DeleteConversation conv={conv} open={confirming} onOpenChange={setConfirming} onDeleted={onGone} />
+    </>
+  );
+}
+
+export function DeleteConversation({
+  conv,
+  open,
+  onOpenChange,
+  onDeleted,
+}: {
+  conv: Conversation;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: (id: string) => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>删除「{conv.title}」？</AlertDialogTitle>
+          <AlertDialogDescription>
+            整段对话记录会被永久删除，无法撤销。只是想从列表里收起来的话，用「归档」。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              void api.remove(conv.id);
+              onDeleted(conv.id);
+            }}
+          >
+            删除
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Enter or leaving the field saves; Escape keeps the old title. */
+export function RenameInput({
+  conv,
+  onDone,
+  className,
+  style,
+}: {
+  conv: Conversation;
+  onDone: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <input
+      autoFocus
+      defaultValue={conv.title}
+      style={style}
+      // field-sizing keeps the box the width of the text, so whatever sits beside it is not shoved away
+      className={cn(
+        "border-input ring-ring/40 field-sizing-content max-w-full min-w-24 rounded border px-1.5 py-0.5 font-semibold ring-2 outline-none",
+        className,
+      )}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => {
+        const v = e.currentTarget.value.trim();
+        if (v && v !== conv.title) void api.rename(conv.id, v);
+        onDone();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) e.currentTarget.blur();
+        if (e.key === "Escape") {
+          e.currentTarget.value = conv.title;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}

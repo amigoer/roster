@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+/* dark: follows the theme picked in settings; Tailwind's default would follow the OS even when the user chose light */
+@custom-variant dark (&:is(.dark *));
+
+/* Step 1: variables at root level, never inside @layer base; .light pins a subtree to light inside a dark window */
+:root,
+.light {
+  /* the Feishu family: cool grey surfaces, one blue, corners round enough to read as soft */
+  --radius: 0.75rem;
+
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(220 12% 12%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(220 12% 12%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(220 12% 12%);
+  --primary: hsl(221 100% 60%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(220 14% 95.5%);
+  --secondary-foreground: hsl(220 12% 18%);
+  --muted: hsl(220 14% 96%);
+  --muted-foreground: hsl(220 8% 46%);
+  --accent: hsl(220 16% 95%);
+  --accent-foreground: hsl(220 12% 12%);
+  --destructive: hsl(0 78% 56%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(220 12% 90.5%);
+  --input: hsl(220 12% 88%);
+  --ring: hsl(221 100% 60%);
+
+  /* the window chrome: the rail sits on it, everything else on a white panel above it */
+  --sidebar: hsl(225 20% 94.5%);
+  --sidebar-foreground: hsl(220 12% 12%);
+  --sidebar-primary: hsl(221 100% 60%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(225 18% 89.5%);
+  --sidebar-accent-foreground: hsl(220 12% 12%);
+  --sidebar-border: hsl(225 14% 88%);
+  --sidebar-ring: hsl(221 100% 60%);
+
+  /* a hairline and a soft drop, so the panel reads as raised without a hard border */
+  --panel-shadow: 0 0 0 1px hsl(225 20% 20% / 0.06), 0 1px 3px hsl(225 20% 20% / 0.06);
+  --selected: hsl(221 100% 60% / 0.09);
+
+  --selection: hsl(221 100% 60% / 0.2);
+}
+
+.dark {
+  --background: hsl(222 14% 7%);
+  --foreground: hsl(220 14% 95%);
+  --card: hsl(222 14% 9%);
+  --card-foreground: hsl(220 14% 95%);
+  --popover: hsl(222 14% 9%);
+  --popover-foreground: hsl(220 14% 95%);
+  --primary: hsl(221 100% 68%);
+  --primary-foreground: hsl(222 40% 8%);
+  --secondary: hsl(222 12% 15%);
+  --secondary-foreground: hsl(220 14% 95%);
+  --muted: hsl(222 12% 14%);
+  --muted-foreground: hsl(220 8% 62%);
+  --accent: hsl(222 12% 16%);
+  --accent-foreground: hsl(220 14% 95%);
+  --destructive: hsl(0 66% 52%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(222 10% 17%);
+  --input: hsl(222 10% 20%);
+  --ring: hsl(221 100% 68%);
+
+  --sidebar: hsl(222 16% 4.5%);
+  --sidebar-foreground: hsl(220 14% 95%);
+  --sidebar-primary: hsl(221 100% 68%);
+  --sidebar-primary-foreground: hsl(222 40% 8%);
+  --sidebar-accent: hsl(222 12% 11%);
+  --sidebar-accent-foreground: hsl(220 14% 95%);
+  --sidebar-border: hsl(222 10% 14%);
+  --sidebar-ring: hsl(221 100% 68%);
+
+  /* a shadow does not show on a dark chrome; the hairline does the lifting */
+  --panel-shadow: 0 0 0 1px hsl(0 0% 100% / 0.07);
+  --selected: hsl(221 100% 68% / 0.16);
+
+  --selection: hsl(221 100% 68% / 0.3);
+}
+
+/* what 设置 > 外观 sets on the root: typography.ts writes --app-font and --message-size over these */
+:root {
+  --font-default:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    system-ui, sans-serif;
+  --message-size: 14px;
+}
+
+/* Step 2: map variables to utilities, or bg-background etc. do not exist */
+@theme inline {
+  /* text-message: the size of what people read and type in a conversation */
+  --text-message: var(--message-size);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-selected: var(--selected);
+
+  --shadow-panel: var(--panel-shadow);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Step 3: base styles reference the variables directly, never hsl(var(--x)) */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    /* the window is the frame: panes scroll, the document never does */
+    overflow: hidden;
+  }
+
+  /*
+   * A window, not a document. Dragging across a desktop app does not paint its
+   * sidebar and labels blue, and its chrome shows an arrow, not a caret. What is
+   * content -- messages, fields -- opts back in with `select-text cursor-auto`.
+   */
+  html {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+    /* no rubber-band at the edges of a pane */
+    overscroll-behavior: none;
+  }
+
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: auto;
+  }
+
+  /* the browser default paints over the glyphs; a tint sits behind them */
+  ::selection {
+    background-color: var(--selection);
+  }
+
+  /* an avatar is part of the interface, not a picture to drag out of it */
+  img {
+    -webkit-user-drag: none;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--app-font, var(--font-default));
+    -webkit-font-smoothing: antialiased;
+  }
+}

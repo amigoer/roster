@@ -1,0 +1,32 @@
+{
+  "name": "@roster/ext-codex",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Codex for Roster: OpenAI's coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 1,
+    "type": "codex",
+    "label": "Codex",
+    "acp": {
+      "command": [
+        "@program"
+      ],
+      "env": {
+        "openai-responses": {
+          "baseUrl": "OPENAI_BASE_URL",
+          "key": "OPENAI_API_KEY"
+        },
+        "openai-completions": {
+          "baseUrl": "OPENAI_BASE_URL",
+          "key": "OPENAI_API_KEY"
+        }
+      },
+      "login": {
+        "terminal": [
+          "codex",
+          "login"
+        ]
+      }
+    }
+  }
+}

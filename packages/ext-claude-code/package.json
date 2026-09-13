@@ -1,0 +1,46 @@
+{
+  "name": "@roster/ext-claude-code",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.269",
+    "@agentclientprotocol/claude-agent-acp": "0.76.0"
+  },
+  "roster": {
+    "api": 1,
+    "entry": "./dist/index.js",
+    "label": "Claude Code",
+    "acp": {
+      "command": [
+        "node",
+        "@agentclientprotocol/claude-agent-acp/dist/index.js"
+      ],
+      "executable": {
+        "env": "CLAUDE_CODE_EXECUTABLE"
+      },
+      "login": {
+        "terminal": [
+          "claude",
+          "auth",
+          "login"
+        ]
+      }
+    }
+  },
+  "devDependencies": {
+    "@roster/adapter-api": "workspace:*"
+  }
+}

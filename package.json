@@ -1,0 +1,26 @@
+{
+  "name": "roster",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter @roster/adapter-api build && pnpm --filter @roster/ext-claude-code build && pnpm --filter @roster/ext-pi-agent build && pnpm --filter @roster/core build && pnpm --filter @roster/ui build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @roster/adapter-api build && pnpm --filter @roster/ext-claude-code build && pnpm --filter @roster/ext-pi-agent build && pnpm --filter @roster/core test",
+    "start": "ROSTER_EXTENSIONS=packages pnpm --filter @roster/desktop start",
+    "core": "ROSTER_EXTENSIONS=packages node packages/core/dist/main.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ],
+    "overrides": {
+      "@anthropic-ai/claude-agent-sdk": "0.3.269"
+    }
+  }
+}
