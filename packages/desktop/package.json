@@ -2,6 +2,7 @@
   "name": "@roster/desktop",
   "version": "0.0.0",
   "private": true,
+  "license": "Apache-2.0",
   "main": "main.cjs",
   "scripts": { "start": "electron .", "typecheck": "echo ok" },
   "devDependencies": { "electron": "^44.3.0" }

@@ -2,6 +2,7 @@
   "name": "@roster/ext-codex",
   "version": "0.0.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Codex for Roster: OpenAI's coding agent over the Agent Client Protocol",
   "roster": {
     "api": 1,
