@@ -49,13 +49,13 @@ export interface Capabilities {
   permissionModes: boolean;
 }
 
-/** own is the base's own sign-in (a subscription); endpoint is a model API. */
+/** own is the harness's own sign-in (a subscription); endpoint is a model API. */
 export type SourceKind = "own" | "endpoint";
 
-/** What a base can do on each kind of source: the channels differ. */
+/** What a harness can do on each kind of source: the channels differ. */
 export type CapabilitySet = Partial<Record<SourceKind, Capabilities>>;
 
-/** Which model sources a base offers. */
+/** Which model sources a harness offers. */
 export interface Sources {
   /** the agent signs in on its own and brings its own catalog */
   own: boolean;
@@ -69,10 +69,10 @@ export interface ModelOption {
   available: boolean;
 }
 
-/** An agent: one base bound to one model source. Bots run on one. */
+/** An agent: one harness bound to one model source. Bots run on one. */
 export interface Executor {
   id: string;
-  /** the base, e.g. claude-code */
+  /** the harness, e.g. claude-code */
   type: string;
   label: string;
   source_kind: SourceKind;
@@ -91,7 +91,7 @@ export interface SourceRef {
   api: string | null;
 }
 
-/** A base as settings sees it: what sources it takes and what it can do on each. */
+/** A harness as settings sees it: what sources it takes and what it can do on each. */
 export interface HarnessTypeInfo {
   type: string;
   label: string;
@@ -118,11 +118,11 @@ export interface ExecutorRecord {
   provider_id: string | null;
   model: string | null;
   rev: number;
-  /** why it cannot run right now: its base is not installed, its model API is gone */
+  /** why it cannot run right now: its harness is not installed, its model API is gone */
   problem: string | null;
 }
 
-/** A pairing of base and source nobody has made an agent of yet. */
+/** A pairing of harness and source nobody has made an agent of yet. */
 export interface Candidate {
   type: string;
   source_kind: SourceKind;
@@ -151,7 +151,7 @@ export interface ExecutorSettings {
   presets: Record<string, ProviderPreset[]>;
   executors: ExecutorRecord[];
   providers: ProviderRecord[];
-  /** program paths a person picked, by base */
+  /** program paths a person picked, by harness */
   programs: Record<string, string>;
   vault: { encrypted: boolean; keystore: string };
 }
@@ -191,7 +191,7 @@ export interface DetectedProgram {
   found: "path" | "npm-global" | "known-path";
 }
 
-/** Where a base's program is, if anywhere: on the machine already, or fetched by Roster. */
+/** Where a harness's program is, if anywhere: on the machine already, or fetched by Roster. */
 export interface ProgramState {
   /** the adapter drives a separate program; false for a library adapter such as pi */
   needed: boolean;
@@ -199,14 +199,14 @@ export interface ProgramState {
   installed?: { path: string; version: string | null };
   /** what runs when nobody picked a program: the one found, else Roster's own */
   path?: string;
-  /** of that program, or of the library a program-less base carries */
+  /** of that program, or of the library a program-less harness carries */
   version?: string;
-  /** an agent on this base can start */
+  /** an agent on this harness can start */
   usable: boolean;
 }
 
-/** One base as the settings page shows it: its adapter ships with Roster or not, its program is found or not. */
-export interface BaseView {
+/** One harness as the settings page shows it: its adapter ships with Roster or not, its program is found or not. */
+export interface HarnessView {
   id: string;
   label: string;
   description: string;
@@ -251,7 +251,7 @@ export interface Environment {
 }
 
 export interface ExtensionsView {
-  bases: BaseView[];
+  harnesses: HarnessView[];
   installed: Extension[];
   jobs: InstallJob[];
   root: string;
@@ -441,7 +441,7 @@ export const api = {
       conversations: Conversation[];
       executors: Executor[];
       capabilities: Record<string, Capabilities>;
-      /** the bases loaded now, with what a person calls them */
+      /** the harnesses loaded now, with what a person calls them */
       harnesses: Array<{ type: string; label: string }>;
       sources: SourceRef[];
       presence: Presence[];
@@ -461,15 +461,15 @@ export const api = {
     j<{ ok: boolean; items: CheckItem[]; error?: string }>(`/api/executors/${id}/check`, { method: "POST" }),
   candidates: () => j<{ candidates?: Candidate[]; error?: string }>("/api/executors/candidates"),
 
-  /** the sign-in belongs to the base's program on this machine */
-  baseLogin: (type: string, fresh = false) =>
+  /** the sign-in belongs to the harness's program on this machine */
+  harnessLogin: (type: string, fresh = false) =>
     j<LoginState & { error?: string }>(`/api/harnesses/${type}/login${fresh ? "?fresh=1" : ""}`),
   authenticate: (type: string, method: string) =>
     j<LoginState & { error?: string }>(`/api/harnesses/${type}/authenticate`, body("POST", { method })),
   setProgram: (type: string, program: string) =>
     j<{ program?: string | null; error?: string }>(`/api/harnesses/${type}`, body("PATCH", { program })),
-  /** what an agent on this base and source would offer, before it exists; no provider means its own sign-in */
-  baseModels: (type: string, providerId: string | null) =>
+  /** what an agent on this harness and source would offer, before it exists; no provider means its own sign-in */
+  harnessModels: (type: string, providerId: string | null) =>
     j<{ models?: ModelOption[]; error?: string }>(
       `/api/harnesses/${type}/models${providerId ? `?provider=${encodeURIComponent(providerId)}` : ""}`,
     ),

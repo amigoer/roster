@@ -16,7 +16,7 @@ import {
 import { BotAvatar, GroupAvatar, LogoImage, logoOf, TIER_LABEL, useLogos, type Busy } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { DeleteConversation, RenameInput } from "./conversation-menu";
-import { BaseLabels, byBase, Executors, useExecutor } from "./executors";
+import { byHarness, Executors, HarnessLabels, useExecutor } from "./executors";
 import { LIST_BODY, ListSearch, ROW, rowState, SectionLabel } from "./list";
 import { Markdown } from "./markdown";
 import { MemberSections, MODES } from "./members-panel";
@@ -559,7 +559,7 @@ export function BotEditor({
   onSaved: (bot: Bot) => void;
 }) {
   const executor = useExecutor();
-  const baseLabels = useContext(BaseLabels);
+  const harnessLabels = useContext(HarnessLabels);
   // only agents that can run: the agent carries the source, so a broken one would carry the bot down with it
   const agents = useContext(Executors).filter((e) => e.problem === null);
   const models = useModels(agents.map((e) => e.id).join());
@@ -602,7 +602,7 @@ export function BotEditor({
 
   const set = <K extends keyof BotInput>(key: K, value: BotInput[K]) => setForm((f) => ({ ...f, [key]: value }));
 
-  // pairings of base and source with no agent yet, offered right in the list so a bot never waits on settings
+  // pairings of harness and source with no agent yet, offered right in the list so a bot never waits on settings
   const agentsKey = agents.map((e) => e.id).join();
   useEffect(() => {
     void api.candidates().then((r) => setCandidates(r.candidates ?? []));
@@ -612,7 +612,7 @@ export function BotEditor({
   const choices = models[form.executor_id] ?? [];
   const listed = form.model === null || choices.some((m) => m.id === form.model);
   const formCaps = caps[form.executor_id];
-  const grouped = byBase([...agents.map((e) => ({ type: e.type, agent: e })), ...candidates.map((c) => ({ type: c.type, candidate: c }))]);
+  const grouped = byHarness([...agents.map((e) => ({ type: e.type, agent: e })), ...candidates.map((c) => ({ type: c.type, candidate: c }))]);
 
   const pickAgent = async (value: string) => {
     setCustomModel(false);
@@ -795,7 +795,7 @@ export function BotEditor({
                   <SelectContent>
                     {grouped.map(([type, items]) => (
                       <SelectGroup key={type}>
-                        <SelectLabel>{baseLabels[type] ?? type}</SelectLabel>
+                        <SelectLabel>{harnessLabels[type] ?? type}</SelectLabel>
                         {items.map((item) =>
                           "agent" in item ? (
                             <SelectItem key={item.agent.id} value={item.agent.id}>

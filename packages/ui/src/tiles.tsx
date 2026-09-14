@@ -130,7 +130,7 @@ export function PresetTile({ preset, size }: { preset: Pick<ProviderPreset, "id"
 /** A protocol's name without the wire detail, where a line has no room for it. */
 export const apiShort = (api: string | null | undefined): string => (API_LABEL[api ?? ""] ?? api ?? "").replace(/（.*）$/, "");
 
-export function ExtensionTile({ type, brand, size }: { type: string; brand?: string; size?: keyof typeof SIZE }) {
+export function HarnessTile({ type, brand, size }: { type: string; brand?: string; size?: keyof typeof SIZE }) {
   return <Mark brand={brandOfType(type, brand)} fallback={<Puzzle />} size={size} />;
 }
 

@@ -14,12 +14,12 @@ import { literal, piHarness } from "@roster/ext-pi-agent";
 import { aboutReader } from "../dist/about.js";
 import { openDb } from "../dist/db/index.js";
 import { AttachmentStore, MAX_BYTES } from "../dist/attachments.js";
-import { Bases } from "../dist/bases.js";
 import { composeDelivery } from "../dist/delivery.js";
 import { Detector } from "../dist/detect.js";
 import { Rejection } from "../dist/errors.js";
 import { checkEndpoint, ExecutorSettings } from "../dist/executors.js";
 import { Extensions } from "../dist/extensions.js";
+import { Harnesses } from "../dist/harnesses.js";
 import { Installer } from "../dist/installer.js";
 import { LOGO_IDS, LOGOS, LOGOS_DIR } from "../dist/logos.js";
 import { findMentions } from "../dist/mentions.js";
@@ -959,7 +959,7 @@ describe("executors and providers", () => {
     h.settings.deleteProvider(provider.id);
   });
 
-  test("an agent on a sign-in its base does not have moves, with its bots and present members, into the base's one agent on a model API", async () => {
+  test("an agent on a sign-in its harness does not have moves, with its bots and present members, into the harness's one agent on a model API", async () => {
     const h = settingsHarness();
     const ds = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
     const onApi = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: ds.id });
@@ -985,7 +985,7 @@ describe("executors and providers", () => {
     assert.deepEqual([moved.spec.executor_id, moved.delivered_seq, h.store.getResumeToken(present.id)], [onApi.id, 0, undefined], "a fresh session there, owed the backlog");
     assert.equal(h.store.listConversations().find((c) => c.id === open.id).members[0].stale, false);
     assert.equal(h.store.getMember(left.id).spec.executor_id, stray.id, "one that left still says what it ran on");
-    assert.equal(h.store.getExecutor(alpha.id).archived_at, null, "a base with a sign-in keeps its agent on it");
+    assert.equal(h.store.getExecutor(alpha.id).archived_at, null, "a harness with a sign-in keeps its agent on it");
 
     // with two agents on model APIs to choose between, nothing is guessed
     const gateway = await h.settings.createProvider({
@@ -1193,8 +1193,8 @@ function extensionRoot() {
 }
 
 describe("extensions", () => {
-  test("a base says which version it runs, whether a program Roster fetched or the library its adapter carries", async () => {
-    const root = mkdtempSync(join(tmpdir(), "roster-bases-"));
+  test("a harness says which version it runs, whether a program Roster fetched or the library its adapter carries", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roster-harnesses-"));
     dirs.push(root);
     const lib = join(root, "extensions", "lib");
     mkdirSync(lib, { recursive: true });
@@ -1213,9 +1213,9 @@ describe("extensions", () => {
       { id: "prog", label: "Prog", description: "", program: { npm: "@test/prog-cli", bin: "prog" } },
       { id: "lib", label: "Lib", description: "" },
     ];
-    const bases = new Bases(catalog, extensions, new Detector(catalog, ""), new Installer(join(root, "extensions"), join(root, "agents"), () => {}));
-    assert.deepEqual([bases.state("prog").version, bases.state("prog").usable], ["0.16.0", true]);
-    assert.deepEqual([bases.state("lib").needed, bases.state("lib").version], [false, "9.9.9"]);
+    const harnesses = new Harnesses(catalog, extensions, new Detector(catalog, ""), new Installer(join(root, "extensions"), join(root, "agents"), () => {}));
+    assert.deepEqual([harnesses.state("prog").version, harnesses.state("prog").usable], ["0.16.0", true]);
+    assert.deepEqual([harnesses.state("lib").needed, harnesses.state("lib").version], [false, "9.9.9"]);
     assert.match(piHarness.version, /^\d+\.\d+/, "pi says which version of its library it carries");
   });
 

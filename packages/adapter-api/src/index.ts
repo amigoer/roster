@@ -359,8 +359,8 @@ export interface InstanceConfig {
 }
 
 /**
- * A kind of agent Roster knows how to drive. Types come from extensions and
- * hold no state; people add executors of them, never new types.
+ * A harness Roster knows how to drive. Types come from extensions and hold no
+ * state; people add executors of them, never new types.
  */
 export interface HarnessType {
   readonly type: string;

@@ -29,7 +29,7 @@ import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
 import { ContextPanel } from "./context-panel";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
-import { BaseLabels, Executors, SourceRefs } from "./executors";
+import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
 import { MentionNames } from "./markdown";
 import { MembersPanel, MODES } from "./members-panel";
@@ -39,7 +39,7 @@ import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { Resizer, useColumnWidth } from "./resizable";
-import { AgentEditor, BasePanel, ExtensionsPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
+import { AgentEditor, HarnessPanel, HarnessesPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
 import { useTypography } from "./typography";
@@ -114,9 +114,9 @@ export default function App() {
   const [executors, setExecutors] = useState<Executor[]>([]);
   /** model APIs by name, so an agent's source can be labelled anywhere */
   const [sourceRefs, setSourceRefs] = useState<SourceRef[]>([]);
-  /** what each base is called, by type */
-  const [baseLabels, setBaseLabels] = useState<Record<string, string>>({});
-  /** agents, bases and model APIs as the settings page edits them; loaded when it is first opened */
+  /** what each harness is called, by type */
+  const [harnessLabels, setHarnessLabels] = useState<Record<string, string>>({});
+  /** agents, harnesses and model APIs as the settings page edits them; loaded when it is first opened */
   const [settingsView, setSettingsView] = useState<ExecutorSettings | null>(null);
   const [settingsSel, setSettingsSel] = useState<SettingsSelection>(null);
   /** what is installed and what could be; refreshed whenever core says extensions changed */
@@ -181,7 +181,7 @@ export default function App() {
     });
   const reloadExtensions = () => void api.extensions().then(setExtView).catch(() => {});
   const settingsBack = (type: string | undefined): SettingsSelection =>
-    type && extView?.bases.some((a) => a.id === type) ? { kind: "base", id: type } : null;
+    type && extView?.harnesses.some((h) => h.id === type) ? { kind: "harness", id: type } : null;
   const loadAbout = () =>
     void api
       .about()
@@ -225,7 +225,7 @@ export default function App() {
         setLogos(s.logos ?? []);
         setExecutors(s.executors ?? []);
         setSourceRefs(s.sources ?? []);
-        setBaseLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label])));
+        setHarnessLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label])));
         setDefaultDir(s.defaultDir ?? "");
         setPresence(Object.fromEntries((s.presence ?? []).map((p) => [p.memberId, p])));
         if (!activeRef.current && s.conversations[0]) setActive(s.conversations[0].id);
@@ -255,8 +255,8 @@ export default function App() {
           return;
         case "extensions":
           setExtBump((n) => n + 1);
-          // a base that came or went changes what the agent picker groups under
-          void api.state(archivedRef.current).then((s) => setBaseLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label]))));
+          // a harness that came or went changes what the agent picker groups under
+          void api.state(archivedRef.current).then((s) => setHarnessLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label]))));
           if (settingsLoaded.current) reloadExtensions();
           return;
         case "bots":
@@ -464,7 +464,7 @@ export default function App() {
   return (
     <Logos.Provider value={logos}>
     <Executors.Provider value={executors}>
-    <BaseLabels.Provider value={baseLabels}>
+    <HarnessLabels.Provider value={harnessLabels}>
     <SourceRefs.Provider value={sourceRefs}>
     <TooltipProvider delayDuration={200}>
       <div className="bg-sidebar text-sidebar-foreground flex h-full">
@@ -647,8 +647,8 @@ export default function App() {
                       ? "模型 API"
                       : settingsSel?.kind === "agent"
                         ? "Agent"
-                        : settingsSel?.kind === "base" ||
-                            settingsSel?.kind === "extensions" ||
+                        : settingsSel?.kind === "harness" ||
+                            settingsSel?.kind === "harnesses" ||
                             (settingsView && settingsView.executors.length === 0)
                           ? "Harness"
                           : "设置"}
@@ -667,13 +667,13 @@ export default function App() {
                 <AboutPanel about={about} />
               ) : !settingsView ? (
                 <Empty label="" />
-              ) : settingsSel?.kind === "base" ? (
-                <BasePanel
+              ) : settingsSel?.kind === "harness" ? (
+                <HarnessPanel
                   key={settingsSel.id}
                   id={settingsSel.id}
                   view={settingsView}
                   ext={extView}
-                  onSaved={() => reloadSettings({ kind: "base", id: settingsSel.id })}
+                  onSaved={() => reloadSettings({ kind: "harness", id: settingsSel.id })}
                   onChanged={() => {
                     reloadExtensions();
                     void api.executorSettings().then(setSettingsView);
@@ -704,12 +704,12 @@ export default function App() {
                   onCancel={() => setSettingsSel(null)}
                   onDeleted={() => reloadSettings(null)}
                 />
-              ) : settingsSel?.kind === "extensions" || settingsView.executors.length === 0 ? (
-                <ExtensionsPanel
+              ) : settingsSel?.kind === "harnesses" || settingsView.executors.length === 0 ? (
+                <HarnessesPanel
                   bump={extBump}
                   view={settingsView}
                   intro={settingsView.executors.length === 0}
-                  focus={settingsSel?.kind === "extensions" ? settingsSel.id : undefined}
+                  focus={settingsSel?.kind === "harnesses" ? settingsSel.id : undefined}
                   onChanged={() => {
                     reloadExtensions();
                     void api.executorSettings().then(setSettingsView);
@@ -977,7 +977,7 @@ export default function App() {
       <Toaster position="top-center" offset={{ top: 68 }} />
     </TooltipProvider>
     </SourceRefs.Provider>
-    </BaseLabels.Provider>
+    </HarnessLabels.Provider>
     </Executors.Provider>
     </Logos.Provider>
   );

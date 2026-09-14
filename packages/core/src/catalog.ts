@@ -1,7 +1,7 @@
 import type { ProgramManifest } from "@roster/adapter-api";
 
 /**
- * The agents Roster knows how to drive. The adapter for each ships with Roster;
+ * The harnesses Roster knows how to drive. The adapter for each ships with Roster;
  * what varies per machine is the agent program, which is used where it is
  * found and fetched only where it is not. The program rules live here rather
  * than in the extensions so a program is recognised even before its adapter

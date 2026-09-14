@@ -224,10 +224,11 @@ export class ExecutorSettings {
   }
 
   /**
-   * An agent on a sign-in its base does not have comes only from data older than
-   * the rule, and can never start. When the base has exactly one agent on a model
-   * API that runs, everything on the stray one moves there; otherwise it stays,
-   * saying why, for a person to fix. How many moved is the answer.
+   * An agent on a sign-in its harness does not have comes only from data older
+   * than the rule, and can never start. When the harness has exactly one agent
+   * on a model API that runs, everything on the stray one moves there;
+   * otherwise it stays, saying why, for a person to fix. How many moved is the
+   * answer.
    */
   mergeStrayOwn(): number {
     let merged = 0;
@@ -283,7 +284,7 @@ export class ExecutorSettings {
     const providers = this.store.listProviders();
     const out: Candidate[] = [];
     for (const type of this.types()) {
-      // a base whose program is nowhere would only offer an agent that cannot start
+      // a harness whose program is nowhere would only offer an agent that cannot start
       if (!this.ready(type.type)) continue;
       if (type.sources.own && !live.some((e) => e.type === type.type && e.source_kind === "own")) {
         out.push({ type: type.type, source_kind: "own", provider_id: null, name: this.#nameFor(type, OWN_SOURCE_LABEL) });

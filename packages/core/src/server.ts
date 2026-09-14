@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, normalize } from "node:path";
 import type { About } from "./about.js";
 import { MAX_BYTES, MAX_PER_MESSAGE, type AttachmentStore } from "./attachments.js";
-import type { Bases } from "./bases.js";
+import type { Harnesses } from "./harnesses.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { Detector } from "./detect.js";
 import { isLogo, LOGO_IDS, LOGOS, LOGOS_DIR } from "./logos.js";
@@ -86,7 +86,7 @@ export function startServer(opts: {
   settings: ExecutorSettings;
   extensions: Extensions;
   installer: Installer;
-  bases: Bases;
+  harnesses: Harnesses;
   catalog: readonly CatalogEntry[];
   detector: Detector;
   /** re-scans extensions and rebuilds the registry, after an install or removal */
@@ -97,7 +97,7 @@ export function startServer(opts: {
   broadcast(msg: unknown): void;
   subscribe(fn: (msg: unknown) => void): () => void;
 }): Promise<ServerHandle> {
-  const { store, orchestrator, attachments, uiDir, extensions, installer, bases, catalog, detector } = opts;
+  const { store, orchestrator, attachments, uiDir, extensions, installer, harnesses, catalog, detector } = opts;
   // read per request: executors can be added and removed while the server runs
   const executors = () => Object.keys(orchestrator.capabilities());
 
@@ -126,7 +126,7 @@ export function startServer(opts: {
     opts.broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
 
   const extensionsView = () => ({
-    bases: bases.view(),
+    harnesses: harnesses.view(),
     installed: extensions.list(),
     jobs: installer.jobs(),
     root: installer.root,
@@ -225,7 +225,7 @@ export function startServer(opts: {
           const { npm, version, overrides } = entry.extension;
           return installer.install(entry.id, npm, { ...(version ? { version } : {}), ...(overrides ? { overrides } : {}) });
         }
-        const program = bases.program(entry.id);
+        const program = harnesses.program(entry.id);
         if (!program) throw new Error(`「${entry.label}」随 Roster 内置，没有什么要装的`);
         return installer.installProgram(entry.id, program);
       });
@@ -238,9 +238,9 @@ export function startServer(opts: {
     const extensionUpdate = route(/^\/api\/extensions\/([^/]+)\/update$/, "POST");
     if (extensionUpdate?.[1]) {
       const id = extensionUpdate[1];
-      const program = bases.program(id);
+      const program = harnesses.program(id);
       const job = await guardAsync(() =>
-        program && bases.state(id).installed ? installer.installProgram(id, program) : installer.update(id),
+        program && harnesses.state(id).installed ? installer.installProgram(id, program) : installer.update(id),
       );
       if (job.state === "done") {
         await opts.reload();
@@ -252,7 +252,7 @@ export function startServer(opts: {
     if (extension?.[1]) {
       const id = extension[1];
       guard(() => {
-        if (bases.program(id) && bases.state(id).installed) installer.removeProgram(id);
+        if (harnesses.program(id) && harnesses.state(id).installed) installer.removeProgram(id);
         else installer.remove(id);
       });
       await opts.reload();

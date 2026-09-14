@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import {
   api,
   CUSTOM_PRESET,
-  type BaseView,
+  type HarnessView,
   type Bot,
   type CheckItem,
   type CredentialHint,
@@ -53,7 +53,7 @@ import {
   apiShort,
   brandFromText,
   ExecutorTile,
-  ExtensionTile,
+  HarnessTile,
   Mark,
   PresetTile,
   ProviderTile,
@@ -89,17 +89,17 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 /**
- * Three things are set up here, in the order they build on each other: bases
- * (the programs, stateless), model APIs (keys), and agents -- a base bound to
- * one source, which is what bots pick.
+ * Three things are set up here, in the order they build on each other:
+ * harnesses (the programs, stateless), model APIs (keys), and agents -- a
+ * harness bound to one source, which is what bots pick.
  */
 export type SettingsSelection =
   | { kind: "appearance" }
   | { kind: "about" }
-  /** every base Roster knows, to fetch more; an id scrolls to that base's card */
-  | { kind: "extensions"; id?: string }
-  | { kind: "base"; id: string }
-  /** null creates one, on the given base when it was opened from that base's page */
+  /** every harness Roster knows, to fetch more; an id scrolls to that harness's card */
+  | { kind: "harnesses"; id?: string }
+  | { kind: "harness"; id: string }
+  /** null creates one, on the given harness when it was opened from that harness's page */
   | { kind: "agent"; id: string | null; type?: string }
   | { kind: "provider"; id: string | null }
   | null;
@@ -148,14 +148,14 @@ function SectionHead({ label, onAdd, addLabel }: { label: string; onAdd: () => v
 }
 
 /**
- * One badge says where a base stands: its version once it runs, since where the
- * program came from is nobody's concern, or what keeps it from running.
+ * One badge says where a harness stands: its version once it runs, since where
+ * the program came from is nobody's concern, or what keeps it from running.
  */
-function baseStatus(a: BaseView): { tone: "ok" | "warn" | "bad"; text: string } | null {
-  if (a.adapter === "error") return { tone: "bad", text: "适配器出错" };
-  if (a.adapter === "missing") return { tone: "warn", text: "没装适配器" };
-  if (!a.state.usable) return { tone: "warn", text: "没找到程序" };
-  return a.state.version ? { tone: "ok", text: a.state.version } : null;
+function harnessStatus(h: HarnessView): { tone: "ok" | "warn" | "bad"; text: string } | null {
+  if (h.adapter === "error") return { tone: "bad", text: "适配器出错" };
+  if (h.adapter === "missing") return { tone: "warn", text: "没装适配器" };
+  if (!h.state.usable) return { tone: "warn", text: "没找到程序" };
+  return h.state.version ? { tone: "ok", text: h.state.version } : null;
 }
 
 export function SettingsList({
@@ -246,38 +246,38 @@ function CoreSettings({
   onSelect: (s: SettingsSelection) => void;
 }) {
   const presets = presetsOf(view);
-  const is = (kind: "base" | "agent" | "provider", id: string) =>
+  const is = (kind: "harness" | "agent" | "provider", id: string) =>
     selected !== null && selected.kind === kind && "id" in selected && selected.id === id;
-  const bases = ext?.bases ?? [];
-  const ready = bases.filter((a) => a.state.usable);
-  const baseOf = (type: string) => bases.find((b) => b.id === type);
+  const harnesses = ext?.harnesses ?? [];
+  const ready = harnesses.filter((h) => h.state.usable);
+  const harnessOf = (type: string) => harnesses.find((h) => h.id === type);
   return (
     <>
-      <SectionHead label={`Harness · ${ready.length}`} addLabel="更多 harness" onAdd={() => onSelect({ kind: "extensions" })} />
+      <SectionHead label={`Harness · ${ready.length}`} addLabel="更多 harness" onAdd={() => onSelect({ kind: "harnesses" })} />
       {ext && ready.length === 0 && (
         <button
           type="button"
-          onClick={() => onSelect({ kind: "extensions" })}
-          className={cn(ROW, "text-muted-foreground text-xs leading-relaxed", rowState(selected?.kind === "extensions"))}
+          onClick={() => onSelect({ kind: "harnesses" })}
+          className={cn(ROW, "text-muted-foreground text-xs leading-relaxed", rowState(selected?.kind === "harnesses"))}
         >
           本机还没有能用的 harness。点 + 看看能装什么。
         </button>
       )}
-      {ready.map((a) => {
+      {ready.map((h) => {
         // a program picked by hand is the person's own doing, and the version found elsewhere may not be its
-        const picked = view.programs[a.id];
+        const picked = view.programs[h.id];
         return (
           <button
-            key={a.id}
+            key={h.id}
             type="button"
-            onClick={() => onSelect({ kind: "base", id: a.id })}
-            className={cn(ROW, rowState(is("base", a.id)))}
+            onClick={() => onSelect({ kind: "harness", id: h.id })}
+            className={cn(ROW, rowState(is("harness", h.id)))}
           >
-            <ExtensionTile type={a.id} brand={a.brand} />
+            <HarnessTile type={h.id} brand={h.brand} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{a.label}</div>
+              <div className="truncate text-sm font-medium">{h.label}</div>
               <div className={cn("text-muted-foreground truncate", picked ? "font-mono text-[11px]" : "text-xs")}>
-                {picked ?? (a.state.version ? `版本 ${a.state.version}` : "版本未知")}
+                {picked ?? (h.state.version ? `版本 ${h.state.version}` : "版本未知")}
               </div>
             </div>
           </button>
@@ -291,7 +291,7 @@ function CoreSettings({
         </p>
       )}
       {view.executors.map((e) => {
-        const pairing = `${baseOf(e.type)?.label ?? e.type} · ${sourceName(view, e)}`;
+        const pairing = `${harnessOf(e.type)?.label ?? e.type} · ${sourceName(view, e)}`;
         // a name that already says the pairing leaves the second line to the model
         const line = e.name.startsWith(pairing)
           ? e.model
@@ -305,7 +305,7 @@ function CoreSettings({
             onClick={() => onSelect({ kind: "agent", id: e.id })}
             className={cn(ROW, rowState(is("agent", e.id)))}
           >
-            <ExecutorTile type={e.type} brand={baseOf(e.type)?.brand} />
+            <ExecutorTile type={e.type} brand={harnessOf(e.type)?.brand} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{e.name}</div>
               <div className={cn("truncate text-xs", e.problem ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
@@ -520,14 +520,14 @@ function EnvironmentCard({
   env,
   refreshing,
   onRefresh,
-  bases,
+  harnesses,
 }: {
   env: Environment | null;
   refreshing: boolean;
   onRefresh: () => void;
-  bases: BaseView[];
+  harnesses: HarnessView[];
 }) {
-  const label = (id: string) => bases.find((c) => c.id === id)?.label ?? id;
+  const label = (id: string) => harnesses.find((c) => c.id === id)?.label ?? id;
   return (
     <div className="rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -606,12 +606,12 @@ function JobLine({ job }: { job: InstallJob }) {
 }
 
 /**
- * Every base Roster can drive, and where each stands on this machine: the
+ * Every harness Roster can drive, and where each stands on this machine: the
  * adapter ships with Roster, the program is found or fetched. The first thing a
- * fresh install sees, and the place to come back to for more. Each base's own
+ * fresh install sees, and the place to come back to for more. Each harness's own
  * setup is on its own page.
  */
-export function ExtensionsPanel({
+export function HarnessesPanel({
   bump,
   view,
   intro,
@@ -624,7 +624,7 @@ export function ExtensionsPanel({
   view: ExecutorSettings;
   /** first run: say what the steps are */
   intro: boolean;
-  /** the base picked in the list, scrolled to and outlined */
+  /** the harness picked in the list, scrolled to and outlined */
   focus?: string;
   onChanged: () => void;
   onSelect: (s: SettingsSelection) => void;
@@ -641,7 +641,7 @@ export function ExtensionsPanel({
 
   const loaded = ext !== null;
   useEffect(() => {
-    if (focus && loaded) document.getElementById(`agent-${focus}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (focus && loaded) document.getElementById(`harness-${focus}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [focus, loaded]);
 
   const run = async (id: string, call: () => Promise<ExtensionsView & { error?: string }>) => {
@@ -657,7 +657,7 @@ export function ExtensionsPanel({
   const refresh = async () => {
     setRefreshing(true);
     const before = ext?.environment?.programs;
-    const label = (id: string) => ext?.bases.find((a) => a.id === id)?.label ?? id;
+    const label = (id: string) => ext?.harnesses.find((h) => h.id === id)?.label ?? id;
     try {
       const r = await api.environment(true);
       if (r.error) {
@@ -676,11 +676,11 @@ export function ExtensionsPanel({
     }
   };
 
-  const bases = ext?.bases ?? [];
+  const harnesses = ext?.harnesses ?? [];
   const env = ext?.environment ?? null;
   const jobOf = (id: string) => ext?.jobs.find((j) => j.id === id);
-  // agents whose base Roster no longer has have no card to sit in
-  const orphans = ext ? view.executors.filter((e) => !bases.some((a) => a.id === e.type)) : [];
+  // agents whose harness Roster no longer has have no card to sit in
+  const orphans = ext ? view.executors.filter((e) => !harnesses.some((h) => h.id === e.type)) : [];
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -694,7 +694,7 @@ export function ExtensionsPanel({
           </p>
         </div>
 
-        <EnvironmentCard env={env} refreshing={refreshing} onRefresh={() => void refresh()} bases={bases} />
+        <EnvironmentCard env={env} refreshing={refreshing} onRefresh={() => void refresh()} harnesses={harnesses} />
 
         {error && (
           <Alert variant="destructive">
@@ -713,49 +713,49 @@ export function ExtensionsPanel({
                 </div>
               </div>
             ))}
-          {bases.map((a) => {
-            const status = baseStatus(a);
-            const job = jobOf(a.id);
-            const running = job?.state === "running" || busy === a.id;
-            const needsProgram = a.state.needed && !a.state.usable && a.adapter !== "missing" && a.adapter !== "error";
-            const needsAdapter = a.adapter === "missing" || a.adapter === "error";
+          {harnesses.map((h) => {
+            const status = harnessStatus(h);
+            const job = jobOf(h.id);
+            const running = job?.state === "running" || busy === h.id;
+            const needsProgram = h.state.needed && !h.state.usable && h.adapter !== "missing" && h.adapter !== "error";
+            const needsAdapter = h.adapter === "missing" || h.adapter === "error";
             return (
               <Item
-                key={a.id}
-                id={`agent-${a.id}`}
+                key={h.id}
+                id={`harness-${h.id}`}
                 variant="outline"
-                className={cn("scroll-my-4 items-start rounded-xl", a.id === focus && "border-foreground/40")}
+                className={cn("scroll-my-4 items-start rounded-xl", h.id === focus && "border-foreground/40")}
               >
                 <ItemMedia>
-                  <ExtensionTile type={a.id} brand={a.brand} size="lg" />
+                  <HarnessTile type={h.id} brand={h.brand} size="lg" />
                 </ItemMedia>
                 <ItemContent className="gap-1.5">
                   <ItemTitle className="flex flex-wrap items-center gap-1.5">
-                    {a.label}
+                    {h.label}
                     {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
                   </ItemTitle>
-                  <ItemDescription className="leading-relaxed">{a.description}</ItemDescription>
-                  {a.adapterError && <p className="text-destructive text-xs">{a.adapterError}</p>}
-                  {needsProgram && a.program && (
+                  <ItemDescription className="leading-relaxed">{h.description}</ItemDescription>
+                  {h.adapterError && <p className="text-destructive text-xs">{h.adapterError}</p>}
+                  {needsProgram && h.program && (
                     <p className="text-muted-foreground text-xs">
-                      本机没找到 <span className="font-mono">{a.program.bin}</span>，下载会装到 Roster 自己的目录，不动系统。
+                      本机没找到 <span className="font-mono">{h.program.bin}</span>，下载会装到 Roster 自己的目录，不动系统。
                     </p>
                   )}
                   {job && <JobLine job={job} />}
                 </ItemContent>
                 <ItemActions className="flex-col items-stretch gap-1.5">
                   {needsAdapter ? (
-                    <Button size="sm" disabled={running || !a.extension} onClick={() => void run(a.id, () => api.installExtension(a.id))}>
+                    <Button size="sm" disabled={running || !h.extension} onClick={() => void run(h.id, () => api.installExtension(h.id))}>
                       {running ? <Loader className="animate-spin" /> : <Download />}
                       装适配器
                     </Button>
                   ) : needsProgram ? (
-                    <Button size="sm" disabled={running} onClick={() => void run(a.id, () => api.installExtension(a.id))}>
+                    <Button size="sm" disabled={running} onClick={() => void run(h.id, () => api.installExtension(h.id))}>
                       {running ? <Loader className="animate-spin" /> : <Download />}
                       下载安装
                     </Button>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "base", id: a.id })}>
+                    <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "harness", id: h.id })}>
                       设置
                       <ChevronRight />
                     </Button>
@@ -797,7 +797,7 @@ export function ExtensionsPanel({
   );
 }
 
-/** The base's own sign-in on this machine: it belongs to the program, so every agent on 订阅 shares it. */
+/** The harness's own sign-in on this machine: it belongs to the program, so every agent on 订阅 shares it. */
 function LoginCard({ type }: { type: string }) {
   const [login, setLogin] = useState<LoginState | "loading" | null>("loading");
   const [busy, setBusy] = useState<string | null>(null);
@@ -805,7 +805,7 @@ function LoginCard({ type }: { type: string }) {
 
   const read = (fresh: boolean) => {
     setLogin("loading");
-    void api.baseLogin(type, fresh).then((r) => setLogin(r.error ? { state: "unknown", detail: r.error, methods: [] } : r));
+    void api.harnessLogin(type, fresh).then((r) => setLogin(r.error ? { state: "unknown", detail: r.error, methods: [] } : r));
   };
   useEffect(() => read(false), [type]);
 
@@ -922,11 +922,11 @@ function sourceName(view: ExecutorSettings, e: Pick<ExecutorRecord, "source_kind
 }
 
 /**
- * One base: a harness type and its program on this machine. It holds no agent
- * of its own. What is set here -- the program, the sign-in -- is the base's, so
+ * One harness: its type and its program on this machine. It holds no agent of
+ * its own. What is set here -- the program, the sign-in -- is the harness's, so
  * every agent on it shares it.
  */
-export function BasePanel({
+export function HarnessPanel({
   id,
   view,
   ext,
@@ -939,14 +939,14 @@ export function BasePanel({
   view: ExecutorSettings;
   ext: ExtensionsView | null;
   onSaved: () => void;
-  /** the base's program was fetched or removed */
+  /** the harness's program was fetched or removed */
   onChanged: () => void;
   onCancel: () => void;
   onSelect: (s: SettingsSelection) => void;
 }) {
-  const base = ext?.bases.find((a) => a.id === id);
+  const harness = ext?.harnesses.find((h) => h.id === id);
   const info = view.types.find((t) => t.type === id);
-  const label = base?.label ?? info?.label ?? id;
+  const label = harness?.label ?? info?.label ?? id;
   const saved = view.programs[id] ?? "";
   const [program, setProgram] = useState(saved);
   const [error, setError] = useState<string | null>(null);
@@ -957,14 +957,14 @@ export function BasePanel({
 
   const job = ext?.jobs.find((j) => j.id === id);
   const acting = busy || job?.state === "running";
-  const needsAdapter = base?.adapter === "missing" || base?.adapter === "error";
+  const needsAdapter = harness?.adapter === "missing" || harness?.adapter === "error";
   // a program picked by hand is taken at its word
-  const needsProgram = Boolean(base?.state.needed && !base.state.usable && !needsAdapter && !saved);
+  const needsProgram = Boolean(harness?.state.needed && !harness.state.usable && !needsAdapter && !saved);
   // only a program Roster fetched is Roster's to fetch again or remove
-  const fetched = Boolean(base?.state.installed && !base.state.detected);
+  const fetched = Boolean(harness?.state.installed && !harness.state.detected);
   const found = ext?.environment?.programs.find((p) => p.id === id);
   const agents = view.executors.filter((e) => e.type === id);
-  const status = base ? baseStatus(base) : null;
+  const status = harness ? harnessStatus(harness) : null;
 
   const save = async () => {
     setBusy(true);
@@ -988,26 +988,26 @@ export function BasePanel({
     <EditorFrame error={error} busy={busy} canSave={program.trim() !== saved} saveLabel="保存" onSave={() => void save()} onCancel={onCancel}>
       <div className="space-y-4">
         <div className="flex items-start gap-4">
-          <ExtensionTile type={id} brand={base?.brand} size="lg" />
+          <HarnessTile type={id} brand={harness?.brand} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h2 className="truncate text-lg leading-snug font-semibold">{label}</h2>
               {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
             </div>
-            {base?.description && <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{base.description}</p>}
-            {base?.adapterError && <p className="text-destructive mt-1 text-xs">{base.adapterError}</p>}
+            {harness?.description && <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{harness.description}</p>}
+            {harness?.adapterError && <p className="text-destructive mt-1 text-xs">{harness.adapterError}</p>}
           </div>
         </div>
         {(needsAdapter || needsProgram) && (
           <Alert>
             <Download />
-            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${base?.program?.bin ?? "它的程序"}`}</AlertTitle>
+            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${harness?.program?.bin ?? "它的程序"}`}</AlertTitle>
             <AlertDescription>
               <p>{needsAdapter ? "装上适配器之后才能用。" : "下载会装到 Roster 自己的目录，不动系统；下载完，这个 harness 上的 agent 就能启动。"}</p>
               <Button
                 size="sm"
                 className="mt-2"
-                disabled={acting || (needsAdapter && !base?.extension)}
+                disabled={acting || (needsAdapter && !harness?.extension)}
                 onClick={() => void run(() => api.installExtension(id))}
               >
                 {acting ? <Loader className="animate-spin" /> : <Download />}
@@ -1019,19 +1019,19 @@ export function BasePanel({
         {job && <JobLine job={job} />}
       </div>
 
-      {base?.state.needed && (
+      {harness?.state.needed && (
         <Field>
-          <FieldLabel htmlFor="base-program">程序</FieldLabel>
+          <FieldLabel htmlFor="harness-program">程序</FieldLabel>
           <Input
-            id="base-program"
+            id="harness-program"
             value={program}
             onChange={(e) => setProgram(e.target.value)}
-            placeholder={base.state.path ? `留空就用 ${base.state.path}` : `${base.program?.bin ?? "程序"} 的完整路径`}
+            placeholder={harness.state.path ? `留空就用 ${harness.state.path}` : `${harness.program?.bin ?? "程序"} 的完整路径`}
             spellCheck={false}
             className="font-mono text-xs"
           />
           <FieldDescription>
-            {base.state.path
+            {harness.state.path
               ? `留空用${found ? "本机检测到" : "Roster 装"}的${found?.version ? `（${found.version}）` : ""}；想换一份程序时再填。这个 harness 上的 agent 都跑这一份，订阅登录也是。`
               : "本机没找到它：下载一份，或者直接填程序的完整路径。"}
           </FieldDescription>
@@ -1041,7 +1041,7 @@ export function BasePanel({
       {fetched && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground mr-auto text-xs">
-            程序是 Roster 下载的{base?.state.installed?.version ? `（${base.state.installed.version}）` : ""}
+            程序是 Roster 下载的{harness?.state.installed?.version ? `（${harness.state.installed.version}）` : ""}
           </span>
           <Button size="sm" variant="outline" disabled={acting} onClick={() => void run(() => api.updateExtension(id))}>
             {acting ? <Loader className="animate-spin" /> : <RefreshCw />}
@@ -1129,13 +1129,13 @@ export function BasePanel({
   );
 }
 
-/** A select value for "no model named": the agent runs whatever its base defaults to. */
-const BASE_DEFAULT = "@default";
+/** A select value for "no model named": the agent runs whatever its harness defaults to. */
+const HARNESS_DEFAULT = "@default";
 
 /**
- * One agent: a base and where its models come from, fixed together. The base is
- * picked once; the source can change later, and members already running on the
- * agent are told to sync.
+ * One agent: a harness and where its models come from, fixed together. The
+ * harness is picked once; the source can change later, and members already
+ * running on the agent are told to sync.
  */
 export function AgentEditor({
   view,
@@ -1150,7 +1150,7 @@ export function AgentEditor({
 }: {
   view: ExecutorSettings;
   executor: ExecutorRecord | null;
-  /** the base a new one starts on, when it was opened from that base's page */
+  /** the harness a new one starts on, when it was opened from that harness's page */
   type?: string | undefined;
   ext: ExtensionsView | null;
   bots: readonly Bot[];
@@ -1160,7 +1160,7 @@ export function AgentEditor({
   onSelect: (s: SettingsSelection) => void;
 }) {
   const creating = executor === null;
-  /** where a new agent on this base starts: its own sign-in while nobody has it, else the first model API that fits */
+  /** where a new agent on this harness starts: its own sign-in while nobody has it, else the first model API that fits */
   const startFor = (t: string): { kind: SourceKind; providerId: string | null } => {
     const ti = view.types.find((x) => x.type === t);
     const ownFree = Boolean(ti?.sources.own) && !view.executors.some((e) => e.type === t && e.source_kind === "own");
@@ -1168,7 +1168,7 @@ export function AgentEditor({
     return ownFree ? { kind: "own", providerId: null } : { kind: "endpoint", providerId: first?.id ?? null };
   };
   const [type, setType] = useState(executor?.type ?? preset ?? view.types[0]?.type ?? "");
-  // an old agent on a sign-in its base does not have opens on a model API, so saving is the fix
+  // an old agent on a sign-in its harness does not have opens on a model API, so saving is the fix
   const stray = executor?.source_kind === "own" && view.types.find((t) => t.type === executor.type)?.sources.own === false;
   const [source, setSource] = useState<{ kind: SourceKind; providerId: string | null }>(() =>
     executor && !stray ? { kind: executor.source_kind, providerId: executor.provider_id } : startFor(executor?.type ?? preset ?? view.types[0]?.type ?? ""),
@@ -1182,8 +1182,8 @@ export function AgentEditor({
   const [confirming, setConfirming] = useState(false);
 
   const info = view.types.find((t) => t.type === type);
-  const base = ext?.bases.find((b) => b.id === type);
-  const label = info?.label ?? base?.label ?? type;
+  const harness = ext?.harnesses.find((h) => h.id === type);
+  const label = info?.label ?? harness?.label ?? type;
   const fitting = info ? view.providers.filter((p) => fits(info, p, view)) : [];
   const ownTaken = view.executors.find((e) => e.type === type && e.source_kind === "own" && e.id !== executor?.id);
   const providerId = source.kind === "endpoint" ? source.providerId : null;
@@ -1202,7 +1202,7 @@ export function AgentEditor({
     let live = true;
     setModels("loading");
     void api
-      .baseModels(type, providerId)
+      .harnessModels(type, providerId)
       .then((r) => live && setModels(r.models ?? []))
       .catch(() => live && setModels([]));
     return () => {
@@ -1210,7 +1210,7 @@ export function AgentEditor({
     };
   }, [sourceKey]);
 
-  const chooseBase = (t: string) => {
+  const chooseHarness = (t: string) => {
     setType(t);
     setSource(startFor(t));
     setModel("");
@@ -1261,7 +1261,7 @@ export function AgentEditor({
     >
       {executor && (
         <div className="flex items-start gap-4">
-          <ExecutorTile type={executor.type} brand={base?.brand} size="lg" />
+          <ExecutorTile type={executor.type} brand={harness?.brand} size="lg" />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg leading-snug font-semibold">{executor.name}</h2>
             <p className="text-muted-foreground truncate text-sm">
@@ -1277,7 +1277,7 @@ export function AgentEditor({
           <AlertDescription>
             {executor.problem}
             {!info && (
-              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "extensions", id: executor.type })}>
+              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "harnesses", id: executor.type })}>
                 去装 harness
               </Button>
             )}
@@ -1291,18 +1291,18 @@ export function AgentEditor({
           {view.types.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               还没有能用的 harness。
-              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "extensions" })}>
+              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "harnesses" })}>
                 去装一个
               </Button>
             </p>
           ) : (
-            <RadioGroup value={type} onValueChange={chooseBase} className="grid gap-2 sm:grid-cols-2">
+            <RadioGroup value={type} onValueChange={chooseHarness} className="grid gap-2 sm:grid-cols-2">
               {view.types.map((t) => {
-                const b = ext?.bases.find((x) => x.id === t.type);
-                const st = b ? baseStatus(b) : null;
+                const h = ext?.harnesses.find((x) => x.id === t.type);
+                const st = h ? harnessStatus(h) : null;
                 return (
                   <Choice key={t.type} value={t.type} selected={type === t.type}>
-                    <ExtensionTile type={t.type} brand={b?.brand} size="sm" />
+                    <HarnessTile type={t.type} brand={h?.brand} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.label}</span>
                     {st && <StatusBadge tone={st.tone}>{st.text}</StatusBadge>}
                   </Choice>
@@ -1372,12 +1372,12 @@ export function AgentEditor({
           {models === "loading" ? (
             <Skeleton className="h-9 w-full" />
           ) : models && models.length > 0 ? (
-            <Select value={model || BASE_DEFAULT} onValueChange={(v) => setModel(v === BASE_DEFAULT ? "" : v)}>
+            <Select value={model || HARNESS_DEFAULT} onValueChange={(v) => setModel(v === HARNESS_DEFAULT ? "" : v)}>
               <SelectTrigger id="agent-model" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={BASE_DEFAULT}>不指定，用 {label} 自己的默认</SelectItem>
+                <SelectItem value={HARNESS_DEFAULT}>不指定，用 {label} 自己的默认</SelectItem>
                 {model && !models.some((m) => m.id === model) && <SelectItem value={model}>{model}</SelectItem>}
                 {models.map((m) => (
                   <SelectItem key={m.id} value={m.id} disabled={!m.available}>
@@ -1620,7 +1620,7 @@ function ConnectionLine({
   );
 }
 
-/** Which bases can take their models from here, and which agents already do. */
+/** Which harnesses can take their models from here, and which agents already do. */
 function UsedBy({ types, executors }: { types: readonly HarnessTypeInfo[]; executors: readonly ExecutorRecord[] | null }) {
   return (
     <Field>

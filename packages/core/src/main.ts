@@ -4,7 +4,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { aboutReader } from "./about.js";
 import { AttachmentStore } from "./attachments.js";
-import { Bases } from "./bases.js";
+import { Harnesses } from "./harnesses.js";
 import { CATALOG } from "./catalog.js";
 import { openDb } from "./db/index.js";
 import { Detector } from "./detect.js";
@@ -116,7 +116,7 @@ const broadcast = (msg: unknown) => {
 
 const installer = new Installer(extensionsDir, join(dataDir, "agents"), () => broadcast({ kind: "extensions" }));
 const detector = new Detector(CATALOG, installer.npmCli);
-const bases = new Bases(CATALOG, extensions, detector, installer);
+const harnesses = new Harnesses(CATALOG, extensions, detector, installer);
 // before anything reads a key: endpoints may point at variables only the login shell has
 setShellEnv(await detector.shellEnv());
 
@@ -144,7 +144,7 @@ if (backfilled > 0) console.log(`[roster] derived ${backfilled} conversation tit
 
 const types = () => (scripted ? [] : extensions.types());
 /** The program a type runs: the one a person picked, else the one found on the machine, else Roster's own install. */
-const programOf = (type: string) => store.harnessProgram(type) ?? bases.state(type).path;
+const programOf = (type: string) => store.harnessProgram(type) ?? harnesses.state(type).path;
 const build = () =>
   scripted
     ? new Registry(Object.fromEntries(store.listExecutors().map((e) => [e.id, scriptedFactory(e.id, 40, e.name)])))
@@ -171,14 +171,14 @@ const settings = new ExecutorSettings(
   () => registry,
   changed,
   programOf,
-  (type) => store.harnessProgram(type) !== null || bases.state(type).usable,
+  (type) => store.harnessProgram(type) !== null || harnesses.state(type).usable,
 );
 const pushExecutors = () =>
   broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
 
-// before anyone connects: older data can hold an agent on a sign-in its base does not have
+// before anyone connects: older data can hold an agent on a sign-in its harness does not have
 const merged = settings.mergeStrayOwn();
-if (merged > 0) console.log(`[roster] moved ${merged} agents off a sign-in their base does not have`);
+if (merged > 0) console.log(`[roster] moved ${merged} agents off a sign-in their harness does not have`);
 
 // Detection runs in the background; when it lands, executors get the programs it found.
 void detector
@@ -206,7 +206,7 @@ const handle = await startServer({
   settings,
   extensions,
   installer,
-  bases,
+  harnesses,
   catalog: CATALOG,
   detector,
   reload: async () => {

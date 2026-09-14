@@ -18,8 +18,8 @@ export interface ProgramState {
   usable: boolean;
 }
 
-/** One base -- a harness type -- as the settings page shows it: adapter and program, each with where it stands. */
-export interface BaseView extends CatalogEntry {
+/** One harness type as the settings page shows it: adapter and program, each with where it stands. */
+export interface HarnessView extends CatalogEntry {
   adapter: "bundled" | "installed" | "linked" | "missing" | "error";
   adapterError?: string;
   state: ProgramState;
@@ -30,7 +30,7 @@ export interface BaseView extends CatalogEntry {
  * three sources of truth -- the catalog, what is loaded, what is on disk --
  * into one answer per type: can an executor of it run, and with which program.
  */
-export class Bases {
+export class Harnesses {
   constructor(
     private catalog: readonly CatalogEntry[],
     private extensions: Extensions,
@@ -62,9 +62,9 @@ export class Bases {
     };
   }
 
-  view(): BaseView[] {
+  view(): HarnessView[] {
     const loaded = this.extensions.list();
-    const of = (entry: CatalogEntry, ext: Extension | undefined): BaseView => ({
+    const of = (entry: CatalogEntry, ext: Extension | undefined): HarnessView => ({
       ...entry,
       adapter: ext ? (ext.error ? "error" : ext.origin) : "missing",
       ...(ext?.error ? { adapterError: ext.error } : {}),
