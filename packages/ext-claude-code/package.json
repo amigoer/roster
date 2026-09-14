@@ -21,7 +21,7 @@
     "@agentclientprotocol/claude-agent-acp": "0.76.0"
   },
   "roster": {
-    "api": 1,
+    "api": 2,
     "entry": "./dist/index.js",
     "label": "Claude Code",
     "acp": {

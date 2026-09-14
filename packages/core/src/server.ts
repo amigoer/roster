@@ -2,8 +2,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import type { About } from "./about.js";
-import type { Agents } from "./agents.js";
 import { MAX_BYTES, MAX_PER_MESSAGE, type AttachmentStore } from "./attachments.js";
+import type { Bases } from "./bases.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { Detector } from "./detect.js";
 import { isLogo, LOGO_IDS, LOGOS, LOGOS_DIR } from "./logos.js";
@@ -12,7 +12,6 @@ import type { ExecutorSettings } from "./executors.js";
 import type { Extensions } from "./extensions.js";
 import type { Installer } from "./installer.js";
 import type { Orchestrator } from "./orchestrator.js";
-import type { Sources } from "./sources.js";
 import type { BotInput, MemberSettings, Mode, Store } from "./store.js";
 
 const MIME: Record<string, string> = {
@@ -67,11 +66,10 @@ function botInput(
   if (has("system_prompt")) out.system_prompt = optText(body["system_prompt"], 12_000);
   if (has("executor_id")) {
     const executor = String(body["executor_id"] ?? "");
-    if (!executors.includes(executor)) throw new Rejection(`没有这个 agent：${executor || "（空）"}`);
+    // only one that can run: the agent carries the source, so a broken one would carry the bot down with it
+    if (!executors.includes(executor)) throw new Rejection(executor ? "这个 agent 现在用不了，先到设置里修好它" : "选一个 agent");
     out.executor_id = executor;
   }
-  // null is the agent's own sign-in; whether the executor offers it is checked once both are known
-  if (has("model_source")) out.model_source = optText(body["model_source"], 80);
   if (has("model")) out.model = optText(body["model"], 120);
   if (has("permission_tier")) {
     const tier = String(body["permission_tier"] ?? "");
@@ -86,10 +84,9 @@ export function startServer(opts: {
   orchestrator: Orchestrator;
   attachments: AttachmentStore;
   settings: ExecutorSettings;
-  sources: Sources;
   extensions: Extensions;
   installer: Installer;
-  agents: Agents;
+  bases: Bases;
   catalog: readonly CatalogEntry[];
   detector: Detector;
   /** re-scans extensions and rebuilds the registry, after an install or removal */
@@ -100,7 +97,7 @@ export function startServer(opts: {
   broadcast(msg: unknown): void;
   subscribe(fn: (msg: unknown) => void): () => void;
 }): Promise<ServerHandle> {
-  const { store, orchestrator, attachments, uiDir, sources, extensions, installer, agents, catalog, detector } = opts;
+  const { store, orchestrator, attachments, uiDir, extensions, installer, bases, catalog, detector } = opts;
   // read per request: executors can be added and removed while the server runs
   const executors = () => Object.keys(orchestrator.capabilities());
 
@@ -128,14 +125,8 @@ export function startServer(opts: {
   const pushExecutors = () =>
     opts.broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
 
-  /** Whether the bot's executor can take its model source, said the way the settings page would say it. */
-  const checkSource = async (executorId: string, sourceId: string | null) => {
-    const r = await sources.usable(executorId, sourceId);
-    if (!r.ok) throw new Rejection(r.reason);
-  };
-
   const extensionsView = () => ({
-    agents: agents.view(),
+    bases: bases.view(),
     installed: extensions.list(),
     jobs: installer.jobs(),
     root: installer.root,
@@ -193,7 +184,8 @@ export function startServer(opts: {
         conversations: store.listConversations(url.searchParams.get("archived") === "1"),
         executors: orchestrator.executors(),
         capabilities: orchestrator.capabilities(),
-        // names only, so a bot's model source can be labelled anywhere; keys never leave the settings page
+        harnesses: extensions.types().map((t) => ({ type: t.type, label: t.label })),
+        // names only, so an agent's model source can be labelled anywhere; keys never leave the settings page
         sources: store.listProviders().map((p) => ({ id: p.id, name: p.name, preset: p.preset, api: p.api })),
         presence: orchestrator.presence(),
         logos: LOGOS,
@@ -233,7 +225,7 @@ export function startServer(opts: {
           const { npm, version, overrides } = entry.extension;
           return installer.install(entry.id, npm, { ...(version ? { version } : {}), ...(overrides ? { overrides } : {}) });
         }
-        const program = agents.program(entry.id);
+        const program = bases.program(entry.id);
         if (!program) throw new Error(`「${entry.label}」随 Roster 内置，没有什么要装的`);
         return installer.installProgram(entry.id, program);
       });
@@ -246,9 +238,9 @@ export function startServer(opts: {
     const extensionUpdate = route(/^\/api\/extensions\/([^/]+)\/update$/, "POST");
     if (extensionUpdate?.[1]) {
       const id = extensionUpdate[1];
-      const program = agents.program(id);
+      const program = bases.program(id);
       const job = await guardAsync(() =>
-        program && agents.state(id).installed ? installer.installProgram(id, program) : installer.update(id),
+        program && bases.state(id).installed ? installer.installProgram(id, program) : installer.update(id),
       );
       if (job.state === "done") {
         await opts.reload();
@@ -260,7 +252,7 @@ export function startServer(opts: {
     if (extension?.[1]) {
       const id = extension[1];
       guard(() => {
-        if (agents.program(id) && agents.state(id).installed) installer.removeProgram(id);
+        if (bases.program(id) && bases.state(id).installed) installer.removeProgram(id);
         else installer.remove(id);
       });
       await opts.reload();
@@ -278,7 +270,7 @@ export function startServer(opts: {
       return json(res, env);
     }
 
-    // ---- executors and the endpoints bots call ----
+    // ---- executors, the endpoints they call, and the types they are made of ----
 
     if (path === "/api/executors" && method === "GET") {
       return json(res, await opts.settings.view());
@@ -288,18 +280,12 @@ export function startServer(opts: {
       pushExecutors();
       return json(res, { executor });
     }
+    if (path === "/api/executors/candidates" && method === "GET") {
+      return json(res, { candidates: await opts.settings.candidates() });
+    }
     const executorCheck = /^\/api\/executors\/([^/]+)\/check$/.exec(path);
     if (executorCheck?.[1] && method === "POST") {
       return json(res, await opts.settings.check(executorCheck[1]));
-    }
-    const executorLogin = /^\/api\/executors\/([^/]+)\/login$/.exec(path);
-    if (executorLogin?.[1] && method === "GET") {
-      return json(res, await opts.settings.login(executorLogin[1], url.searchParams.get("fresh") === "1"));
-    }
-    const executorAuth = /^\/api\/executors\/([^/]+)\/authenticate$/.exec(path);
-    if (executorAuth?.[1] && method === "POST") {
-      const body = await readBody(req);
-      return json(res, await opts.settings.authenticate(executorAuth[1], String(body["method"] ?? "")));
     }
     const executor = /^\/api\/executors\/([^/]+)$/.exec(path);
     if (executor?.[1] && method === "PATCH") {
@@ -315,6 +301,28 @@ export function startServer(opts: {
       return json(res, { ok: true });
     }
 
+    const harnessLogin = /^\/api\/harnesses\/([^/]+)\/login$/.exec(path);
+    if (harnessLogin?.[1] && method === "GET") {
+      return json(res, await opts.settings.login(harnessLogin[1], url.searchParams.get("fresh") === "1"));
+    }
+    const harnessAuth = /^\/api\/harnesses\/([^/]+)\/authenticate$/.exec(path);
+    if (harnessAuth?.[1] && method === "POST") {
+      const body = await readBody(req);
+      const login = await opts.settings.authenticate(harnessAuth[1], String(body["method"] ?? ""));
+      pushExecutors();
+      return json(res, login);
+    }
+    const harnessModels = /^\/api\/harnesses\/([^/]+)\/models$/.exec(path);
+    if (harnessModels?.[1] && method === "GET") {
+      return json(res, { models: await opts.settings.draftModels(harnessModels[1], url.searchParams.get("provider")) });
+    }
+    const harness = /^\/api\/harnesses\/([^/]+)$/.exec(path);
+    if (harness?.[1] && method === "PATCH") {
+      const saved = opts.settings.setProgram(harness[1], await readBody(req));
+      pushExecutors();
+      return json(res, saved);
+    }
+
     if (path === "/api/providers" && method === "POST") {
       const provider = await opts.settings.createProvider(await readBody(req));
       pushExecutors();
@@ -325,15 +333,10 @@ export function startServer(opts: {
     }
     const providerCheck = /^\/api\/providers\/([^/]+)\/check$/.exec(path);
     if (providerCheck?.[1] && method === "POST") {
-      return json(res, await opts.settings.checkProvider(providerCheck[1]));
-    }
-    const providerModels = /^\/api\/providers\/([^/]+)\/models$/.exec(path);
-    if (providerModels?.[1] && method === "GET") {
-      return json(res, await opts.settings.providerModels(providerModels[1]));
-    }
-    const presetModels = /^\/api\/presets\/([^/]+)\/models$/.exec(path);
-    if (presetModels?.[1] && method === "GET") {
-      return json(res, await opts.settings.presetModels(decodeURIComponent(presetModels[1])));
+      const { check, relisted } = await opts.settings.checkProvider(providerCheck[1]);
+      // pickers everywhere list what the endpoint serves
+      if (relisted) pushExecutors();
+      return json(res, check);
     }
     const provider = /^\/api\/providers\/([^/]+)$/.exec(path);
     if (provider?.[1] && method === "PATCH") {
@@ -353,7 +356,6 @@ export function startServer(opts: {
     if (path === "/api/bots" && method === "POST") {
       const input = botInput(await readBody(req), false, executors()) as BotInput;
       if (store.nameTaken(input.name)) throw new Rejection(`通讯录里已经有叫「${input.name}」的 bot 了`);
-      await checkSource(input.executor_id, input.model_source ?? null);
       const bot = store.createBot({ ...input, avatar: input.avatar ?? store.leastUsedLogo(LOGO_IDS) });
       pushBots();
       return json(res, { bot });
@@ -366,9 +368,6 @@ export function startServer(opts: {
       const patch = botInput(await readBody(req), true, executors());
       if (patch.name && store.nameTaken(patch.name, bot[1])) {
         throw new Rejection(`通讯录里已经有叫「${patch.name}」的 bot 了`);
-      }
-      if ("executor_id" in patch || "model_source" in patch) {
-        await checkSource(patch.executor_id ?? current.executor_id, "model_source" in patch ? (patch.model_source ?? null) : current.model_source);
       }
       if ("avatar" in patch && !patch.avatar) patch.avatar = store.leastUsedLogo(LOGO_IDS, bot[1]);
       const updated = store.updateBot(bot[1], patch);
@@ -534,7 +533,6 @@ export function startServer(opts: {
       }
       if (typeof body["fast"] === "boolean") patch.fast = body["fast"];
       // null means the agent's own sign-in; a string is an endpoint id
-      if ("source" in body && (body["source"] === null || typeof body["source"] === "string")) patch.source = body["source"];
       await guardAsync(() => orchestrator.configure(session[1]!, session[2]!, patch));
       return json(res, { ok: true });
     }

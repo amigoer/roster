@@ -251,15 +251,12 @@ export function scriptedFactory(id: string, delayMs = 40, label = `脚本回复�
     id,
     type: "scripted",
     label,
-    // a script runs on its own, and takes any endpoint too, so every bot shape can be exercised
-    sources: { own: true, apis: ["openai-completions", "anthropic-messages"] },
-    capabilities: () => CAPABILITIES,
+    capabilities: CAPABILITIES,
     create: () => new ScriptedRuntime(delayMs),
-    models: async () => [{ id: "scripted", label: "脚本回复，不调用模型", available: true }],
+    models: async () => OPTIONS.models.map((m) => ({ id: m.id, label: m.label, available: true })),
     sessionInfo: async (settings) => infoOf(settings),
     sessionOptions: async () => OPTIONS,
     modeForTier: () => "default",
-    login: async () => ({ state: "ok", account: "scripted", methods: [] }),
     // only claude has plan limits to stand in for
     ...(id === "claude" ? { quota: async () => quotaOf() } : {}),
   };

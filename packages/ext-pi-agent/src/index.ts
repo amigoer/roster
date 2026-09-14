@@ -5,6 +5,7 @@ import {
   getAgentDir,
   ModelRuntime,
   SessionManager,
+  VERSION,
 } from "@earendil-works/pi-coding-agent";
 import type {
   Attachment,
@@ -14,7 +15,6 @@ import type {
   Deliver,
   HarnessType,
   InstanceConfig,
-  ModelOption,
   ModelSource,
   NormalizedEvent,
   ProviderConfig,
@@ -83,6 +83,7 @@ export const PI_CAPABILITIES: Capabilities = {
 
 type Session = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type ProviderInput = Parameters<ModelRuntime["registerProvider"]>[1];
+type ModelInput = NonNullable<ProviderInput["models"]>[number];
 type PiModel = Awaited<ReturnType<ModelRuntime["getAvailable"]>>[number];
 
 /** Everything pi's catalog speaks; a custom endpoint on any of these can be used. */
@@ -121,20 +122,49 @@ export const literal = (value: string): string => {
 /** The id pi knows an endpoint by: its own for a preset, ours for a custom endpoint. */
 const piIdOf = (p: ProviderConfig): string => (p.preset === CUSTOM_PRESET ? p.id : p.preset);
 
+/** The protocol most of a provider's models speak; a preset is filed under it. */
+function mainApi(models: readonly PiModel[]): string | undefined {
+  const tally = new Map<string, number>();
+  for (const m of models) tally.set(m.api, (tally.get(m.api) ?? 0) + 1);
+  return [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
+/** An id pi has no settings for gets modest, generic limits any endpoint takes. */
+const genericModel = (id: string, api?: string): ModelInput => ({
+  id,
+  name: id,
+  ...(api ? { api: api as NonNullable<ModelInput["api"]> } : {}),
+  reasoning: false,
+  input: ["text"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 128_000,
+  maxTokens: 16_384,
+});
+
+/** A bare id, or one prefixed with the provider pi knows the endpoint by. */
+function bareId(id: string, endpoint: ProviderConfig): string {
+  const provider = piIdOf(endpoint);
+  return id.startsWith(`${provider}/`) ? id.slice(provider.length + 1) : id;
+}
+
 /**
- * A model runtime with the endpoint laid over pi's own catalog. Keys stay in
- * memory: registering one never writes to pi's auth file.
+ * A model runtime whose only models on the endpoint are the ones its API
+ * listed, plus the one a bot asked for by hand. For an id pi's own catalog
+ * also knows, pi keeps its request settings for it; nothing else of that
+ * catalog shows. Keys stay in memory: registering one never writes to pi's
+ * auth file.
  */
-async function modelRuntime(endpoint: ProviderConfig | null): Promise<ModelRuntime> {
+async function modelRuntime(endpoint: ProviderConfig, wanted?: string): Promise<ModelRuntime> {
   const runtime = await ModelRuntime.create();
-  if (!endpoint) return runtime;
   const p = endpoint;
   const apiKey = p.apiKey ? literal(p.apiKey) : undefined;
   const headers = p.headers ? Object.fromEntries(Object.entries(p.headers).map(([k, v]) => [k, literal(v)])) : undefined;
   const common = { ...(apiKey ? { apiKey } : {}), ...(headers ? { headers } : {}) };
-  const builtIn = new Set(runtime.getProviders().map((x) => x.id));
-  if (p.preset !== CUSTOM_PRESET && builtIn.has(p.preset)) {
-    runtime.registerProvider(p.preset, common);
+  const ids = [...new Set([...(p.models ?? []), ...(wanted ? [bareId(wanted, p)] : [])])];
+  if (p.preset !== CUSTOM_PRESET && runtime.getProvider(p.preset)) {
+    const known = runtime.getModels(p.preset);
+    const api = mainApi(known);
+    runtime.registerProvider(p.preset, { ...common, models: ids.map((id) => known.find((m) => m.id === id) ?? genericModel(id, api)) });
     return runtime;
   }
   runtime.registerProvider(p.id, {
@@ -142,28 +172,15 @@ async function modelRuntime(endpoint: ProviderConfig | null): Promise<ModelRunti
     name: p.name,
     ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
     ...(p.api ? { api: p.api as NonNullable<ProviderInput["api"]> } : {}),
-    // a custom endpoint says nothing about its models, so they get modest, generic limits
-    models: (p.models ?? []).map((id) => ({
-      id,
-      name: id,
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 128_000,
-      maxTokens: 16_384,
-    })),
+    models: ids.map((id) => genericModel(id)),
   });
   return runtime;
 }
 
-/** Only the endpoint's models count; a bare id can also name one of them by provider/id. */
+/** The model a session runs: the one asked for, else the first the endpoint listed. Undefined without a key to call it with. */
 async function resolveModel(runtime: ModelRuntime, id: string | undefined, endpoint: ProviderConfig): Promise<PiModel | undefined> {
-  const provider = piIdOf(endpoint);
-  const available = (await runtime.getAvailable()).filter((m) => m.provider === provider);
-  if (!id) return available[0];
-  const slash = id.indexOf("/");
-  const bare = slash > 0 && id.slice(0, slash) === provider ? id.slice(slash + 1) : id;
-  return available.find((m) => m.id === bare) ?? runtime.getModels().find((m) => m.provider === provider && m.id === bare);
+  const bare = id ? bareId(id, endpoint) : endpoint.models?.[0];
+  return (await runtime.getAvailable()).find((m) => m.provider === piIdOf(endpoint) && m.id === bare);
 }
 
 class PiRuntime implements BotRuntime {
@@ -191,13 +208,14 @@ class PiRuntime implements BotRuntime {
   async start(opts: StartOpts): Promise<void> {
     if (this.#session) throw new Error("pi runtime already started");
 
-    const runtime = await modelRuntime(this.endpoint);
+    const runtime = await modelRuntime(this.endpoint, opts.model);
     const model = await resolveModel(runtime, opts.model, this.endpoint);
     if (!model) {
+      // an id asked for or listed is registered, so only the key can be missing
       throw new Error(
-        opts.model
-          ? `pi: 「${this.endpoint.name}」上没有模型 ${opts.model}`
-          : `pi: 「${this.endpoint.name}」上没有可用的模型：检查它的密钥`,
+        opts.model || this.endpoint.models?.length
+          ? `pi: 「${this.endpoint.name}」没有可用的密钥`
+          : `pi: 「${this.endpoint.name}」的 API 没有列出模型，给 agent 或 bot 指定一个模型`,
       );
     }
 
@@ -259,7 +277,7 @@ class PiRuntime implements BotRuntime {
     this.#resumeToken = created.session.sessionManager?.getSessionFile?.() ?? undefined;
     this.#unsubscribe = created.session.subscribe((event) => this.#normalize(event));
     // a timer, because the host only starts listening once this call has returned
-    const info: SessionInfo = { model: `${model.provider}/${model.id}`, modelLabel: model.name ?? model.id, effort: null };
+    const info: SessionInfo = { model: `${model.provider}/${model.id}`, modelLabel: model.id, effort: null };
     setTimeout(() => this.#emit({ type: "session.info", display: "status", info }), 0);
   }
 
@@ -426,93 +444,59 @@ function stringify(v: unknown): string {
 }
 
 const endpointOf = (source: ModelSource): ProviderConfig => {
-  if (source.kind !== "endpoint") throw new Error("pi: 没有自带登录，给这个 bot 选一个模型 API");
+  if (source.kind !== "endpoint") throw new Error("pi-agent 没有自带登录，要接一个模型 API");
   return source.endpoint;
 };
 
-/** The endpoint's models as pi lists them, marked available once a key is there. */
-async function catalogOf(endpoint: ProviderConfig): Promise<ModelOption[]> {
-  const runtime = await modelRuntime(endpoint);
-  const provider = piIdOf(endpoint);
-  const available = new Set((await runtime.getAvailable()).filter((m) => m.provider === provider).map((m) => m.id));
-  // a custom endpoint's limits are placeholders pi needs to run, not facts about its models
-  const known = endpoint.preset !== CUSTOM_PRESET;
-  return runtime
-    .getModels()
-    .filter((m) => m.provider === provider)
-    .map((m) => ({
-      id: m.id,
-      label: m.name,
-      available: available.has(m.id),
-      provider: endpoint.name,
-      ...(known
-        ? {
-            contextWindow: m.contextWindow,
-            reasoning: m.reasoning,
-            images: m.input.includes("image"),
-            ...(m.cost.input > 0 || m.cost.output > 0 ? { cost: { input: m.cost.input, output: m.cost.output } } : {}),
-          }
-        : {}),
-    }));
-}
-
 function piExecutor(instance: InstanceConfig): BotRuntimeFactory {
+  const endpoint = endpointOf(instance.source);
+  const listed = endpoint.models ?? [];
   return {
     id: instance.id,
     label: instance.label,
     type: "pi-agent",
-    sources: { own: false, apis: PI_APIS },
-    capabilities: () => PI_CAPABILITIES,
-    create: (source) => new PiRuntime(endpointOf(source)),
-    async sessionInfo({ model }, source): Promise<SessionInfo> {
-      const endpoint = endpointOf(source);
-      const runtime = await modelRuntime(endpoint);
-      const hit = await resolveModel(runtime, model, endpoint);
-      return hit ? { model: `${hit.provider}/${hit.id}`, modelLabel: hit.name ?? hit.id, effort: null } : {};
+    capabilities: PI_CAPABILITIES,
+    create: () => new PiRuntime(endpoint),
+    async sessionInfo({ model }): Promise<SessionInfo> {
+      const hit = await resolveModel(await modelRuntime(endpoint, model), model, endpoint);
+      return hit ? { model: `${hit.provider}/${hit.id}`, modelLabel: hit.id, effort: null } : {};
     },
-    async sessionOptions(source): Promise<SessionOptions> {
-      const endpoint = endpointOf(source);
-      const models = await catalogOf(endpoint);
+    async sessionOptions(): Promise<SessionOptions> {
       return {
-        models: models.filter((m) => m.available).map((m) => ({ id: m.id, resolved: `${piIdOf(endpoint)}/${m.id}`, label: m.label ?? m.id, efforts: [] })),
+        models: endpoint.apiKey ? listed.map((id) => ({ id, resolved: `${piIdOf(endpoint)}/${id}`, label: id, efforts: [] })) : [],
         efforts: [],
         modes: [],
         compact: false,
       };
     },
-    // pi counts a provider available once it has a key; whether the key works is the endpoint's to say
-    async check(source) {
-      const endpoint = endpointOf(source);
-      const n = (await catalogOf(endpoint)).filter((m) => m.available).length;
-      return n > 0 ? { ok: true, detail: `${endpoint.name}：${n} 个模型可用` } : { ok: false, detail: `${endpoint.name}：没有可用的模型，检查它的密钥` };
+    // whether the key works is the endpoint's to say; this only proves pi can be set up on it
+    async check() {
+      await modelRuntime(endpoint);
+      return { ok: true, detail: listed.length > 0 ? `${listed.length} 个模型可选` : "API 没有列出模型，要给 agent 或 bot 指定一个" };
     },
   };
 }
 
-/** pi-agent as a harness type: runs on the endpoint a bot names, nothing else. */
+/** pi-agent as a harness type: runs on the endpoint its executor names, nothing else. */
 export const piHarness: HarnessType = {
   type: "pi-agent",
   label: "pi-agent",
+  version: VERSION,
   sources: { own: false, apis: PI_APIS },
   capabilities: () => PI_CAPABILITIES,
-  fields: [],
   async presets(): Promise<ProviderPreset[]> {
     const runtime = await ModelRuntime.create();
     const presets = await Promise.all(
       runtime.getProviders().map(async (p) => {
-        const models = await p.getModels();
         const keyLabel = (p.auth as { apiKey?: { name?: string } } | undefined)?.apiKey?.name;
-        if (!keyLabel || NOT_KEY_ONLY.has(p.id) || models.length === 0) return null;
-        // a provider that speaks several protocols is filed under the one most of its models use
-        const tally = new Map<string, number>();
-        for (const m of models) tally.set(m.api, (tally.get(m.api) ?? 0) + 1);
-        const api = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]![0];
-        return { id: p.id, label: p.name ?? p.id, api, ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}), models: models.length, keyLabel };
+        // pi's models only tell which protocol the provider speaks; which ones it serves is its API's to say
+        const api = mainApi(await p.getModels());
+        if (!keyLabel || NOT_KEY_ONLY.has(p.id) || !api) return null;
+        return { id: p.id, label: p.name ?? p.id, api, ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}), keyLabel };
       }),
     );
     return presets.filter((p) => p !== null);
   },
-  catalog: catalogOf,
   create: piExecutor,
 };
 

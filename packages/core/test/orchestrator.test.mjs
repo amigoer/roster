@@ -10,21 +10,24 @@ import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { after, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { literal } from "@roster/ext-pi-agent";
+import { literal, piHarness } from "@roster/ext-pi-agent";
 import { aboutReader } from "../dist/about.js";
 import { openDb } from "../dist/db/index.js";
 import { AttachmentStore, MAX_BYTES } from "../dist/attachments.js";
+import { Bases } from "../dist/bases.js";
 import { composeDelivery } from "../dist/delivery.js";
+import { Detector } from "../dist/detect.js";
 import { Rejection } from "../dist/errors.js";
-import { checkEndpoint, ensureExecutors, ExecutorSettings } from "../dist/executors.js";
+import { checkEndpoint, ExecutorSettings } from "../dist/executors.js";
 import { Extensions } from "../dist/extensions.js";
+import { Installer } from "../dist/installer.js";
 import { LOGO_IDS, LOGOS, LOGOS_DIR } from "../dist/logos.js";
 import { findMentions } from "../dist/mentions.js";
 import { Orchestrator } from "../dist/orchestrator.js";
 import { Registry } from "../dist/registry.js";
 import { scriptedFactory } from "../dist/scripted.js";
 import { NO_VAULT, Secrets } from "../dist/secrets.js";
-import { Sources } from "../dist/sources.js";
+import { sourceOf, Sources } from "../dist/sources.js";
 import { Store } from "../dist/store.js";
 
 const dirs = [];
@@ -38,13 +41,13 @@ function harness(factories) {
   const store = new Store(db);
   const secrets = new Secrets(db, NO_VAULT);
   // nothing is built in any more: the two executors the fixtures name are rows like any other
-  for (const id of ["pi", "claude"]) store.createExecutor({ id, name: id, type: "scripted", settings: {} });
+  for (const id of ["pi", "claude"]) store.createExecutor({ id, name: id, type: "scripted", source_kind: "own", provider_id: null, model: null });
   const sent = [];
   const inner = scriptedFactory("pi", 1);
   const spy = {
     ...inner,
-    create(source) {
-      const rt = inner.create(source);
+    create() {
+      const rt = inner.create();
       let name = "?";
       return new Proxy(rt, {
         get(target, prop) {
@@ -79,7 +82,6 @@ function harness(factories) {
       // the preset doubles as a label, so the spy can tell who received a prompt
       system_prompt: `preset:${name}`,
       executor_id: "pi",
-      model_source: null,
       model: null,
       permission_tier: "read",
       ...extra,
@@ -530,7 +532,7 @@ describe("session status", () => {
 
   test("a backend with its own permission modes gets deferred calls, and its asks become cards", async () => {
     const scripted = scriptedFactory("pi", 1);
-    const factory = { ...scripted, capabilities: () => ({ ...scripted.capabilities("own"), permissionModes: true }) };
+    const factory = { ...scripted, capabilities: { ...scripted.capabilities, permissionModes: true } };
     const h = harness({ pi: factory });
     // under Roster's own rules an execute tier is never asked; the backend's mode asks anyway
     const conv = h.group([h.bot("甲", { permission_tier: "execute" })]);
@@ -645,11 +647,11 @@ describe("migrations", () => {
     const file = join(dir, "roster.db");
     const db = openDb(file);
     const store = new Store(db);
-    store.createExecutor({ name: "pi", type: "pi-agent", settings: {} });
+    store.createExecutor({ name: "pi", type: "pi-agent", source_kind: "own", provider_id: null, model: null });
     const pi = store.listExecutors()[0];
     const bot = store.createBot({
       name: "Pi", title: null, avatar: null, system_prompt: null,
-      executor_id: pi.id, model_source: null, model: null, permission_tier: "read",
+      executor_id: pi.id, model: null, permission_tier: "read",
     });
     const conv = store.createConversation({ title: "x", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
     // simulate the pre-migration world: a legacy human row with a local seq, members at 0
@@ -720,55 +722,116 @@ describe("migrations", () => {
     assert.throws(() =>
       store.createBot({
         name: "幽灵", title: null, avatar: null, system_prompt: null,
-        executor_id: "nowhere", model_source: null, model: null, permission_tier: "read",
+        executor_id: "nowhere", model: null, permission_tier: "read",
       }),
     );
   });
 
-  test("an endpoint bound to an executor becomes the source of every bot on it", () => {
+  test("an endpoint bound to an executor, then named by its bots, ends up bound to the executor again", () => {
     const dir = mkdtempSync(join(tmpdir(), "roster-src-"));
     dirs.push(dir);
     const file = join(dir, "roster.db");
     const db = openDb(file);
     const store = new Store(db);
-    const executor = store.createExecutor({ name: "乙", type: "beta", settings: {} });
+    const executor = store.createExecutor({ name: "乙", type: "beta", source_kind: "own", provider_id: null, model: null });
     const provider = store.createProvider({ name: "DS", preset: "deepseek", api: null, base_url: null, models: [], headers: {}, key_env: null, secret_ref: null });
-    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: null, executor_id: executor.id, model_source: null, model: "m", permission_tier: "read" });
+    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: "m", permission_tier: "read" });
     const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
     // the database as it was: the binding on the executor, nothing on the bot or its member
     db.prepare(`UPDATE executors SET provider_ids_json = ? WHERE id = ?`).run(JSON.stringify([provider.id]), executor.id);
-    db.prepare(`UPDATE members SET spec_json = json_remove(spec_json, '$.model_source')`).run();
     db.exec("PRAGMA user_version = 2");
     db.close();
 
     const reopened = new Store(openDb(file));
-    assert.equal(reopened.getBot(bot.id).model_source, provider.id);
-    assert.equal(reopened.activeMembers(conv.id)[0].spec.model_source, provider.id);
+    const bound = reopened.getExecutor(executor.id);
+    assert.deepEqual([bound.source_kind, bound.provider_id, bound.name], ["endpoint", provider.id, "乙 · DS"]);
+    assert.equal(reopened.getBot(bot.id).executor_id, executor.id);
+    assert.ok(!("model_source" in reopened.activeMembers(conv.id)[0].spec), "the snapshot names only the executor now");
     assert.equal(reopened.listConversations()[0].members[0].stale, false, "the member ran on that endpoint all along");
+  });
+
+  test("every pairing in use becomes an executor, identical ones merge, and the program moves to its type", () => {
+    const dir = mkdtempSync(join(tmpdir(), "roster-bind-"));
+    dirs.push(dir);
+    const file = join(dir, "roster.db");
+    const db = openDb(file);
+    const store = new Store(db);
+    const provider = store.createProvider({ name: "官方", preset: "anthropic", api: null, base_url: null, models: [], headers: {}, key_env: null, secret_ref: null });
+    const own = store.createExecutor({ name: "Claude Code", type: "claude-code", source_kind: "own", provider_id: null, model: null });
+    const extra = store.createExecutor({ name: "Claude Code 2", type: "claude-code", source_kind: "own", provider_id: null, model: null });
+    const idle = store.createExecutor({ name: "Codex", type: "codex", source_kind: "own", provider_id: null, model: null });
+    const bot = (name, executorId) =>
+      store.createBot({ name, title: null, avatar: null, system_prompt: null, executor_id: executorId, model: null, permission_tier: "read" });
+    const a = bot("甲", own.id);
+    const b = bot("乙", own.id);
+    const c = bot("丙", extra.id);
+    const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [b.id] });
+    const [member] = store.activeMembers(conv.id);
+    // creation order decides which executor is the type's own and which pairing keeps the old row, so it is spelled out
+    [own, extra, idle].forEach((e, i) => db.prepare(`UPDATE executors SET created_at = ? WHERE id = ?`).run(i + 1, e.id));
+    [a, b, c].forEach((x, i) => db.prepare(`UPDATE bots SET created_at = ? WHERE id = ?`).run(i + 1, x.id));
+    db.prepare(`UPDATE members SET joined_at = 9 WHERE id = ?`).run(member.id);
+    // the database as it was: programs on executors, sources on bots, and a member switched to another source mid-conversation
+    db.prepare(`UPDATE executors SET config_json = ? WHERE id = ?`).run(JSON.stringify({ executable: "/opt/claude" }), own.id);
+    db.prepare(`UPDATE executors SET config_json = ? WHERE id = ?`).run(JSON.stringify({ executable: "/opt/claude-beta" }), extra.id);
+    db.prepare(`UPDATE bots SET model_source = ? WHERE id = ?`).run(provider.id, b.id);
+    db.prepare(`UPDATE members SET spec_json = json_set(spec_json, '$.model_source', ?), settings_json = ?, resume_token = 'tok', delivered_seq = 3 WHERE id = ?`).run(
+      provider.id,
+      JSON.stringify({ source: null, model: "opus", effort: "high" }),
+      member.id,
+    );
+    db.exec("PRAGMA user_version = 3");
+    db.close();
+
+    const reopened = new Store(openDb(file));
+    assert.equal(reopened.harnessProgram("claude-code"), "/opt/claude", "the oldest executor spoke for its type");
+    const live = reopened.listExecutors();
+    assert.deepEqual(
+      live.map((e) => [e.name, e.source_kind, e.provider_id]).sort(),
+      [["Claude Code · 官方", "endpoint", provider.id], ["Claude Code · 订阅", "own", null]],
+    );
+    const onProvider = live.find((e) => e.provider_id === provider.id);
+    assert.equal(reopened.getBot(a.id).executor_id, own.id);
+    assert.equal(reopened.getBot(b.id).executor_id, onProvider.id);
+    assert.equal(reopened.getBot(c.id).executor_id, own.id, "the extra setup on the same sign-in merged into the first");
+    assert.ok(reopened.getExecutor(extra.id).archived_at && reopened.getExecutor(idle.id).archived_at, "nothing runs on them any more");
+
+    const [moved] = reopened.activeMembers(conv.id);
+    assert.equal(moved.spec.executor_id, onProvider.id);
+    assert.deepEqual(moved.settings, {}, "picks made for the other source went with it");
+    assert.equal(moved.delivered_seq, 0, "a new backend session is owed the backlog");
+    assert.equal(reopened.getResumeToken(member.id), undefined);
+    assert.equal(reopened.listConversations()[0].members[0].stale, false);
+    assert.ok(existsSync(`${file}.bak-v4`));
   });
 });
 
-/** A harness type that runs on scripts but reports what source it was handed, so tests can see what reached it. */
-function fakeHarness(type, { own = false, apis = ["openai-completions"], presets = [], catalog } = {}) {
+/** A harness type that runs on scripts but reports what source and program it was handed, so tests can see what reached it. */
+function fakeHarness(type, { own = false, apis = ["openai-completions"], presets = [] } = {}) {
   const caps = { interceptToolCall: true, mutateToolInput: false, midRunInject: [], costLimit: false, mcp: false, branch: false, permissionModes: false };
   return {
     type,
     label: type,
     sources: { own, apis },
     capabilities: () => caps,
-    fields: [{ key: "path", label: "路径", kind: "path" }],
     presets: async () => presets,
-    ...(catalog ? { catalog } : {}),
-    create: (instance) => ({
-      ...scriptedFactory(instance.id, 1, instance.label),
-      type,
-      sources: { own, apis },
-      check: async (source) => ({ ok: true, detail: source.kind === "endpoint" ? (source.endpoint.apiKey ?? "none") : "own" }),
-    }),
+    create: (instance) => {
+      if (instance.source.kind === "own" && !own) throw new Error(`${type} 没有自带登录`);
+      return {
+        ...scriptedFactory(instance.id, 1, instance.label),
+        type,
+        check: async () => ({
+          ok: true,
+          detail: instance.source.kind === "endpoint" ? (instance.source.endpoint.apiKey ?? "none") : `own:${instance.program ?? ""}`,
+        }),
+      };
+    },
+    ...(own ? { login: async (program) => ({ state: "ok", account: `acct:${program ?? ""}`, methods: [] }) } : {}),
   };
 }
 
-function settingsHarness(vault = { key: randomBytes(32), keystore: "keychain" }) {
+/** deepseekUrl is where the deepseek preset's API answers, for tests that ask it what it lists. */
+function settingsHarness(vault = { key: randomBytes(32), keystore: "keychain" }, { deepseekUrl } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "roster-settings-"));
   dirs.push(dir);
   const db = openDb(join(dir, "roster.db"));
@@ -778,24 +841,36 @@ function settingsHarness(vault = { key: randomBytes(32), keystore: "keychain" })
     fakeHarness("alpha", {
       own: true,
       apis: ["anthropic-messages"],
-      presets: [{ id: "anthropic", label: "Anthropic", api: "anthropic-messages", models: 0 }],
+      presets: [{ id: "anthropic", label: "Anthropic", api: "anthropic-messages" }],
     }),
     fakeHarness("beta", {
-      presets: [{ id: "deepseek", label: "DeepSeek", api: "openai-completions", models: 2 }],
-      catalog: async (e) =>
-        e.preset === "deepseek" ? ["ds-flash", "ds-pro"].map((id) => ({ id, available: Boolean(e.apiKey), contextWindow: 1_000_000 })) : [],
+      presets: [{ id: "deepseek", label: "DeepSeek", api: "openai-completions", ...(deepseekUrl ? { baseUrl: deepseekUrl } : {}) }],
     }),
   ];
-  const build = () => Registry.from(types, store.listExecutors());
+  const programOf = (type) => store.harnessProgram(type) ?? undefined;
+  const build = () =>
+    Registry.from(types, store.listExecutors(), (row, type) => ({
+      id: row.id,
+      label: row.name,
+      source: sourceOf(row, store, secrets),
+      program: programOf(type.type),
+    }));
   let registry = build();
-  const settings = new ExecutorSettings(store, secrets, () => types, () => registry, () => {
-    registry = build();
-    orch.useRegistry(registry);
-  });
+  const settings = new ExecutorSettings(
+    store,
+    secrets,
+    () => types,
+    () => registry,
+    () => {
+      registry = build();
+      orch.useRegistry(registry);
+    },
+    programOf,
+  );
   const sources = new Sources(store, secrets, () => registry, (t) => settings.presets(t));
   const orch = new Orchestrator(store, () => {}, registry, sources);
-  const bot = (name, executor_id, model_source = null) =>
-    store.createBot({ name, title: null, avatar: null, system_prompt: null, executor_id, model_source, model: null, permission_tier: "read" });
+  const bot = (name, executor_id) =>
+    store.createBot({ name, title: null, avatar: null, system_prompt: null, executor_id, model: null, permission_tier: "read" });
   return { db, store, secrets, settings, sources, orch, registry: () => registry, bot, dir };
 }
 
@@ -809,11 +884,11 @@ describe("executors and providers", () => {
     assert.equal(row.alg, "aes-256-gcm");
     assert.ok(!Buffer.from(row.data).toString("utf8").includes("secret-value"), "the row holds ciphertext");
 
-    const executor = await h.settings.createExecutor({ name: "乙执行器", type: "beta" });
-    // the bot names the endpoint; the executor is handed it, key and all, when a session starts
-    const source = h.sources.resolve(executor.id, provider.id);
-    assert.equal(source.endpoint.apiKey, "sk-secret-value-123456");
-    assert.equal((await h.registry().get(executor.id).check(source)).detail, "sk-secret-value-123456");
+    const executor = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: provider.id });
+    assert.equal(executor.name, "beta · 官方", "named after its type and source when nobody names it");
+    // the executor names the endpoint, and is built with it, key and all
+    assert.equal(sourceOf(executor, h.store, h.secrets).endpoint.apiKey, "sk-secret-value-123456");
+    assert.equal((await h.registry().get(executor.id).check()).detail, "sk-secret-value-123456");
   });
 
   test("with nothing to seal with a key is kept plain and says so, and is sealed once a key arrives", () => {
@@ -840,8 +915,8 @@ describe("executors and providers", () => {
       models: ["m1"],
       key: "k1-aaaaaaaaaaaa",
     });
-    const executor = await h.settings.createExecutor({ name: "乙执行器", type: "beta" });
-    const conv = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [h.bot("甲", executor.id, provider.id).id] });
+    const executor = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: provider.id });
+    const conv = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [h.bot("甲", executor.id).id] });
     const stale = () => h.store.listConversations().find((c) => c.id === conv.id).members[0].stale;
 
     assert.equal(stale(), false);
@@ -851,63 +926,69 @@ describe("executors and providers", () => {
     assert.equal(stale(), true);
   });
 
-  test("what is still in use cannot be deleted, and a bot's source has to fit its executor", async () => {
+  test("an executor's source has to fit its type, a type signs in once, and what is in use cannot be deleted", async () => {
     const h = settingsHarness();
     const provider = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
-    const alpha = await h.settings.createExecutor({ name: "甲执行器", type: "alpha" });
-    const beta = await h.settings.createExecutor({ name: "乙执行器", type: "beta" });
-    assert.match((await h.sources.usable(alpha.id, provider.id)).reason, /协议对不上/);
-    assert.deepEqual(await h.sources.usable(beta.id, provider.id), { ok: true });
-    // beta has no sign-in of its own, so a bot on it must name an endpoint; alpha brings one
-    assert.match((await h.sources.usable(beta.id, null)).reason, /没有自带的登录/);
-    assert.deepEqual(await h.sources.usable(alpha.id, null), { ok: true });
+    const rejects = (body, pattern) => assert.rejects(h.settings.createExecutor(body), (err) => err instanceof Rejection && pattern.test(err.message));
+    await rejects({ type: "alpha", source_kind: "endpoint", provider_id: provider.id }, /协议对不上/);
+    // beta has no sign-in of its own, so it has to run on an endpoint; alpha brings one
+    await rejects({ type: "beta", source_kind: "own" }, /没有自带登录/);
+    await rejects({ type: "beta", source_kind: "endpoint" }, /选一个模型 API/);
+    const alpha = await h.settings.createExecutor({ type: "alpha", source_kind: "own" });
+    assert.equal(alpha.name, "alpha · 订阅");
+    await rejects({ type: "alpha", source_kind: "own", name: "另一个" }, /订阅已经有 agent 了/);
+    const beta = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: provider.id });
+    // the type is not a setting: another type is another executor
+    const moved = await h.settings.updateExecutor(beta.id, { type: "alpha", model: "ds-pro" });
+    assert.deepEqual([moved.type, moved.model, moved.rev], ["beta", "ds-pro", 2]);
 
-    h.bot("乙", beta.id, provider.id);
+    // the models a bot picks from are its executor's, and only those: the agent's own, or what its model API listed
+    h.store.setListedModels(provider.id, ["ds-flash", "ds-pro"]);
+    assert.deepEqual((await h.sources.models(alpha.id)).map((m) => m.id), ["scripted", "scripted-plain"]);
+    assert.deepEqual((await h.sources.models(beta.id)).map((m) => m.id), ["ds-flash", "ds-pro"]);
+
+    const bot = h.bot("乙", beta.id);
     assert.throws(() => h.settings.deleteProvider(provider.id), (err) => err instanceof Rejection && err.status === 409);
-    assert.throws(() => h.settings.deleteExecutor(beta.id), (err) => err instanceof Rejection && err.status === 409);
-    // the groups a bot picks from: alpha's own sign-in, beta's compatible endpoints
-    assert.deepEqual((await h.sources.groups(alpha.id)).map((g) => g.source), [null]);
-    assert.deepEqual((await h.sources.groups(beta.id)).map((g) => [g.source, g.label]), [[provider.id, "DS"]]);
+    assert.throws(() => h.settings.deleteExecutor(beta.id), (err) => err instanceof Rejection && /bot 在用/.test(err.message));
+    // a member still running on it holds it too, after its bot is gone
+    const conv = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [bot.id] });
+    h.store.archiveBot(bot.id);
+    assert.throws(() => h.settings.deleteExecutor(beta.id), (err) => err instanceof Rejection && /会话里的成员/.test(err.message));
+    h.store.leaveMember(h.store.activeMembers(conv.id)[0].id);
+    h.settings.deleteExecutor(beta.id);
+    h.settings.deleteProvider(provider.id);
   });
 
-  test("an executor added while the app runs is there for the very next lookup", async () => {
+  test("an agent on a sign-in its base does not have moves, with its bots and present members, into the base's one agent on a model API", async () => {
     const h = settingsHarness();
-    const executor = await h.settings.createExecutor({ name: "新执行器", type: "beta", settings: { path: "/bin/x", stray: "dropped" } });
-    assert.deepEqual(executor.settings, { path: "/bin/x" }, "only fields the type declares are kept");
-    assert.ok(executor.id in h.orch.capabilities());
-    assert.deepEqual(h.orch.capabilities()[executor.id].own, undefined, "beta has no sign-in of its own");
-    assert.ok(h.orch.capabilities()[executor.id].endpoint);
-    const listed = h.orch.executors().find((e) => e.id === executor.id);
-    assert.deepEqual([listed.type, listed.label, listed.sources], ["beta", "新执行器", { own: false, apis: ["openai-completions"] }]);
-  });
+    const ds = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
+    const onApi = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: ds.id });
+    const alpha = await h.settings.createExecutor({ type: "alpha", source_kind: "own" });
+    // what older data left behind: beta has no sign-in of its own
+    const stray = h.store.createExecutor({ name: "beta · 订阅", type: "beta", source_kind: "own", provider_id: null, model: null });
+    const bot = h.bot("甲", stray.id);
+    const retired = h.bot("乙", stray.id);
+    h.store.archiveBot(retired.id);
+    const open = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [bot.id] });
+    const [present] = h.store.activeMembers(open.id);
+    h.store.setResumeToken(present.id, "tok");
+    h.store.setDelivered(present.id, 3);
+    const earlier = h.store.createConversation({ title: "t2", repoPath: h.dir, worktreePath: h.dir, botIds: [bot.id] });
+    const [left] = h.store.activeMembers(earlier.id);
+    h.store.leaveMember(left.id);
 
-  test("an agent that is ready gets one executor of its own, however it became ready", async () => {
-    const h = settingsHarness();
-    const alpha = { type: "alpha", label: "甲" };
-    const beta = { type: "beta", label: "乙" };
-    assert.deepEqual(ensureExecutors(h.store, [alpha]).map((e) => [e.type, e.name, e.settings]), [["alpha", "甲", {}]]);
-    assert.deepEqual(ensureExecutors(h.store, [alpha]), [], "a second pass makes nothing");
+    assert.equal(h.settings.mergeStrayOwn(), 1);
+    assert.ok(h.store.getExecutor(stray.id).archived_at);
+    assert.ok(h.orch.executors().every((e) => e.id !== stray.id));
+    assert.deepEqual([h.store.getBot(bot.id).executor_id, h.store.getBot(retired.id).executor_id], [onApi.id, stray.id], "an archived bot stays where it was");
+    const moved = h.store.getMember(present.id);
+    assert.deepEqual([moved.spec.executor_id, moved.delivered_seq, h.store.getResumeToken(present.id)], [onApi.id, 0, undefined], "a fresh session there, owed the backlog");
+    assert.equal(h.store.listConversations().find((c) => c.id === open.id).members[0].stale, false);
+    assert.equal(h.store.getMember(left.id).spec.executor_id, stray.id, "one that left still says what it ran on");
+    assert.equal(h.store.getExecutor(alpha.id).archived_at, null, "a base with a sign-in keeps its agent on it");
 
-    // an extra setup of alpha is not a reason to skip beta, and its name does not clash with beta's own
-    await h.settings.createExecutor({ name: "乙", type: "alpha", settings: { path: "/opt/alpha-beta" } });
-    assert.deepEqual(ensureExecutors(h.store, [alpha, beta]).map((e) => [e.type, e.name]), [["beta", "乙 2"]]);
-    assert.deepEqual(h.store.listExecutors().map((e) => e.type), ["alpha", "alpha", "beta"]);
-  });
-
-  test("an endpoint's models are listed per agent that drives it, and a preset's before there is a key", async () => {
-    const h = settingsHarness();
-    const provider = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
-    const saved = await h.settings.providerModels(provider.id);
-    assert.deepEqual(
-      saved.groups.map((g) => [g.type, g.models.map((m) => [m.id, m.available, m.contextWindow])]),
-      [["beta", [["ds-flash", true, 1_000_000], ["ds-pro", true, 1_000_000]]]],
-      "alpha speaks another protocol, so only beta's catalog applies",
-    );
-    const preview = await h.settings.presetModels("deepseek");
-    assert.deepEqual(preview.groups[0].models.map((m) => m.available), [false, false], "no key yet, nothing is available");
-    await assert.rejects(h.settings.presetModels("nope"), (err) => err instanceof Rejection && err.status === 404);
-
-    const custom = await h.settings.createProvider({
+    // with two agents on model APIs to choose between, nothing is guessed
+    const gateway = await h.settings.createProvider({
       name: "网关",
       preset: "custom",
       api: "openai-completions",
@@ -915,20 +996,136 @@ describe("executors and providers", () => {
       models: ["m1"],
       key: "k1-aaaaaaaaaaaa",
     });
-    // beta's catalog knows nothing of it, so its own list stands in
-    assert.deepEqual((await h.settings.providerModels(custom.id)).groups.map((g) => [g.type, g.models.map((m) => m.id)]), [["beta", ["m1"]]]);
+    await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: gateway.id });
+    const undecided = h.store.createExecutor({ name: "beta · 订阅", type: "beta", source_kind: "own", provider_id: null, model: null });
+    assert.equal(h.settings.mergeStrayOwn(), 0);
+    assert.equal(h.store.getExecutor(undecided.id).archived_at, null);
   });
 
-  test("a check brings back the ids the endpoint listed", async () => {
+  test("a name that only said an agent's pairing follows a new source, and one a person chose stays", async () => {
+    const h = settingsHarness();
+    const official = await h.settings.createProvider({ name: "官方", preset: "anthropic", key: "sk-aaaaaaaaaaaaaaaa" });
+    const agent = await h.settings.createExecutor({ type: "alpha", source_kind: "own" });
+    const onApi = await h.settings.updateExecutor(agent.id, { name: agent.name, source_kind: "endpoint", provider_id: official.id });
+    assert.equal(onApi.name, "alpha · 官方");
+    assert.equal((await h.settings.updateExecutor(agent.id, { name: "我的 alpha", source_kind: "own" })).name, "我的 alpha");
+    assert.equal((await h.settings.updateExecutor(agent.id, { name: "我的 alpha", source_kind: "endpoint", provider_id: official.id })).name, "我的 alpha");
+  });
+
+  test("an executor added while the app runs is there for the very next lookup, and one that cannot run says why", async () => {
+    const h = settingsHarness();
+    const provider = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
+    const executor = await h.settings.createExecutor({ name: "新 agent", type: "beta", source_kind: "endpoint", provider_id: provider.id });
+    assert.equal(h.orch.capabilities()[executor.id].interceptToolCall, true);
+    const listed = () => h.orch.executors().find((e) => e.id === executor.id);
+    assert.deepEqual(
+      [listed().type, listed().label, listed().source_kind, listed().provider_id, listed().problem],
+      ["beta", "新 agent", "endpoint", provider.id, null],
+    );
+
+    // pulled out from under it, bypassing the in-use check: the next rebuild leaves it out, with the reason
+    h.store.archiveProvider(provider.id);
+    h.settings.setProgram("beta", {});
+    assert.ok(!(executor.id in h.orch.capabilities()));
+    assert.match(listed().problem, /模型 API 已经删除/);
+    assert.match((await h.settings.check(executor.id)).items[0].detail, /模型 API 已经删除/);
+  });
+
+  test("pairings nobody has made yet are offered, and a type's program and sign-in are the type's", async () => {
+    const h = settingsHarness();
+    const official = await h.settings.createProvider({ name: "官方", preset: "anthropic", key: "sk-aaaaaaaaaaaaaaaa" });
+    const ds = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
+    const offered = async () => (await h.settings.candidates()).map((c) => [c.type, c.source_kind, c.provider_id, c.name]);
+    assert.deepEqual(await offered(), [
+      ["alpha", "own", null, "alpha · 订阅"],
+      ["alpha", "endpoint", official.id, "alpha · 官方"],
+      ["beta", "endpoint", ds.id, "beta · DS"],
+    ]);
+    const alpha = await h.settings.createExecutor({ type: "alpha", source_kind: "own" });
+    assert.deepEqual((await offered()).map((c) => c[3]), ["alpha · 官方", "beta · DS"]);
+
+    // the program is set once for the type, and every executor of it is rebuilt with it
+    h.settings.setProgram("alpha", { program: "/opt/alpha" });
+    assert.equal((await h.settings.login("alpha", true)).account, "acct:/opt/alpha");
+    const check = await h.settings.check(alpha.id);
+    assert.deepEqual(check.items.map((i) => [i.label, i.ok, i.detail]), [
+      ["订阅", true, "已登录（acct:/opt/alpha）"],
+      ["alpha", true, "own:/opt/alpha"],
+    ]);
+    h.store.setListedModels(ds.id, ["ds-flash", "ds-pro"]);
+    assert.deepEqual((await h.settings.draftModels("beta", ds.id)).map((m) => m.id), ["ds-flash", "ds-pro"]);
+    assert.equal((await h.settings.login("beta")).state, "none", "beta has no sign-in of its own");
+  });
+
+  test("a preset serves exactly what its API lists: a check replaces the list, a save keeps it, a custom list stays the person's", async () => {
+    let listed = ["deepseek-v4-pro", "deepseek-flash"];
     const server = createServer((req, res) => {
-      if (req.headers.authorization !== "Bearer good") return res.writeHead(401).end();
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "a" }, { id: "b" }] }));
+      if (req.headers.authorization !== "Bearer sk-xxxxxxxxxxxxxx") return res.writeHead(401).end();
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: listed.map((id) => ({ id })) }));
     });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
-      const endpoint = { id: "x", name: "x", preset: "custom", api: "openai-completions", baseUrl: `http://127.0.0.1:${server.address().port}/v1` };
+      const url = `http://127.0.0.1:${server.address().port}`;
+      const h = settingsHarness(undefined, { deepseekUrl: url });
+      const provider = await h.settings.createProvider({ name: "DS", preset: "deepseek", key: "sk-xxxxxxxxxxxxxx" });
+      const executor = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: provider.id });
+      const conv = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [h.bot("甲", executor.id).id] });
+      const models = () => h.store.getProvider(provider.id).models;
+      const stale = () => h.store.listConversations().find((c) => c.id === conv.id).members[0].stale;
+      assert.deepEqual(models(), [], "nothing is offered before the API has been asked");
+
+      const first = await h.settings.checkProvider(provider.id);
+      assert.deepEqual([first.check.ok, first.check.models, first.relisted], [true, ["deepseek-flash", "deepseek-v4-pro"], true]);
+      assert.deepEqual((await h.sources.models(executor.id)).map((m) => [m.id, m.available]), [["deepseek-flash", true], ["deepseek-v4-pro", true]]);
+
+      listed = ["deepseek-flash", "deepseek-v4-pro", "deepseek-flash"];
+      assert.equal((await h.settings.checkProvider(provider.id)).relisted, false, "the same ids in another order are the same list");
+      listed = ["deepseek-v4-pro"];
+      assert.equal((await h.settings.checkProvider(provider.id)).relisted, true);
+      assert.deepEqual(models(), ["deepseek-v4-pro"], "a model the API stopped listing is not offered");
+      assert.equal(stale(), false, "a fresh list is not a new setup");
+
+      await h.settings.updateProvider(provider.id, { name: "DeepSeek", key: "sk-refused-00000000" });
+      assert.deepEqual(models(), ["deepseek-v4-pro"], "a save leaves the listed models alone");
+      const refused = await h.settings.checkProvider(provider.id);
+      assert.deepEqual([refused.check.ok, refused.relisted, models()], [false, false, ["deepseek-v4-pro"]], "a check that lists nothing keeps the last list");
+
+      await h.settings.updateProvider(provider.id, { key: "sk-xxxxxxxxxxxxxx" });
+      listed = ["deepseek-flash", "deepseek-v4-pro"];
+      assert.equal(await h.settings.refreshModels(), true, "a start asks every preset again");
+      assert.deepEqual(models(), ["deepseek-flash", "deepseek-v4-pro"]);
+
+      const custom = await h.settings.createProvider({
+        name: "网关",
+        preset: "custom",
+        api: "openai-completions",
+        base_url: url,
+        models: ["m1"],
+        key: "sk-xxxxxxxxxxxxxx",
+      });
+      const customCheck = await h.settings.checkProvider(custom.id);
+      assert.deepEqual([customCheck.check.models, customCheck.relisted], [["deepseek-flash", "deepseek-v4-pro"], false]);
+      assert.deepEqual(h.store.getProvider(custom.id).models, ["m1"], "a custom endpoint keeps the list a person gave it");
+    } finally {
+      server.close();
+    }
+  });
+
+  test("a check brings back the ids the endpoint listed, each once and sorted, in one page", async () => {
+    const server = createServer((req, res) => {
+      if (req.headers.authorization !== "Bearer good") return res.writeHead(401).end();
+      const onePage = !req.url.startsWith("/anthropic/") || req.url === "/anthropic/v1/models?limit=1000";
+      res.writeHead(onePage ? 200 : 400, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "b" }, { id: "a" }, { id: "b" }] }));
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const endpoint = { id: "x", name: "x", preset: "custom", api: "openai-completions", baseUrl: `${base}/v1` };
       assert.deepEqual(await checkEndpoint({ ...endpoint, apiKey: "good" }), { ok: true, detail: "连上了，API 列出 2 个模型", models: ["a", "b"] });
       assert.deepEqual(await checkEndpoint({ ...endpoint, apiKey: "bad" }), { ok: false, detail: "密钥被拒绝（401）" });
+      // Anthropic's list pages at 20 unless asked for more
+      const anthropic = { ...endpoint, api: "anthropic-messages", baseUrl: `${base}/anthropic`, apiKey: "good" };
+      assert.deepEqual((await checkEndpoint(anthropic)).models, ["a", "b"]);
     } finally {
       server.close();
     }
@@ -956,6 +1153,22 @@ describe("executors and providers", () => {
     assert.equal(literal("sk-a$HOME$b"), "sk-a$$HOME$$b");
     assert.equal(literal("sk-plain"), "sk-plain");
   });
+
+  test("pi offers only the ids its model API listed, and runs one named by hand that pi has never heard of", async () => {
+    const endpoint = { id: "p1", name: "DS", preset: "deepseek", apiKey: "sk-test", models: ["deepseek-flash", "deepseek-v4-pro"] };
+    const factory = piHarness.create({ id: "e1", label: "pi", source: { kind: "endpoint", endpoint } });
+    assert.deepEqual(
+      (await factory.sessionOptions()).models.map((m) => [m.id, m.resolved, m.label]),
+      [
+        ["deepseek-flash", "deepseek/deepseek-flash", "deepseek-flash"],
+        ["deepseek-v4-pro", "deepseek/deepseek-v4-pro", "deepseek-v4-pro"],
+      ],
+    );
+    assert.deepEqual(await factory.sessionInfo({}), { model: "deepseek/deepseek-flash", modelLabel: "deepseek-flash", effort: null }, "nothing picked runs the first listed");
+    assert.deepEqual(await factory.sessionInfo({ model: "deepseek/typed-by-hand" }), { model: "deepseek/typed-by-hand", modelLabel: "typed-by-hand", effort: null });
+    const deepseek = (await piHarness.presets()).find((p) => p.id === "deepseek");
+    assert.deepEqual([deepseek.api, "models" in deepseek], ["openai-completions", false], "a preset says where to call, not what it serves");
+  });
 });
 
 /** A root with three extensions: code, ACP with a fake agent, and one written for another contract. */
@@ -969,17 +1182,43 @@ function extensionRoot() {
     for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text);
     return dir;
   };
-  pkg("code", { api: 1, entry: "./index.js" }, {
-    "index.js": `export const harness = { type: "coded", label: "Coded", sources: { own: false, apis: ["openai-completions"] }, capabilities: () => ({}), fields: [], create: () => ({}) };`,
+  pkg("code", { api: 2, entry: "./index.js" }, {
+    "index.js": `export const harness = { type: "coded", label: "Coded", sources: { own: false, apis: ["openai-completions"] }, capabilities: () => ({}), create: () => ({}) };`,
   });
-  const acp = pkg("agent", { api: 1, type: "fake", label: "Fake Agent", acp: { command: ["node", "./agent.mjs"] } });
+  const acp = pkg("agent", { api: 2, type: "fake", label: "Fake Agent", acp: { command: ["node", "./agent.mjs"] } });
   copyFileSync(fileURLToPath(new URL("./fixtures/acp-agent.mjs", import.meta.url)), join(acp, "agent.mjs"));
-  pkg("old", { api: 0, entry: "./index.js" }, { "index.js": "export const harness = {};" });
-  pkg("broken", { api: 1, type: "gone", acp: { command: ["node", "some-package/bin/agent.js"] } });
+  pkg("old", { api: 1, entry: "./index.js" }, { "index.js": "export const harness = {};" });
+  pkg("broken", { api: 2, type: "gone", acp: { command: ["node", "some-package/bin/agent.js"] } });
   return root;
 }
 
 describe("extensions", () => {
+  test("a base says which version it runs, whether a program Roster fetched or the library its adapter carries", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roster-bases-"));
+    dirs.push(root);
+    const lib = join(root, "extensions", "lib");
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(join(lib, "package.json"), JSON.stringify({ name: "@test/lib", version: "0.0.1", type: "module", roster: { api: 2, entry: "./index.js" } }));
+    writeFileSync(
+      join(lib, "index.js"),
+      `export const harness = { type: "lib", label: "Lib", version: "9.9.9", sources: { own: false, apis: [] }, capabilities: () => ({}), create: () => ({}) };`,
+    );
+    const extensions = new Extensions([{ dir: join(root, "extensions"), origin: "linked" }]);
+    await extensions.load();
+    const cli = join(root, "agents", "prog", "node_modules", "@test", "prog-cli");
+    mkdirSync(cli, { recursive: true });
+    writeFileSync(join(cli, "package.json"), JSON.stringify({ name: "@test/prog-cli", version: "0.16.0", bin: { prog: "cli.js" } }));
+    writeFileSync(join(cli, "cli.js"), "");
+    const catalog = [
+      { id: "prog", label: "Prog", description: "", program: { npm: "@test/prog-cli", bin: "prog" } },
+      { id: "lib", label: "Lib", description: "" },
+    ];
+    const bases = new Bases(catalog, extensions, new Detector(catalog, ""), new Installer(join(root, "extensions"), join(root, "agents"), () => {}));
+    assert.deepEqual([bases.state("prog").version, bases.state("prog").usable], ["0.16.0", true]);
+    assert.deepEqual([bases.state("lib").needed, bases.state("lib").version], [false, "9.9.9"]);
+    assert.match(piHarness.version, /^\d+\.\d+/, "pi says which version of its library it carries");
+  });
+
   test("a root is scanned: code exports a type, a manifest becomes an ACP type, the rest say why not", async () => {
     const ext = new Extensions([{ dir: extensionRoot(), origin: "linked" }]);
     const loaded = await ext.load();
@@ -987,7 +1226,7 @@ describe("extensions", () => {
     assert.equal(byName["@test/code"].type, "coded");
     assert.equal(byName["@test/agent"].type, "fake");
     assert.equal(byName["@test/agent"].label, "Fake Agent");
-    assert.match(byName["@test/old"].error, /契约 v0/);
+    assert.match(byName["@test/old"].error, /契约 v1/);
     assert.match(byName["@test/broken"].error, /some-package/);
     assert.deepEqual(ext.types().map((t) => t.type).sort(), ["coded", "fake"]);
     const fake = ext.types().find((t) => t.type === "fake");
@@ -1003,13 +1242,13 @@ describe("extensions", () => {
     const db = openDb(join(dir, "roster.db"));
     const store = new Store(db);
     const secrets = new Secrets(db, NO_VAULT);
-    const executor = store.createExecutor({ name: "假 agent", type: "fake", settings: {} });
-    const registry = Registry.from(ext.types(), store.listExecutors());
+    const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+    const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
     const sources = new Sources(store, secrets, () => registry, async () => []);
     const pushed = [];
     const attachments = new AttachmentStore(join(dir, "attachments"));
     const orch = new Orchestrator(store, (m) => pushed.push(m), registry, sources, attachments);
-    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: "be brief", executor_id: executor.id, model_source: null, model: null, permission_tier: "read" });
+    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: "be brief", executor_id: executor.id, model: null, permission_tier: "read" });
     const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
     const [member] = store.activeMembers(conv.id);
     try {
@@ -1030,7 +1269,8 @@ describe("extensions", () => {
     const status = await orch.status(conv.id);
     assert.equal(status.sessions[member.id].context.used, 1200);
     assert.equal(status.sessions[member.id].model, "m1");
-    assert.deepEqual(status.options[member.id].models.map((m) => [m.id, m.source]), [["m1", null], ["m2", null]]);
+    assert.deepEqual(status.options[member.id].models.map((m) => m.id), ["m1", "m2"]);
+    assert.deepEqual((await sources.models(executor.id)).map((m) => m.id), ["m1", "m2"], "an own sign-in's catalog comes from the agent");
     assert.deepEqual(status.options[member.id].modes.map((m) => m.id), ["ask", "yolo"]);
     assert.equal(status.options[member.id].compact, true);
     // the live session's own list, argument hints included
@@ -1050,7 +1290,7 @@ describe("extensions", () => {
     await until(() => pushed.some((m) => m.kind === "session" && m.info.model === "m2"));
     assert.equal(pushed.findLast((m) => m.kind === "session").info.modelLabel, "Model Two");
 
-    const login = await registry.get(executor.id).login();
+    const login = await ext.types().find((t) => t.type === "fake").login();
     assert.equal(login.state, "ok");
     assert.equal(login.account, "Pro");
     assert.deepEqual(login.methods.map((m) => [m.id, m.terminal?.args.at(-1)]), [["fake-login", "login"]]);
@@ -1064,10 +1304,10 @@ describe("extensions", () => {
     await ext.load();
     process.env.FAKE_ACP_LOGGED_OUT = "1";
     try {
-      const fake = ext.types().find((t) => t.type === "fake").create({ id: "x", label: "假 agent", settings: {} });
-      const login = await fake.login();
+      const type = ext.types().find((t) => t.type === "fake");
+      const login = await type.login();
       assert.equal(login.state, "none");
-      const check = await fake.check({ kind: "own" });
+      const check = await type.create({ id: "x", label: "假 agent", source: { kind: "own" } }).check();
       assert.equal(check.ok, false);
       assert.match(check.detail, /没有登录/);
     } finally {

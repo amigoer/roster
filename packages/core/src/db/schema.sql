@@ -5,15 +5,20 @@ PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
 
--- A configured instance of a harness type (Claude Code, pi-agent). Types are
--- code; executors are data, so the same type can back several of them.
+-- An agent: one harness type (Claude Code, pi-agent) bound to one model source.
+-- Types are code and hold no state; executors are data, and a bot names one.
 CREATE TABLE IF NOT EXISTS executors (
   id          TEXT PRIMARY KEY,
-  -- what a person calls it; shown wherever a bot's executor is
+  -- what a person calls it; unique among live ones, shown wherever a bot's agent is
   name        TEXT NOT NULL,
   -- a harness type registered in code; deliberately no CHECK, or it is a closed list again
   type        TEXT NOT NULL,
-  -- values for the fields the type declares
+  -- 'own' runs on the agent's own sign-in, 'endpoint' on the model API in provider_id
+  source_kind TEXT NOT NULL DEFAULT 'own' CHECK (source_kind IN ('own', 'endpoint')),
+  provider_id TEXT REFERENCES providers(id),
+  -- what bots on it run when they name no model of their own
+  model       TEXT,
+  -- from before the program path belonged to the type; read only by the migration that moved it
   config_json TEXT NOT NULL DEFAULT '{}',
   -- from before bots named their own endpoint; read only by the migration that moved it
   provider_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -25,7 +30,15 @@ CREATE TABLE IF NOT EXISTS executors (
   archived_at INTEGER
 );
 
--- A model endpoint and how to authenticate to it. Bots name one; executors do not hold any.
+-- What this machine sets for a harness type. Keyed by type, so it cannot grow into a second instance.
+CREATE TABLE IF NOT EXISTS harness_settings (
+  type       TEXT PRIMARY KEY,
+  -- the agent program to run; NULL runs the one found on the machine, then Roster's own install
+  program    TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+-- A model endpoint and how to authenticate to it. An executor names one when it does not run on the agent's own sign-in.
 CREATE TABLE IF NOT EXISTS providers (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
@@ -33,6 +46,7 @@ CREATE TABLE IF NOT EXISTS providers (
   preset       TEXT NOT NULL,
   api          TEXT,
   base_url     TEXT,
+  -- the ids its API listed for a preset, refreshed by each check; the ones a person entered for 'custom'
   models_json  TEXT NOT NULL DEFAULT '[]',
   headers_json TEXT NOT NULL DEFAULT '{}',
   -- the key is in secrets, never here
@@ -70,8 +84,9 @@ CREATE TABLE IF NOT EXISTS bots (
   -- the preset, appended to the backend's own coding prompt
   system_prompt   TEXT,
   executor_id     TEXT NOT NULL REFERENCES executors(id),
-  -- the endpoint its models come from; NULL is the agent's own sign-in
+  -- from before the executor named the source; read only by the migration that moved it
   model_source    TEXT REFERENCES providers(id),
+  -- its own pick among its executor's models; NULL runs the executor's default
   model           TEXT,
   permission_tier TEXT NOT NULL CHECK (permission_tier IN ('read', 'write', 'execute')),
   tools_json      TEXT NOT NULL DEFAULT '[]',

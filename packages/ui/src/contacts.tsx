@@ -1,21 +1,22 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useContext, useEffect, useMemo, useState } from "react";
 import { Archive, Eye, MessageCircle, Pencil, Plus, Shuffle, Trash2, Users } from "lucide-react";
 import {
   activeMembers,
   api,
   type Bot,
   type BotInput,
-  type CapabilitySet,
+  type Candidate,
+  type Capabilities,
   type Conversation,
   type Logo,
-  type ModelGroup,
+  type ModelOption,
   type Presence,
   type Tier,
 } from "./api";
 import { BotAvatar, GroupAvatar, LogoImage, logoOf, TIER_LABEL, useLogos, type Busy } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { DeleteConversation, RenameInput } from "./conversation-menu";
-import { byAgent, capsOf, useExecutor, useSourceLabel } from "./executors";
+import { BaseLabels, byBase, Executors, useExecutor } from "./executors";
 import { LIST_BODY, ListSearch, ROW, rowState, SectionLabel } from "./list";
 import { Markdown } from "./markdown";
 import { MemberSections, MODES } from "./members-panel";
@@ -60,7 +61,6 @@ export function ContactList({
 }) {
   const [query, setQuery] = useState("");
   const executor = useExecutor();
-  const sourceLabel = useSourceLabel();
   const isSelected = (kind: Contact["kind"], id: string) => selected?.kind === kind && selected.id === id;
   const q = query.trim().toLowerCase();
   const shownBots = q
@@ -87,7 +87,7 @@ export function ContactList({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{b.name}</div>
                 <div className="text-muted-foreground truncate text-xs">
-                  {b.title ?? `${executor(b.executor_id).label} · ${b.model ?? sourceLabel(b)}`}
+                  {b.title ?? `${executor(b.executor_id).label} · ${b.model ?? executor(b.executor_id).model ?? "默认模型"}`}
                 </div>
               </div>
             </button>
@@ -186,7 +186,7 @@ export function BotProfile({
   onDeleted,
 }: {
   bot: Bot;
-  caps: Record<string, CapabilitySet>;
+  caps: Record<string, Capabilities>;
   convs: Conversation[];
   busy: Busy;
   onEdit: () => void;
@@ -199,8 +199,7 @@ export function BotProfile({
   const [confirming, setConfirming] = useState(false);
   const [opening, setOpening] = useState(false);
   const executor = useExecutor()(bot.executor_id);
-  const sourceLabel = useSourceLabel();
-  const botCaps = capsOf(caps, bot);
+  const botCaps = caps[bot.executor_id];
   const joined = convs.filter((c) => !c.archived && activeMembers(c).some((m) => m.bot.id === bot.id));
   const tier = TIER_LABEL[bot.permission_tier];
 
@@ -216,7 +215,7 @@ export function BotProfile({
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <Badge variant="outline" className="font-normal">
                 <ProviderIcon provider={providerOf(bot, executor.type)} />
-                {executor.label} · {sourceLabel(bot)} · {bot.model ?? "默认模型"}
+                {executor.label} · {bot.model ?? executor.model ?? "默认模型"}
               </Badge>
               <Badge variant="outline" className="font-normal">
                 {tier?.label}
@@ -452,38 +451,34 @@ export function GroupProfile({
   );
 }
 
-let modelsOnce: Promise<Record<string, ModelGroup[]>> | null = null;
+let modelsOnce: Promise<Record<string, ModelOption[]>> | null = null;
 
-/** Executors or their providers changed, so the catalogs they offer did too. */
+/** Agents or their model APIs changed, so the models they offer did too. */
 export function forgetModels(): void {
   modelsOnce = null;
 }
 
-/** Fetched once until executors change: pi reads its whole catalog to answer. */
-function useModels() {
-  const [models, setModels] = useState<Record<string, ModelGroup[]>>({});
+/** Fetched once until agents change: an agent on its own sign-in is started to answer. */
+function useModels(key: string) {
+  const [models, setModels] = useState<Record<string, ModelOption[]>>({});
   useEffect(() => {
     modelsOnce ??= api
       .models()
       .then((r) => r.models)
       .catch(() => ({}));
     void modelsOnce.then(setModels);
-  }, []);
+  }, [key]);
   return models;
 }
 
 const LAST_BACKEND = "roster.lastBackend";
 
-/** The agent's own sign-in has no id; this stands in for it in a select value. */
-const OWN = "@own";
-/** A source and a model as one select value; an empty model is the source's default. */
-const encode = (source: string | null, model: string | null) => `${source ?? OWN}|${model ?? ""}`;
-const decode = (value: string): { source: string | null; model: string | null } => {
-  const i = value.indexOf("|");
-  const source = value.slice(0, i);
-  return { source: source === OWN ? null : source, model: value.slice(i + 1) || null };
-};
+/** Select values that are not a model id: the agent's default, and typing one in. */
+const DEFAULT_MODEL = "@default";
 const CUSTOM_MODEL = "@custom";
+/** An agent that does not exist yet, as a select value: picking it makes it. */
+const NEW_AGENT = "@new:";
+const candidateValue = (c: Candidate) => `${NEW_AGENT}${c.type}|${c.source_kind}|${c.provider_id ?? ""}`;
 
 /** Two bots in one face are hard to tell apart, so a role's logo yields to one nobody wears. */
 function freeLogo(preferred: string | null, logos: readonly Logo[], bots: Bot[], selfId?: string): string | null {
@@ -557,33 +552,36 @@ export function BotEditor({
   bot: Bot | null;
   template: Template | null;
   bots: Bot[];
-  caps: Record<string, CapabilitySet>;
-  /** opens the settings page of the agent the form is on; empty when it is on none */
-  onManageAgents: (type: string) => void;
+  caps: Record<string, Capabilities>;
+  /** opens the agent the form is on in settings; null opens a new one */
+  onManageAgents: (executorId: string | null) => void;
   onCancel: () => void;
   onSaved: (bot: Bot) => void;
 }) {
   const executor = useExecutor();
-  const executorIds = byAgent(Object.keys(caps), (id) => executor(id).type);
-  const models = useModels();
+  const baseLabels = useContext(BaseLabels);
+  // only agents that can run: the agent carries the source, so a broken one would carry the bot down with it
+  const agents = useContext(Executors).filter((e) => e.problem === null);
+  const models = useModels(agents.map((e) => e.id).join());
   const logos = useLogos();
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [form, setForm] = useState<BotInput>(() => {
     if (bot) {
-      const { name, title, avatar, system_prompt, executor_id, model_source, model, permission_tier } = bot;
-      return { name, title, avatar: logoOf(bot, logos)?.id ?? avatar, system_prompt, executor_id, model_source, model, permission_tier };
+      const { name, title, avatar, system_prompt, executor_id, model, permission_tier } = bot;
+      return { name, title, avatar: logoOf(bot, logos)?.id ?? avatar, system_prompt, executor_id, model, permission_tier };
     }
-    // a new bot starts on whatever executor the last one was made with; older saves still say backend
-    type Last = { executor_id?: string; backend?: string; model_source?: string | null; model: string | null } | null;
+    // a new bot starts on whatever agent the last one was made with; older saves still say backend
+    type Last = { executor_id?: string; backend?: string; model: string | null } | null;
     let last: Last = null;
     try {
       last = JSON.parse(localStorage.getItem(LAST_BACKEND) ?? "null") as Last;
     } catch {
       // no memory of a previous choice is fine
     }
+    const usable = (id: string | undefined) => (id && agents.some((e) => e.id === id) ? id : undefined);
     const recent = bots.at(-1);
     const lastId = last?.executor_id ?? last?.backend;
-    const executor_id =
-      lastId && executorIds.includes(lastId) ? lastId : (recent?.executor_id ?? executorIds[0] ?? "");
+    const executor_id = usable(lastId) ?? usable(recent?.executor_id) ?? agents[0]?.id ?? "";
     const from = last && lastId === executor_id ? last : recent && recent.executor_id === executor_id ? recent : null;
     return {
       name: template ? freeName(template.name, bots) : "",
@@ -591,7 +589,6 @@ export function BotEditor({
       avatar: freeLogo(template?.avatar ?? null, logos, bots),
       system_prompt: template?.system_prompt ?? null,
       executor_id,
-      model_source: from?.model_source ?? null,
       model: from?.model ?? null,
       permission_tier: template?.permission_tier ?? "read",
     };
@@ -600,22 +597,37 @@ export function BotEditor({
   const [busy, setBusy] = useState(false);
   /** a setting is written as Markdown, and a long one is easier to check rendered */
   const [preview, setPreview] = useState(false);
-  /** typing a model id the catalog does not list */
+  /** typing a model id the list does not have */
   const [customModel, setCustomModel] = useState(false);
 
   const set = <K extends keyof BotInput>(key: K, value: BotInput[K]) => setForm((f) => ({ ...f, [key]: value }));
 
-  const groups = models[form.executor_id] ?? [];
-  const listed = groups.some((g) => g.source === form.model_source && (form.model === null || g.models.some((m) => m.id === form.model)));
-  const formCaps = capsOf(caps, form);
-
-  // an executor with sources starts on its first one; a saved pick outside the list stays as typed
+  // pairings of base and source with no agent yet, offered right in the list so a bot never waits on settings
+  const agentsKey = agents.map((e) => e.id).join();
   useEffect(() => {
-    if (groups.length === 0) return;
-    if (!groups.some((g) => g.source === form.model_source)) {
-      setForm((f) => ({ ...f, model_source: groups[0]!.source, model: null }));
+    void api.candidates().then((r) => setCandidates(r.candidates ?? []));
+  }, [agentsKey]);
+
+  const current = form.executor_id ? executor(form.executor_id) : null;
+  const choices = models[form.executor_id] ?? [];
+  const listed = form.model === null || choices.some((m) => m.id === form.model);
+  const formCaps = caps[form.executor_id];
+  const grouped = byBase([...agents.map((e) => ({ type: e.type, agent: e })), ...candidates.map((c) => ({ type: c.type, candidate: c }))]);
+
+  const pickAgent = async (value: string) => {
+    setCustomModel(false);
+    if (!value.startsWith(NEW_AGENT)) {
+      setForm((f) => (value === f.executor_id ? f : { ...f, executor_id: value, model: null }));
+      return;
     }
-  }, [groups, form.model_source]);
+    const c = candidates.find((x) => candidateValue(x) === value);
+    if (!c) return;
+    setError(null);
+    const r = await api.createExecutor({ type: c.type, source_kind: c.source_kind, provider_id: c.provider_id });
+    if (r.error || !r.executor) return setError(r.error ?? "建 agent 失败");
+    const made = r.executor;
+    setForm((f) => ({ ...f, executor_id: made.id, model: null }));
+  };
 
   const save = async () => {
     setBusy(true);
@@ -627,7 +639,7 @@ export function BotEditor({
       return;
     }
     try {
-      localStorage.setItem(LAST_BACKEND, JSON.stringify({ executor_id: form.executor_id, model_source: form.model_source, model: form.model }));
+      localStorage.setItem(LAST_BACKEND, JSON.stringify({ executor_id: form.executor_id, model: form.model }));
     } catch {
       // only a default for next time
     }
@@ -761,59 +773,75 @@ export function BotEditor({
             <div className="grid content-start gap-2">
               <div className="flex items-baseline justify-between">
                 <Label>Agent</Label>
-                <Button type="button" variant="link" size="xs" className="text-muted-foreground h-auto p-0" onClick={() => onManageAgents(executor(form.executor_id).type)}>
-                  管理 agent
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="text-muted-foreground h-auto p-0"
+                  onClick={() => onManageAgents(current ? form.executor_id : null)}
+                >
+                  {current ? "管理 agent" : "新建 agent"}
                 </Button>
               </div>
-              <Select
-                value={form.executor_id}
-                onValueChange={(id) =>
-                  setForm((f) => (id === f.executor_id ? f : { ...f, executor_id: id, model_source: models[id]?.[0]?.source ?? null, model: null }))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选一个 agent" />
-                </SelectTrigger>
-                <SelectContent>
-                  {executorIds.map((id) => (
-                    <SelectItem key={id} value={id}>
-                      {executor(id).label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {grouped.length === 0 ? (
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  还没有能用的 agent：本机没有能用的 harness，也没有接得上的模型 API。到设置里装一个 harness，或者加一个模型 API。
+                </p>
+              ) : (
+                <Select value={form.executor_id} onValueChange={(v) => void pickAgent(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="选一个 agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {grouped.map(([type, items]) => (
+                      <SelectGroup key={type}>
+                        <SelectLabel>{baseLabels[type] ?? type}</SelectLabel>
+                        {items.map((item) =>
+                          "agent" in item ? (
+                            <SelectItem key={item.agent.id} value={item.agent.id}>
+                              {item.agent.label}
+                            </SelectItem>
+                          ) : (
+                            <SelectItem key={candidateValue(item.candidate)} value={candidateValue(item.candidate)}>
+                              {item.candidate.name}
+                              <span className="text-muted-foreground"> · 新建</span>
+                            </SelectItem>
+                          ),
+                        )}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <span className="text-muted-foreground text-xs">agent 定了 harness 和模型从哪来：订阅，或者一个模型 API</span>
             </div>
             <div className="grid content-start gap-2">
               <Label htmlFor="bot-model">模型</Label>
-              {groups.length === 0 ? (
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  这个 agent 现在没有可用的模型来源：它没有自带登录，也没有协议对得上的 API。到设置里加一个模型 API。
-                </p>
+              {!current ? (
+                <p className="text-muted-foreground text-xs leading-relaxed">先选一个 agent。</p>
               ) : (
                 <Select
-                  value={customModel || !listed ? CUSTOM_MODEL : encode(form.model_source, form.model)}
+                  value={customModel || !listed ? CUSTOM_MODEL : (form.model ?? DEFAULT_MODEL)}
                   onValueChange={(v) => {
                     if (v === CUSTOM_MODEL) return setCustomModel(true);
                     setCustomModel(false);
-                    const { source, model } = decode(v);
-                    setForm((f) => ({ ...f, model_source: source, model }));
+                    set("model", v === DEFAULT_MODEL ? null : v);
                   }}
                 >
                   <SelectTrigger id="bot-model" className="w-full">
                     <SelectValue placeholder="选模型" />
                   </SelectTrigger>
                   <SelectContent>
-                    {groups.map((g) => (
-                      <SelectGroup key={g.source ?? OWN}>
-                        <SelectLabel>{g.label}</SelectLabel>
-                        <SelectItem value={encode(g.source, null)}>默认模型</SelectItem>
-                        {g.models.map((m) => (
-                          <SelectItem key={m.id} value={encode(g.source, m.id)} disabled={!m.available}>
-                            {m.label ?? m.id}
-                            {!m.available && <span className="text-muted-foreground"> · 没有密钥</span>}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
+                    <SelectItem value={DEFAULT_MODEL}>
+                      用 agent 的默认{current.model ? `（${current.model}）` : "模型"}
+                    </SelectItem>
+                    {choices.map((m) => (
+                      <SelectItem key={m.id} value={m.id} disabled={!m.available}>
+                        {m.label ?? m.id}
+                        {!m.available && (
+                          <span className="text-muted-foreground"> · {current.source_kind === "own" ? "没有登录" : "没有密钥"}</span>
+                        )}
+                      </SelectItem>
                     ))}
                     <SelectGroup>
                       <SelectLabel>其他</SelectLabel>
@@ -822,7 +850,7 @@ export function BotEditor({
                   </SelectContent>
                 </Select>
               )}
-              {(customModel || (!listed && groups.length > 0)) && (
+              {current && (customModel || !listed) && (
                 <Input
                   value={form.model ?? ""}
                   onChange={(e) => set("model", e.target.value || null)}

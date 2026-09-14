@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import {
   api,
   CUSTOM_PRESET,
-  type AgentView,
+  type BaseView,
   type Bot,
   type CheckItem,
   type CredentialHint,
@@ -32,16 +32,17 @@ import {
   type ExtensionsView,
   type HarnessTypeInfo,
   type InstallJob,
-  type CatalogGroup,
   type LoginState,
   type ModelOption,
   type ModelProbe,
   type ProviderPreset,
   type ProviderRecord,
+  type SourceKind,
 } from "./api";
 import { coreOutdated, type AboutState } from "./about";
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
+import { OWN_SOURCE_LABEL } from "./executors";
 import { LIST_BODY, ROW, rowState, SectionLabel } from "./list";
 import { ProviderIcon } from "./provider-icon";
 import { THEME_LABELS, type Theme } from "./theme";
@@ -73,13 +74,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Progress } from "@/components/ui/progress";
-import { RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -88,17 +89,18 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 /**
- * Settings speak of agents only. An agent's own page edits the executor bots
- * on it run on; a further executor of the same agent is an extra setup.
+ * Three things are set up here, in the order they build on each other: bases
+ * (the programs, stateless), model APIs (keys), and agents -- a base bound to
+ * one source, which is what bots pick.
  */
 export type SettingsSelection =
   | { kind: "appearance" }
   | { kind: "about" }
-  /** every agent Roster knows, to fetch more; an id scrolls to that agent's card */
+  /** every base Roster knows, to fetch more; an id scrolls to that base's card */
   | { kind: "extensions"; id?: string }
-  | { kind: "agent"; id: string }
-  /** an extra setup, or one whose agent is gone; the agent it belongs to travels with it */
-  | { kind: "executor"; id: string | null; type: string }
+  | { kind: "base"; id: string }
+  /** null creates one, on the given base when it was opened from that base's page */
+  | { kind: "agent"; id: string | null; type?: string }
   | { kind: "provider"; id: string | null }
   | null;
 
@@ -114,11 +116,11 @@ const KEYSTORE: Record<string, string> = {
   kwallet6: "KWallet",
 };
 
-/** Every preset any type offers, once each; where two types know one, the fuller catalog describes it. */
+/** Every preset any type offers, once each. */
 function presetsOf(view: ExecutorSettings): ProviderPreset[] {
   const seen = new Map<string, ProviderPreset>();
   for (const list of Object.values(view.presets)) {
-    for (const p of list) if ((seen.get(p.id)?.models ?? -1) < p.models) seen.set(p.id, p);
+    for (const p of list) if (!seen.has(p.id)) seen.set(p.id, p);
   }
   return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -145,15 +147,15 @@ function SectionHead({ label, onAdd, addLabel }: { label: string; onAdd: () => v
   );
 }
 
-/** One badge says where an agent stands: ready to use, and from where; or what is missing. */
-function agentStatus(a: AgentView): { tone: "ok" | "warn" | "bad" | "quiet"; text: string } {
+/**
+ * One badge says where a base stands: its version once it runs, since where the
+ * program came from is nobody's concern, or what keeps it from running.
+ */
+function baseStatus(a: BaseView): { tone: "ok" | "warn" | "bad"; text: string } | null {
   if (a.adapter === "error") return { tone: "bad", text: "适配器出错" };
   if (a.adapter === "missing") return { tone: "warn", text: "没装适配器" };
-  const { state } = a;
-  if (!state.needed) return { tone: "ok", text: "内置" };
-  if (state.detected) return { tone: "ok", text: `本机已有${state.detected.version ? ` ${state.detected.version}` : ""}` };
-  if (state.installed) return { tone: "ok", text: `Roster 已装${state.installed.version ? ` ${state.installed.version}` : ""}` };
-  return { tone: "warn", text: "没找到程序" };
+  if (!a.state.usable) return { tone: "warn", text: "没找到程序" };
+  return a.state.version ? { tone: "ok", text: a.state.version } : null;
 }
 
 export function SettingsList({
@@ -213,7 +215,7 @@ export function SettingsList({
         </button>
 
         {view ? (
-          <AgentSettings view={view} ext={ext} selected={selected} onSelect={onSelect} />
+          <CoreSettings view={view} ext={ext} selected={selected} onSelect={onSelect} />
         ) : (
           <div className="space-y-3 px-2.5 pt-4">
             {[0, 1, 2].map((i) => (
@@ -232,7 +234,7 @@ export function SettingsList({
   );
 }
 
-function AgentSettings({
+function CoreSettings({
   view,
   ext,
   selected,
@@ -244,38 +246,71 @@ function AgentSettings({
   onSelect: (s: SettingsSelection) => void;
 }) {
   const presets = presetsOf(view);
-  const is = (kind: "agent" | "provider", id: string) =>
+  const is = (kind: "base" | "agent" | "provider", id: string) =>
     selected !== null && selected.kind === kind && "id" in selected && selected.id === id;
-  const agents = ext?.agents ?? [];
-  const ready = agents.filter((a) => a.state.usable);
+  const bases = ext?.bases ?? [];
+  const ready = bases.filter((a) => a.state.usable);
+  const baseOf = (type: string) => bases.find((b) => b.id === type);
   return (
     <>
-      <SectionHead label={`Agent · ${ready.length}`} addLabel="更多 agent" onAdd={() => onSelect({ kind: "extensions" })} />
+      <SectionHead label={`Harness · ${ready.length}`} addLabel="更多 harness" onAdd={() => onSelect({ kind: "extensions" })} />
       {ext && ready.length === 0 && (
         <button
           type="button"
           onClick={() => onSelect({ kind: "extensions" })}
           className={cn(ROW, "text-muted-foreground text-xs leading-relaxed", rowState(selected?.kind === "extensions"))}
         >
-          本机还没有能用的 agent。点 + 看看能装什么。
+          本机还没有能用的 harness。点 + 看看能装什么。
         </button>
       )}
       {ready.map((a) => {
-        const status = agentStatus(a);
+        // a program picked by hand is the person's own doing, and the version found elsewhere may not be its
+        const picked = view.programs[a.id];
         return (
           <button
             key={a.id}
             type="button"
-            onClick={() => onSelect({ kind: "agent", id: a.id })}
-            className={cn(ROW, rowState(is("agent", a.id) || (selected?.kind === "executor" && selected.type === a.id)))}
+            onClick={() => onSelect({ kind: "base", id: a.id })}
+            className={cn(ROW, rowState(is("base", a.id)))}
           >
             <ExtensionTile type={a.id} brand={a.brand} />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-medium">{a.label}</span>
-                <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+              <div className="truncate text-sm font-medium">{a.label}</div>
+              <div className={cn("text-muted-foreground truncate", picked ? "font-mono text-[11px]" : "text-xs")}>
+                {picked ?? (a.state.version ? `版本 ${a.state.version}` : "版本未知")}
               </div>
-              <div className="text-muted-foreground truncate font-mono text-[11px]">{a.state.path ?? "随 Roster 内置"}</div>
+            </div>
+          </button>
+        );
+      })}
+
+      <SectionHead label={`Agent · ${view.executors.length}`} addLabel="新建 agent" onAdd={() => onSelect({ kind: "agent", id: null })} />
+      {view.executors.length === 0 && (
+        <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">
+          还没有 agent。agent 是一个 harness，加上模型从哪来：订阅，或者一个模型 API。点 + 建一个；到通讯录里建 bot 时也能顺手建。
+        </p>
+      )}
+      {view.executors.map((e) => {
+        const pairing = `${baseOf(e.type)?.label ?? e.type} · ${sourceName(view, e)}`;
+        // a name that already says the pairing leaves the second line to the model
+        const line = e.name.startsWith(pairing)
+          ? e.model
+            ? `默认模型 ${e.model}`
+            : "默认模型跟着 harness"
+          : `${pairing}${e.model ? ` · ${e.model}` : ""}`;
+        return (
+          <button
+            key={e.id}
+            type="button"
+            onClick={() => onSelect({ kind: "agent", id: e.id })}
+            className={cn(ROW, rowState(is("agent", e.id)))}
+          >
+            <ExecutorTile type={e.type} brand={baseOf(e.type)?.brand} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{e.name}</div>
+              <div className={cn("truncate text-xs", e.problem ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                {e.problem ?? line}
+              </div>
             </div>
           </button>
         );
@@ -284,7 +319,7 @@ function AgentSettings({
       <SectionHead label={`模型 API · ${view.providers.length}`} addLabel="添加模型 API" onAdd={() => onSelect({ kind: "provider", id: null })} />
       {view.providers.length === 0 && (
         <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">
-          还没有模型 API。有订阅的 agent 用它自己的登录就行；想按量调用 DeepSeek、Kimi、自建网关……，点 + 加一个。
+          还没有模型 API。用订阅的 agent 不需要它；想按量调用 DeepSeek、Kimi、自建网关……，点 + 加一个。
         </p>
       )}
       {view.providers.map((p) => (
@@ -477,7 +512,7 @@ function detectionSummary(before: DetectedProgram[] | undefined, after: Detected
       ]
     : [];
   if (news.length > 0) return news.join("；");
-  if (after.length === 0) return "没在这台机器上找到已装的 agent";
+  if (after.length === 0) return "没在这台机器上找到已装的 harness";
   return `${before ? "没有变化，" : ""}找到 ${after.map(named).join("、")}`;
 }
 
@@ -485,14 +520,14 @@ function EnvironmentCard({
   env,
   refreshing,
   onRefresh,
-  agents,
+  bases,
 }: {
   env: Environment | null;
   refreshing: boolean;
   onRefresh: () => void;
-  agents: AgentView[];
+  bases: BaseView[];
 }) {
-  const label = (id: string) => agents.find((c) => c.id === id)?.label ?? id;
+  const label = (id: string) => bases.find((c) => c.id === id)?.label ?? id;
   return (
     <div className="rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -515,7 +550,7 @@ function EnvironmentCard({
         ) : (
           <>
             {env.programs.length === 0 ? (
-              <p className="text-muted-foreground">没在这台机器上找到已装的 agent。下面挑一个下载就行。</p>
+              <p className="text-muted-foreground">没在这台机器上找到已装的 harness。下面挑一个下载就行。</p>
             ) : (
               <ul className="space-y-1.5">
                 {env.programs.map((p) => (
@@ -571,9 +606,9 @@ function JobLine({ job }: { job: InstallJob }) {
 }
 
 /**
- * Every agent Roster can drive, and where each stands on this machine: the
+ * Every base Roster can drive, and where each stands on this machine: the
  * adapter ships with Roster, the program is found or fetched. The first thing a
- * fresh install sees, and the place to come back to for more. Each agent's own
+ * fresh install sees, and the place to come back to for more. Each base's own
  * setup is on its own page.
  */
 export function ExtensionsPanel({
@@ -589,7 +624,7 @@ export function ExtensionsPanel({
   view: ExecutorSettings;
   /** first run: say what the steps are */
   intro: boolean;
-  /** the agent picked in the list, scrolled to, outlined and unfolded */
+  /** the base picked in the list, scrolled to and outlined */
   focus?: string;
   onChanged: () => void;
   onSelect: (s: SettingsSelection) => void;
@@ -622,7 +657,7 @@ export function ExtensionsPanel({
   const refresh = async () => {
     setRefreshing(true);
     const before = ext?.environment?.programs;
-    const label = (id: string) => ext?.agents.find((a) => a.id === id)?.label ?? id;
+    const label = (id: string) => ext?.bases.find((a) => a.id === id)?.label ?? id;
     try {
       const r = await api.environment(true);
       if (r.error) {
@@ -641,25 +676,25 @@ export function ExtensionsPanel({
     }
   };
 
-  const agents = ext?.agents ?? [];
+  const bases = ext?.bases ?? [];
   const env = ext?.environment ?? null;
   const jobOf = (id: string) => ext?.jobs.find((j) => j.id === id);
-  // executors whose type no agent provides any more have no card to sit in
-  const orphans = ext ? view.executors.filter((e) => !agents.some((a) => a.id === e.type)) : [];
+  // agents whose base Roster no longer has have no card to sit in
+  const orphans = ext ? view.executors.filter((e) => !bases.some((a) => a.id === e.type)) : [];
 
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto max-w-2xl space-y-6 px-8 py-8">
         <div>
-          <h2 className="text-lg font-semibold">{intro ? "先有一个能用的 agent" : "Agent"}</h2>
+          <h2 className="text-lg font-semibold">{intro ? "先有一个能用的 harness" : "Harness"}</h2>
           <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
             {intro
-              ? "本机已经装了的 agent 直接就能用；没有的在这里下载，下载完就能用。之后到通讯录里建 bot，给它选一个 agent。"
-              : "适配器随 Roster 内置。agent 程序本机有就直接用，没有才下载到 Roster 自己的目录里，下载完就能用。"}
+              ? "harness 是 Claude Code、Codex 这样跑 agent 循环的程序。本机装了的直接能用，没有的在这里下载。之后建 agent（harness 加上订阅或模型 API），再到通讯录里建 bot 选它。"
+              : "有版本号的直接能用；显示「没找到程序」的点「下载安装」，装完就能用。"}
           </p>
         </div>
 
-        <EnvironmentCard env={env} refreshing={refreshing} onRefresh={() => void refresh()} agents={agents} />
+        <EnvironmentCard env={env} refreshing={refreshing} onRefresh={() => void refresh()} bases={bases} />
 
         {error && (
           <Alert variant="destructive">
@@ -678,8 +713,8 @@ export function ExtensionsPanel({
                 </div>
               </div>
             ))}
-          {agents.map((a) => {
-            const status = agentStatus(a);
+          {bases.map((a) => {
+            const status = baseStatus(a);
             const job = jobOf(a.id);
             const running = job?.state === "running" || busy === a.id;
             const needsProgram = a.state.needed && !a.state.usable && a.adapter !== "missing" && a.adapter !== "error";
@@ -697,15 +732,10 @@ export function ExtensionsPanel({
                 <ItemContent className="gap-1.5">
                   <ItemTitle className="flex flex-wrap items-center gap-1.5">
                     {a.label}
-                    <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+                    {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
                   </ItemTitle>
                   <ItemDescription className="leading-relaxed">{a.description}</ItemDescription>
                   {a.adapterError && <p className="text-destructive text-xs">{a.adapterError}</p>}
-                  {a.state.path && (
-                    <p className="text-muted-foreground truncate font-mono text-[11px]" title={a.state.path}>
-                      {a.state.path}
-                    </p>
-                  )}
                   {needsProgram && a.program && (
                     <p className="text-muted-foreground text-xs">
                       本机没找到 <span className="font-mono">{a.program.bin}</span>，下载会装到 Roster 自己的目录，不动系统。
@@ -725,7 +755,7 @@ export function ExtensionsPanel({
                       下载安装
                     </Button>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "agent", id: a.id })}>
+                    <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "base", id: a.id })}>
                       设置
                       <ChevronRight />
                     </Button>
@@ -739,9 +769,9 @@ export function ExtensionsPanel({
         {orphans.length > 0 && (
           <div className="space-y-2">
             <div>
-              <h3 className="text-sm font-medium">认不出来的 agent</h3>
+              <h3 className="text-sm font-medium">harness 不在了的 agent</h3>
               <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                这些 agent 的适配器现在不在 Roster 里，用它们的 bot 启动不了。适配器装回来就能接着用；不要了就点进去删掉。
+                这些 agent 的 harness 现在不在 Roster 里，用它们的 bot 启动不了。harness 装回来就能接着用；不要了就点进去删掉。
               </p>
             </div>
             <div className="rounded-xl border p-1">
@@ -749,7 +779,7 @@ export function ExtensionsPanel({
                 <button
                   key={e.id}
                   type="button"
-                  onClick={() => onSelect({ kind: "executor", id: e.id, type: e.type })}
+                  onClick={() => onSelect({ kind: "agent", id: e.id })}
                   className={cn(ROW, "hover:bg-accent")}
                 >
                   <ExecutorTile type={e.type} size="sm" />
@@ -762,26 +792,22 @@ export function ExtensionsPanel({
           </div>
         )}
 
-        {ext && (
-          <p className="text-muted-foreground font-mono text-[11px]" title={ext.programsRoot}>
-            下载的程序装在 {ext.programsRoot}
-          </p>
-        )}
       </div>
     </ScrollArea>
   );
 }
 
-function LoginCard({ executorId }: { executorId: string }) {
+/** The base's own sign-in on this machine: it belongs to the program, so every agent on 订阅 shares it. */
+function LoginCard({ type }: { type: string }) {
   const [login, setLogin] = useState<LoginState | "loading" | null>("loading");
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const read = (fresh: boolean) => {
     setLogin("loading");
-    void api.executorLogin(executorId, fresh).then((r) => setLogin(r.error ? { state: "unknown", detail: r.error, methods: [] } : r));
+    void api.baseLogin(type, fresh).then((r) => setLogin(r.error ? { state: "unknown", detail: r.error, methods: [] } : r));
   };
-  useEffect(() => read(false), [executorId]);
+  useEffect(() => read(false), [type]);
 
   const state = login === "loading" || !login ? null : login;
   const tone = state?.state === "ok" ? "ok" : state?.state === "none" ? "warn" : "quiet";
@@ -789,7 +815,7 @@ function LoginCard({ executorId }: { executorId: string }) {
     <div className="rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">自带登录</span>
+          <span className="text-sm font-medium">订阅登录</span>
           {state && (
             <StatusBadge tone={tone}>
               {state.state === "ok" ? `已登录${state.account ? ` · ${state.account}` : ""}` : state.state === "none" ? "没有登录" : "没问到"}
@@ -811,7 +837,7 @@ function LoginCard({ executorId }: { executorId: string }) {
         ) : (
           <>
             {state?.detail && <p className="text-muted-foreground text-xs">{state.detail}</p>}
-            {state?.state === "ok" && <p className="text-muted-foreground text-xs">凭据由 agent 自己保管，Roster 不碰它。</p>}
+            {state?.state === "ok" && <p className="text-muted-foreground text-xs">凭据由程序自己保管，Roster 不碰它。这个 harness 上用订阅的 agent 都用这个账号。</p>}
             {state?.methods.map((m) => (
               <div key={m.id} className="space-y-1">
                 <div className="text-xs font-medium">{m.label}</div>
@@ -842,7 +868,7 @@ function LoginCard({ executorId }: { executorId: string }) {
                     disabled={busy === m.id}
                     onClick={() => {
                       setBusy(m.id);
-                      void api.authenticate(executorId, m.id).then((r) => {
+                      void api.authenticate(type, m.id).then((r) => {
                         setBusy(null);
                         setLogin(r.error ? { state: "unknown", detail: r.error, methods: state?.methods ?? [] } : r);
                       });
@@ -869,8 +895,8 @@ function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
     return (
       <Tabs defaultValue="own">
         <TabsList>
-          <TabsTrigger value="own">用自带登录时</TabsTrigger>
-          <TabsTrigger value="endpoint">接 API 时</TabsTrigger>
+          <TabsTrigger value="own">用订阅时</TabsTrigger>
+          <TabsTrigger value="endpoint">接模型 API 时</TabsTrigger>
         </TabsList>
         <TabsContent value="own" className="rounded-lg border px-3 py-2.5">
           <CapabilityNotes caps={own} />
@@ -890,68 +916,20 @@ function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
   );
 }
 
-/** What an agent's type asks for. The program falls back to what this machine has, so the agent's own setup leaves it empty. */
-function SettingFields({
-  info,
-  agent,
-  env,
-  settings,
-  onChange,
-  extra = false,
-}: {
-  info: HarnessTypeInfo;
-  agent: AgentView | undefined;
-  env: Environment | null;
-  settings: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-  /** an extra setup exists to run another program, so the program is asked for rather than defaulted */
-  extra?: boolean;
-}) {
-  const found = env?.programs.find((p) => p.id === info.type);
-  return (
-    <>
-      {info.fields.map((f) => {
-        const isProgram = f.key === "executable";
-        const program = isProgram ? (agent?.state.path ?? null) : null;
-        return (
-          <Field key={f.key}>
-            <FieldLabel htmlFor={`executor-${f.key}`}>{f.label}</FieldLabel>
-            <Input
-              id={`executor-${f.key}`}
-              value={settings[f.key] ?? ""}
-              onChange={(e) => onChange(f.key, e.target.value)}
-              placeholder={
-                isProgram && extra ? `另一份 ${agent?.program?.bin ?? "程序"} 的完整路径` : program ? `留空就用 ${program}` : f.placeholder
-              }
-              spellCheck={false}
-              className={cn(f.kind === "path" && "font-mono text-xs")}
-            />
-            <FieldDescription>
-              {isProgram && extra
-                ? program
-                  ? `${info.label} 自己用的是 ${program}，这里填另一份。`
-                  : "填另一份程序的完整路径。"
-                : program
-                  ? `留空用${found ? "本机检测到" : "Roster 装"}的${found?.version ? `（${found.version}）` : ""}；只在想换一份程序时填。`
-                  : f.help}
-            </FieldDescription>
-          </Field>
-        );
-      })}
-    </>
-  );
+/** What a person calls an agent's source. */
+function sourceName(view: ExecutorSettings, e: Pick<ExecutorRecord, "source_kind" | "provider_id">): string {
+  return e.source_kind === "own" ? OWN_SOURCE_LABEL : (view.providers.find((p) => p.id === e.provider_id)?.name ?? "已删除的模型 API");
 }
 
 /**
- * One agent's page. The executor it edits and tests is the agent's own, the
- * oldest of its type, and bots on the agent run on it. A later executor of the
- * same type is an extra setup, listed at the bottom and edited on its own page.
+ * One base: a harness type and its program on this machine. It holds no agent
+ * of its own. What is set here -- the program, the sign-in -- is the base's, so
+ * every agent on it shares it.
  */
-export function AgentPanel({
+export function BasePanel({
   id,
   view,
   ext,
-  bots,
   onSaved,
   onChanged,
   onCancel,
@@ -960,58 +938,41 @@ export function AgentPanel({
   id: string;
   view: ExecutorSettings;
   ext: ExtensionsView | null;
-  bots: readonly Bot[];
   onSaved: () => void;
-  /** the agent's program was fetched or removed */
+  /** the base's program was fetched or removed */
   onChanged: () => void;
   onCancel: () => void;
   onSelect: (s: SettingsSelection) => void;
 }) {
-  const agent = ext?.agents.find((a) => a.id === id);
+  const base = ext?.bases.find((a) => a.id === id);
   const info = view.types.find((t) => t.type === id);
-  const mine = view.executors.filter((e) => e.type === id);
-  const own = mine[0];
-  const extras = mine.slice(1);
-  const label = agent?.label ?? info?.label ?? id;
-  const [settings, setSettings] = useState<Record<string, string>>(own?.settings ?? {});
+  const label = base?.label ?? info?.label ?? id;
+  const saved = view.programs[id] ?? "";
+  const [program, setProgram] = useState(saved);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [check, setCheck] = useState<{ ok: boolean; items: CheckItem[] } | "running" | null>(null);
   const [removing, setRemoving] = useState(false);
 
-  // core makes the agent's own executor a moment after the agent becomes ready
-  const ownId = own?.id;
-  useEffect(() => {
-    setSettings(own?.settings ?? {});
-    setCheck(null);
-  }, [ownId]);
+  useEffect(() => setProgram(saved), [saved]);
 
   const job = ext?.jobs.find((j) => j.id === id);
   const acting = busy || job?.state === "running";
-  const needsAdapter = agent?.adapter === "missing" || agent?.adapter === "error";
-  const needsProgram = Boolean(agent?.state.needed && !agent.state.usable && !needsAdapter);
+  const needsAdapter = base?.adapter === "missing" || base?.adapter === "error";
+  // a program picked by hand is taken at its word
+  const needsProgram = Boolean(base?.state.needed && !base.state.usable && !needsAdapter && !saved);
   // only a program Roster fetched is Roster's to fetch again or remove
-  const fetched = Boolean(agent?.state.installed && !agent.state.detected);
-  const dirty = own !== undefined && (info?.fields ?? []).some((f) => (settings[f.key] ?? "").trim() !== (own.settings[f.key] ?? ""));
-  const users = bots.filter((b) => !b.archived_at && mine.some((e) => e.id === b.executor_id));
-  const status = agent ? agentStatus(agent) : null;
+  const fetched = Boolean(base?.state.installed && !base.state.detected);
+  const found = ext?.environment?.programs.find((p) => p.id === id);
+  const agents = view.executors.filter((e) => e.type === id);
+  const status = base ? baseStatus(base) : null;
 
   const save = async () => {
-    if (!own) return;
     setBusy(true);
     setError(null);
-    const r = await api.updateExecutor(own.id, { settings });
+    const r = await api.setProgram(id, program.trim());
     setBusy(false);
-    if (r.error || !r.executor) return setError(r.error ?? "保存失败");
-    setCheck(null);
+    if (r.error) return setError(r.error);
     onSaved();
-  };
-
-  const test = async () => {
-    if (!own) return;
-    setCheck("running");
-    const r = await api.checkExecutor(own.id).catch((e: unknown) => ({ ok: false, items: [], error: String(e) }));
-    setCheck(r.error ? { ok: false, items: [{ label: "测试", ok: false, detail: r.error }] } : r);
   };
 
   const run = async (call: () => Promise<ExtensionsView & { error?: string }>) => {
@@ -1024,29 +985,29 @@ export function AgentPanel({
   };
 
   return (
-    <EditorFrame error={error} busy={busy} canSave={dirty} saveLabel="保存" onSave={() => void save()} onCancel={onCancel}>
+    <EditorFrame error={error} busy={busy} canSave={program.trim() !== saved} saveLabel="保存" onSave={() => void save()} onCancel={onCancel}>
       <div className="space-y-4">
         <div className="flex items-start gap-4">
-          <ExtensionTile type={id} brand={agent?.brand} size="lg" />
+          <ExtensionTile type={id} brand={base?.brand} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h2 className="truncate text-lg leading-snug font-semibold">{label}</h2>
               {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
             </div>
-            {agent?.description && <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{agent.description}</p>}
-            {agent?.adapterError && <p className="text-destructive mt-1 text-xs">{agent.adapterError}</p>}
+            {base?.description && <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{base.description}</p>}
+            {base?.adapterError && <p className="text-destructive mt-1 text-xs">{base.adapterError}</p>}
           </div>
         </div>
         {(needsAdapter || needsProgram) && (
           <Alert>
             <Download />
-            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${agent?.program?.bin ?? "它的程序"}`}</AlertTitle>
+            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${base?.program?.bin ?? "它的程序"}`}</AlertTitle>
             <AlertDescription>
-              <p>{needsAdapter ? "装上适配器之后才能用。" : "下载会装到 Roster 自己的目录，不动系统；下载完，用它的 bot 就能启动。"}</p>
+              <p>{needsAdapter ? "装上适配器之后才能用。" : "下载会装到 Roster 自己的目录，不动系统；下载完，这个 harness 上的 agent 就能启动。"}</p>
               <Button
                 size="sm"
                 className="mt-2"
-                disabled={acting || (needsAdapter && !agent?.extension)}
+                disabled={acting || (needsAdapter && !base?.extension)}
                 onClick={() => void run(() => api.installExtension(id))}
               >
                 {acting ? <Loader className="animate-spin" /> : <Download />}
@@ -1058,20 +1019,29 @@ export function AgentPanel({
         {job && <JobLine job={job} />}
       </div>
 
-      {info && own && info.fields.length > 0 && (
-        <SettingFields
-          info={info}
-          agent={agent}
-          env={ext?.environment ?? null}
-          settings={settings}
-          onChange={(key, value) => setSettings((s) => ({ ...s, [key]: value }))}
-        />
+      {base?.state.needed && (
+        <Field>
+          <FieldLabel htmlFor="base-program">程序</FieldLabel>
+          <Input
+            id="base-program"
+            value={program}
+            onChange={(e) => setProgram(e.target.value)}
+            placeholder={base.state.path ? `留空就用 ${base.state.path}` : `${base.program?.bin ?? "程序"} 的完整路径`}
+            spellCheck={false}
+            className="font-mono text-xs"
+          />
+          <FieldDescription>
+            {base.state.path
+              ? `留空用${found ? "本机检测到" : "Roster 装"}的${found?.version ? `（${found.version}）` : ""}；想换一份程序时再填。这个 harness 上的 agent 都跑这一份，订阅登录也是。`
+              : "本机没找到它：下载一份，或者直接填程序的完整路径。"}
+          </FieldDescription>
+        </Field>
       )}
 
       {fetched && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground mr-auto text-xs">
-            程序是 Roster 下载的{agent?.state.installed?.version ? `（${agent.state.installed.version}）` : ""}
+            程序是 Roster 下载的{base?.state.installed?.version ? `（${base.state.installed.version}）` : ""}
           </span>
           <Button size="sm" variant="outline" disabled={acting} onClick={() => void run(() => api.updateExtension(id))}>
             {acting ? <Loader className="animate-spin" /> : <RefreshCw />}
@@ -1090,17 +1060,7 @@ export function AgentPanel({
         </div>
       )}
 
-      {own && info?.sources.own && <LoginCard executorId={own.id} />}
-
-      {own && (
-        <div className="space-y-2">
-          <Button variant="outline" size="sm" onClick={() => void test()} disabled={check === "running"}>
-            测试连接
-          </Button>
-          <p className="text-muted-foreground text-xs">测的是保存过的配置：程序能不能启动、自带登录在不在。不会发起对话，不花钱。</p>
-          <CheckResult result={check} />
-        </div>
-      )}
+      {info?.sources.own && <LoginCard type={id} />}
 
       {info && (
         <Field>
@@ -1113,69 +1073,42 @@ export function AgentPanel({
       )}
 
       <Field>
-        <FieldLabel>在用的 bot</FieldLabel>
-        {users.length > 0 ? (
-          <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-xl border px-4 py-2.5 text-sm">
-            {users.map((b) => {
-              const setup = extras.find((e) => e.id === b.executor_id);
-              return (
-                <span key={b.id} className="inline-flex items-center gap-1.5">
-                  <BotAvatar bot={b} size="xs" />
-                  {b.name}
-                  {setup && <span className="text-muted-foreground text-xs">· {setup.name}</span>}
-                </span>
-              );
-            })}
+        <div className="flex items-center justify-between gap-3">
+          <FieldLabel>这个 harness 上的 agent</FieldLabel>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground -mr-2"
+            disabled={!info}
+            onClick={() => onSelect({ kind: "agent", id: null, type: id })}
+          >
+            <Plus />
+            新建 agent
+          </Button>
+        </div>
+        {agents.length > 0 ? (
+          <div className="rounded-xl border p-1">
+            {agents.map((e) => (
+              <button key={e.id} type="button" onClick={() => onSelect({ kind: "agent", id: e.id })} className={cn(ROW, "hover:bg-accent")}>
+                <span className="min-w-0 flex-1 truncate text-sm">{e.name}</span>
+                <span className="text-muted-foreground shrink-0 text-xs">{sourceName(view, e)}</span>
+                <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
+              </button>
+            ))}
           </div>
         ) : (
-          <p className="text-muted-foreground text-sm">还没有。到通讯录里建 bot 时，选它当 agent。</p>
+          <p className="text-muted-foreground text-sm">
+            还没有。{info?.sources.own ? "建一个用订阅的，或者接一个模型 API 的；" : "接一个模型 API 建一个；"}到通讯录里建 bot 时也能顺手建。
+          </p>
         )}
       </Field>
-
-      {info && info.fields.length > 0 && (
-        <Field>
-          <div className="flex items-center justify-between gap-3">
-            <FieldLabel>其他配置</FieldLabel>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground -mr-2"
-              onClick={() => onSelect({ kind: "executor", id: null, type: id })}
-            >
-              <Plus />
-              加一份
-            </Button>
-          </div>
-          {extras.length > 0 && (
-            <div className="rounded-xl border p-1">
-              {extras.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  onClick={() => onSelect({ kind: "executor", id: e.id, type: id })}
-                  className={cn(ROW, "hover:bg-accent")}
-                >
-                  <span className="min-w-0 flex-1 truncate text-sm">{e.name}</span>
-                  <span className="text-muted-foreground min-w-0 truncate font-mono text-[11px]" title={e.settings.executable}>
-                    {e.settings.executable}
-                  </span>
-                  <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-                </button>
-              ))}
-            </div>
-          )}
-          <FieldDescription>
-            一般用不到。想让一部分 bot 跑另一份程序（比如测试版）时再加；建 bot 时，它和 {label} 一起列在 agent 里。
-          </FieldDescription>
-        </Field>
-      )}
 
       <AlertDialog open={removing} onOpenChange={setRemoving}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>卸载「{label}」？</AlertDialogTitle>
             <AlertDialogDescription>
-              Roster 下载的这份程序会被删掉；用它的 bot 还留着，只是启动不了，再下载就能继续用。
+              Roster 下载的这份程序会被删掉；这个 harness 上的 agent 还留着，只是启动不了，再下载就能继续用。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1196,54 +1129,114 @@ export function AgentPanel({
   );
 }
 
+/** A select value for "no model named": the agent runs whatever its base defaults to. */
+const BASE_DEFAULT = "@default";
+
 /**
- * An extra setup of an agent, so some bots run another program than the rest;
- * or a setup whose agent is gone, kept so it can be seen and deleted. The
- * agent's own setup is edited on the agent's page.
+ * One agent: a base and where its models come from, fixed together. The base is
+ * picked once; the source can change later, and members already running on the
+ * agent are told to sync.
  */
-export function ExecutorEditor({
+export function AgentEditor({
   view,
   executor,
-  type,
-  env,
+  type: preset,
   ext,
+  bots,
   onSaved,
   onCancel,
   onDeleted,
-  onExtensions,
+  onSelect,
 }: {
   view: ExecutorSettings;
   executor: ExecutorRecord | null;
-  /** the agent it belongs to; fixed, since the page it was opened from decides it */
-  type: string;
-  env: Environment | null;
+  /** the base a new one starts on, when it was opened from that base's page */
+  type?: string | undefined;
   ext: ExtensionsView | null;
+  bots: readonly Bot[];
   onSaved: (e: ExecutorRecord) => void;
   onCancel: () => void;
   onDeleted: () => void;
-  onExtensions: () => void;
+  onSelect: (s: SettingsSelection) => void;
 }) {
   const creating = executor === null;
+  /** where a new agent on this base starts: its own sign-in while nobody has it, else the first model API that fits */
+  const startFor = (t: string): { kind: SourceKind; providerId: string | null } => {
+    const ti = view.types.find((x) => x.type === t);
+    const ownFree = Boolean(ti?.sources.own) && !view.executors.some((e) => e.type === t && e.source_kind === "own");
+    const first = ti ? view.providers.find((p) => fits(ti, p, view)) : undefined;
+    return ownFree ? { kind: "own", providerId: null } : { kind: "endpoint", providerId: first?.id ?? null };
+  };
+  const [type, setType] = useState(executor?.type ?? preset ?? view.types[0]?.type ?? "");
+  // an old agent on a sign-in its base does not have opens on a model API, so saving is the fix
+  const stray = executor?.source_kind === "own" && view.types.find((t) => t.type === executor.type)?.sources.own === false;
+  const [source, setSource] = useState<{ kind: SourceKind; providerId: string | null }>(() =>
+    executor && !stray ? { kind: executor.source_kind, providerId: executor.provider_id } : startFor(executor?.type ?? preset ?? view.types[0]?.type ?? ""),
+  );
+  const [model, setModel] = useState(executor?.model ?? "");
   const [name, setName] = useState(executor?.name ?? "");
-  const [settings, setSettings] = useState<Record<string, string>>(executor?.settings ?? {});
+  const [models, setModels] = useState<ModelOption[] | "loading" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<{ ok: boolean; items: CheckItem[] } | "running" | null>(null);
   const [confirming, setConfirming] = useState(false);
+
   const info = view.types.find((t) => t.type === type);
-  const agent = ext?.agents.find((a) => a.id === type);
-  const label = info?.label ?? agent?.label ?? type;
-  // one that sets nothing would run exactly what the agent's own setup runs
-  const setsSomething = !info || info.fields.length === 0 || info.fields.some((f) => Boolean(settings[f.key]?.trim()));
+  const base = ext?.bases.find((b) => b.id === type);
+  const label = info?.label ?? base?.label ?? type;
+  const fitting = info ? view.providers.filter((p) => fits(info, p, view)) : [];
+  const ownTaken = view.executors.find((e) => e.type === type && e.source_kind === "own" && e.id !== executor?.id);
+  const providerId = source.kind === "endpoint" ? source.providerId : null;
+  const sourceLabel = source.kind === "own" ? OWN_SOURCE_LABEL : (view.providers.find((p) => p.id === providerId)?.name ?? "模型 API");
+  const caps = info?.capabilities[source.kind];
+  const users = executor ? bots.filter((b) => !b.archived_at && b.executor_id === executor.id) : [];
+  const canSave = Boolean(info) && (source.kind === "own" ? Boolean(info?.sources.own) && !ownTaken : Boolean(providerId));
+
+  // what the source offers, to pick a default from; an own sign-in asks the agent itself, so it takes a moment
+  const sourceKey = `${type}|${source.kind}|${providerId ?? ""}`;
+  useEffect(() => {
+    if (!info || (source.kind === "endpoint" && !providerId)) {
+      setModels(null);
+      return;
+    }
+    let live = true;
+    setModels("loading");
+    void api
+      .baseModels(type, providerId)
+      .then((r) => live && setModels(r.models ?? []))
+      .catch(() => live && setModels([]));
+    return () => {
+      live = false;
+    };
+  }, [sourceKey]);
+
+  const chooseBase = (t: string) => {
+    setType(t);
+    setSource(startFor(t));
+    setModel("");
+  };
+
+  const chooseKind = (kind: SourceKind) => {
+    setModel("");
+    setSource(kind === "own" ? { kind, providerId: null } : { kind, providerId: fitting.some((p) => p.id === providerId) ? providerId : (fitting[0]?.id ?? null) });
+  };
 
   const save = async () => {
     setBusy(true);
     setError(null);
-    const body = { name: name.trim(), settings, ...(creating ? { type } : {}) };
+    const body = {
+      name: name.trim() || null,
+      source_kind: source.kind,
+      provider_id: providerId,
+      model: model.trim() || null,
+      ...(creating ? { type } : {}),
+    };
     const r = creating ? await api.createExecutor(body) : await api.updateExecutor(executor.id, body);
     setBusy(false);
     if (r.error || !r.executor) return setError(r.error ?? "保存失败");
     setCheck(null);
+    // core may have named it after its new source
+    setName(r.executor.name);
     onSaved(r.executor);
   };
 
@@ -1254,74 +1247,203 @@ export function ExecutorEditor({
     setCheck(r.error ? { ok: false, items: [{ label: "测试", ok: false, detail: r.error }] } : r);
   };
 
-  if (creating && !info) {
-    return (
-      <Empty className="flex-1">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Download />
-          </EmptyMedia>
-          <EmptyTitle>{label} 现在加不了配置</EmptyTitle>
-          <EmptyDescription>它的适配器没有加载上，先回 Agent 页看看。</EmptyDescription>
-        </EmptyHeader>
-        <Button onClick={onExtensions}>去 Agent 页</Button>
-      </Empty>
-    );
-  }
-
   return (
     <EditorFrame
-      title={creating ? `给 ${label} 加一份配置` : `编辑「${executor.name}」`}
-      {...(creating || executor.known
-        ? { description: `让一部分 bot 跑另一份 ${label} 程序，比如测试版。建 bot 时，它和 ${label} 一起列在 agent 里。` }
-        : {})}
+      title={creating ? "新建 agent" : undefined}
+      description={creating ? "agent 是一个 harness，加上模型从哪来：harness 自带的订阅登录，或者一个模型 API。" : undefined}
       error={error}
       busy={busy}
-      canSave={Boolean(info) && name.trim() !== "" && setsSomething}
-      saveLabel={creating ? "添加" : "保存"}
+      canSave={canSave}
+      saveLabel={creating ? "创建" : "保存"}
       onSave={() => void save()}
       onCancel={onCancel}
       {...(creating ? {} : { onDelete: () => setConfirming(true) })}
     >
-      {!creating && !executor.known && (
+      {executor && (
+        <div className="flex items-start gap-4">
+          <ExecutorTile type={executor.type} brand={base?.brand} size="lg" />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-lg leading-snug font-semibold">{executor.name}</h2>
+            <p className="text-muted-foreground truncate text-sm">
+              {label} · {sourceName(view, executor)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {executor?.problem && (
         <Alert>
-          <AlertTitle>没有它的适配器</AlertTitle>
+          <AlertTitle>现在用不了</AlertTitle>
           <AlertDescription>
-            「{executor.type}」这个 agent 现在没有适配器提供。装回来之前，用它的 bot 启动不了。
-            <Button variant="link" size="xs" className="h-auto p-0" onClick={onExtensions}>
-              去 Agent 页
-            </Button>
+            {executor.problem}
+            {!info && (
+              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "extensions", id: executor.type })}>
+                去装 harness
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}
 
-      <Field>
-        <FieldLabel htmlFor="executor-name">名字</FieldLabel>
-        <Input id="executor-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`比如：${label} 测试版`} />
-        <FieldDescription>建 bot 选 agent 时，看到的就是这个名字。</FieldDescription>
-      </Field>
-
-      {info && (
-        <SettingFields
-          info={info}
-          agent={agent}
-          env={env}
-          settings={settings}
-          onChange={(key, value) => setSettings((s) => ({ ...s, [key]: value }))}
-          extra
-        />
+      {creating && (
+        <Field>
+          <FieldLabel>Harness</FieldLabel>
+          {view.types.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              还没有能用的 harness。
+              <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "extensions" })}>
+                去装一个
+              </Button>
+            </p>
+          ) : (
+            <RadioGroup value={type} onValueChange={chooseBase} className="grid gap-2 sm:grid-cols-2">
+              {view.types.map((t) => {
+                const b = ext?.bases.find((x) => x.id === t.type);
+                const st = b ? baseStatus(b) : null;
+                return (
+                  <Choice key={t.type} value={t.type} selected={type === t.type}>
+                    <ExtensionTile type={t.type} brand={b?.brand} size="sm" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.label}</span>
+                    {st && <StatusBadge tone={st.tone}>{st.text}</StatusBadge>}
+                  </Choice>
+                );
+              })}
+            </RadioGroup>
+          )}
+        </Field>
       )}
 
-      {!creating && info?.sources.own && <LoginCard executorId={executor.id} />}
+      {info && (
+        <Field>
+          <FieldLabel>模型从哪来</FieldLabel>
+          {info.sources.own && info.sources.apis.length > 0 ? (
+            <RadioGroup value={source.kind} onValueChange={(v) => chooseKind(v as SourceKind)} className="grid gap-2 sm:grid-cols-2">
+              <Choice value="own" selected={source.kind === "own"} disabled={Boolean(ownTaken)}>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">订阅</span>
+                  <span className="text-muted-foreground block text-xs">
+                    {ownTaken ? `已经有了：${ownTaken.name}` : `用 ${label} 自己登录的账号`}
+                  </span>
+                </span>
+              </Choice>
+              <Choice value="endpoint" selected={source.kind === "endpoint"}>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">模型 API</span>
+                  <span className="text-muted-foreground block text-xs">按量调用，用你添加的密钥</span>
+                </span>
+              </Choice>
+            </RadioGroup>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              {info.sources.own
+                ? `用 ${label} 自己登录的账号${ownTaken ? `，已经有 agent 了：${ownTaken.name}` : ""}；它不接模型 API。`
+                : `${label} 没有自带登录，接一个模型 API。`}
+            </p>
+          )}
+          {source.kind === "endpoint" &&
+            (fitting.length === 0 ? (
+              <p className="text-muted-foreground text-xs">
+                还没有接得上 {label} 的模型 API。
+                <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "provider", id: null })}>
+                  添加模型 API
+                </Button>
+              </p>
+            ) : (
+              <Select value={providerId ?? undefined} onValueChange={(id) => setSource({ kind: "endpoint", providerId: id })}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="选一个模型 API" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fitting.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ))}
+          {!creating && <FieldDescription>换了之后，已经在会话里的成员会提示「设定有更新」，同步后才用新的。</FieldDescription>}
+        </Field>
+      )}
 
-      {!creating && (
+      {info && (
+        <Field>
+          <FieldLabel htmlFor="agent-model">默认模型</FieldLabel>
+          {models === "loading" ? (
+            <Skeleton className="h-9 w-full" />
+          ) : models && models.length > 0 ? (
+            <Select value={model || BASE_DEFAULT} onValueChange={(v) => setModel(v === BASE_DEFAULT ? "" : v)}>
+              <SelectTrigger id="agent-model" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={BASE_DEFAULT}>不指定，用 {label} 自己的默认</SelectItem>
+                {model && !models.some((m) => m.id === model) && <SelectItem value={model}>{model}</SelectItem>}
+                {models.map((m) => (
+                  <SelectItem key={m.id} value={m.id} disabled={!m.available}>
+                    {m.label ?? m.id}
+                    {!m.available && <span className="text-muted-foreground"> · {source.kind === "own" ? "没有登录" : "没有密钥"}</span>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id="agent-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="留空用它自己的默认"
+              spellCheck={false}
+              className="font-mono text-xs"
+            />
+          )}
+          <FieldDescription>bot 没有自己选模型时用这个。</FieldDescription>
+        </Field>
+      )}
+
+      <Field>
+        <FieldLabel htmlFor="agent-name">名字</FieldLabel>
+        <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${label} · ${sourceLabel}`} />
+        <FieldDescription>建 bot 选 agent 时看到的就是它；留空自动起名。</FieldDescription>
+      </Field>
+
+      {executor && (
         <div className="space-y-2">
           <Button variant="outline" size="sm" onClick={() => void test()} disabled={check === "running"}>
             测试连接
           </Button>
-          <p className="text-muted-foreground text-xs">测的是保存过的配置：程序能不能启动、自带登录在不在。不会发起对话，不花钱。</p>
+          <p className="text-muted-foreground text-xs">
+            测的是保存过的设置：{executor.source_kind === "own" ? "订阅登录在不在" : "模型 API 的密钥能不能用"}、程序能不能启动。不会发起对话，不花钱。
+          </p>
           <CheckResult result={check} />
         </div>
+      )}
+
+      {caps && (
+        <Field>
+          <FieldLabel>能做什么</FieldLabel>
+          <div className="rounded-lg border px-3 py-2.5">
+            <CapabilityNotes caps={caps} />
+          </div>
+        </Field>
+      )}
+
+      {executor && (
+        <Field>
+          <FieldLabel>在用的 bot</FieldLabel>
+          {users.length > 0 ? (
+            <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-xl border px-4 py-2.5 text-sm">
+              {users.map((b) => (
+                <span key={b.id} className="inline-flex items-center gap-1.5">
+                  <BotAvatar bot={b} size="xs" />
+                  {b.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">还没有。到通讯录里建 bot 时选它。</p>
+          )}
+        </Field>
       )}
 
       {executor && (
@@ -1329,7 +1451,7 @@ export function ExecutorEditor({
           open={confirming}
           onOpenChange={setConfirming}
           title={`删除「${executor.name}」？`}
-          description="还有 bot 在用它的话会删不掉，先给那些 bot 换一个 agent。"
+          description="还有 bot 在用它，或者会话里还有成员跑在它上面的话，会删不掉。"
           onConfirm={() => {
             void api.deleteExecutor(executor.id).then((r) => (r.error ? setError(r.error) : onDeleted()));
           }}
@@ -1498,14 +1620,14 @@ function ConnectionLine({
   );
 }
 
-/** Which agents can take their models from here, and which bots already do. */
-function UsedBy({ types, bots }: { types: readonly HarnessTypeInfo[]; bots: readonly Bot[] | null }) {
+/** Which bases can take their models from here, and which agents already do. */
+function UsedBy({ types, executors }: { types: readonly HarnessTypeInfo[]; executors: readonly ExecutorRecord[] | null }) {
   return (
     <Field>
       <FieldLabel>谁能用</FieldLabel>
       <dl className="divide-y rounded-xl border text-sm">
         <div className="flex items-center gap-3 px-4 py-2.5">
-          <dt className="text-muted-foreground w-20 shrink-0 text-xs">能接的 agent</dt>
+          <dt className="text-muted-foreground w-24 shrink-0 text-xs">能接的 harness</dt>
           <dd className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1.5">
             {types.length > 0 ? (
               types.map((t) => (
@@ -1515,23 +1637,23 @@ function UsedBy({ types, bots }: { types: readonly HarnessTypeInfo[]; bots: read
                 </span>
               ))
             ) : (
-              <span className="text-muted-foreground">没有，协议跟现有的 agent 都对不上</span>
+              <span className="text-muted-foreground">没有，协议跟现有的 harness 都对不上</span>
             )}
           </dd>
         </div>
-        {bots && (
+        {executors && (
           <div className="flex items-center gap-3 px-4 py-2.5">
-            <dt className="text-muted-foreground w-20 shrink-0 text-xs">在用的 bot</dt>
+            <dt className="text-muted-foreground w-24 shrink-0 text-xs">在用的 agent</dt>
             <dd className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1.5">
-              {bots.length > 0 ? (
-                bots.map((b) => (
-                  <span key={b.id} className="inline-flex items-center gap-1.5">
-                    <BotAvatar bot={b} size="xs" />
-                    {b.name}
+              {executors.length > 0 ? (
+                executors.map((e) => (
+                  <span key={e.id} className="inline-flex items-center gap-1.5">
+                    <ExecutorTile type={e.type} size="xs" />
+                    {e.name}
                   </span>
                 ))
               ) : (
-                <span className="text-muted-foreground">还没有。到通讯录里给 bot 选它当模型来源。</span>
+                <span className="text-muted-foreground">还没有。建 agent 时选它当模型 API。</span>
               )}
             </dd>
           </div>
@@ -1541,90 +1663,26 @@ function UsedBy({ types, bots }: { types: readonly HarnessTypeInfo[]; bots: read
   );
 }
 
-const tokenCount = (n: number): string => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}K`);
-
-const usd = (n: number): string => `$${+n.toFixed(3)}`;
-
-function ModelRow({ model }: { model: ModelOption }) {
-  const name = model.label ?? model.id;
-  // an id the endpoint listed that no catalog describes has nothing more to show than itself
-  const described = model.label !== undefined || model.contextWindow !== undefined || model.cost !== undefined;
-  const facts = [
-    model.contextWindow ? `${tokenCount(model.contextWindow)} 上下文` : null,
-    model.reasoning ? "推理" : null,
-    model.images ? "看图" : null,
-  ].filter((f): f is string => f !== null);
-  return (
-    <li className="flex items-center gap-3 px-4 py-2">
-      <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-sm", name === model.id && "font-mono text-xs")}>{name}</div>
-        {(name !== model.id || model.cost) && (
-          <div className="text-muted-foreground truncate text-xs">
-            {name !== model.id && <span className="font-mono">{model.id}</span>}
-            {name !== model.id && model.cost && " · "}
-            {model.cost && `${usd(model.cost.input)} / ${usd(model.cost.output)}`}
-          </div>
-        )}
-      </div>
-      {facts.length > 0 ? (
-        <div className="flex shrink-0 gap-1">
-          {facts.map((f) => (
-            <StatusBadge key={f} tone="quiet">
-              {f}
-            </StatusBadge>
-          ))}
-        </div>
-      ) : (
-        !described && <span className="text-muted-foreground shrink-0 text-xs">目录里没有详情</span>
-      )}
-    </li>
-  );
-}
-
-type CatalogState = { groups: CatalogGroup[] } | { error: string } | null;
-
-const SUBHEAD = "bg-muted text-muted-foreground sticky top-0 z-10 flex items-center gap-1.5 border-b px-4 py-1.5 text-xs";
-
 /**
- * What the endpoint offers. Once a test has listed what the key reaches, that
- * list leads, each model described from the catalog where it can be, and the
- * rest of the catalog folds away below. Until then the catalog stands in, per
- * agent, since each agent picks a bot's model from its own list.
+ * What a preset endpoint serves: the ids its API listed, and nothing said about
+ * them that the API did not say. Null until there is a saved key to ask with.
  */
-function ModelCatalog({ catalog, listed, pending }: { catalog: CatalogState; listed: readonly string[] | null; pending: boolean }) {
+function ListedModels({ models, connection }: { models: readonly string[] | null; connection: Connection }) {
   const [query, setQuery] = useState("");
-  const [othersOpen, setOthersOpen] = useState(false);
-  const groups = catalog && "groups" in catalog ? catalog.groups : [];
-  // one description per id: the catalog that knows the most about it wins
-  const described = new Map<string, ModelOption>();
-  for (const g of groups) {
-    for (const m of g.models) {
-      const seen = described.get(m.id);
-      if (!seen || (seen.contextWindow === undefined && m.contextWindow !== undefined)) described.set(m.id, m);
-    }
-  }
   const q = query.trim().toLowerCase();
-  const matches = (m: ModelOption) => !q || `${m.id} ${m.label ?? ""}`.toLowerCase().includes(q);
-  const onKey = listed ? listed.map((id) => described.get(id) ?? { id, available: true }) : null;
-  const inKey = new Set(listed ?? []);
-  const others = groups.map((g) => ({ ...g, models: g.models.filter((m) => !inKey.has(m.id)) })).filter((g) => g.models.length > 0);
-  const othersCount = others.reduce((n, g) => n + g.models.length, 0);
-  const total = (onKey?.length ?? 0) + othersCount;
-  const shownOnKey = onKey?.filter(matches) ?? [];
-  // a search looks through everything, folded or not
-  const shownOthers = !onKey || othersOpen || q ? others.map((g) => ({ ...g, models: g.models.filter(matches) })).filter((g) => g.models.length > 0) : [];
-  const priced = [...described.values()].some((m) => m.cost);
+  const shown = (models ?? []).filter((m) => !q || m.toLowerCase().includes(q));
+  const settled = connection !== null && connection !== "running" ? connection : null;
   return (
     <Field>
       <div className="flex items-center justify-between gap-3">
         <FieldLabel>模型</FieldLabel>
-        {total > 8 && (
+        {models && models.length > 8 && (
           <div className="relative w-48">
             <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`搜索 ${total} 个模型`}
+              placeholder={`搜索 ${models.length} 个模型`}
               aria-label="搜索模型"
               autoComplete="off"
               spellCheck={false}
@@ -1633,67 +1691,37 @@ function ModelCatalog({ catalog, listed, pending }: { catalog: CatalogState; lis
           </div>
         )}
       </div>
-      {pending || (catalog === null && !onKey) ? (
+      {models === null ? (
+        <p className="text-muted-foreground text-sm">添加后会向 API 要一次模型列表，列出什么就是什么。</p>
+      ) : models.length > 0 ? (
+        <div className="max-h-96 overflow-y-auto rounded-xl border">
+          {shown.length === 0 ? (
+            <p className="text-muted-foreground px-4 py-6 text-center text-sm">没有匹配「{query.trim()}」的模型</p>
+          ) : (
+            <ul className="divide-y">
+              {shown.map((m) => (
+                <li key={m} title={m} className="truncate px-4 py-2 font-mono text-xs">
+                  {m}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : !settled ? (
         <div className="space-y-2 rounded-xl border px-4 py-3">
           <Skeleton className="h-3.5 w-1/3" />
           <Skeleton className="h-3.5 w-1/2" />
         </div>
-      ) : total === 0 ? (
-        catalog && "error" in catalog ? (
-          <p className="text-destructive text-sm">读不到模型目录：{catalog.error}</p>
-        ) : (
-          <p className="text-muted-foreground text-sm">没有可列的模型；给 bot 选模型时可以手填 id。</p>
-        )
       ) : (
-        <div className="max-h-96 overflow-y-auto rounded-xl border [&>*+*]:border-t">
-          {q && shownOnKey.length === 0 && shownOthers.length === 0 && (
-            <p className="text-muted-foreground px-4 py-6 text-center text-sm">没有匹配「{query.trim()}」的模型</p>
-          )}
-          {onKey && shownOnKey.length > 0 && (
-            <div>
-              <div className={SUBHEAD}>API 列出的 · {onKey.length}</div>
-              <ul className="divide-y">
-                {shownOnKey.map((m) => (
-                  <ModelRow key={m.id} model={m} />
-                ))}
-              </ul>
-            </div>
-          )}
-          {onKey && othersCount > 0 && !q && (
-            <button
-              type="button"
-              aria-expanded={othersOpen}
-              onClick={() => setOthersOpen((o) => !o)}
-              className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 px-4 py-2 text-left text-xs transition-colors"
-            >
-              <ChevronRight className={cn("size-3.5 transition-transform", othersOpen && "rotate-90")} />
-              目录里还有 {othersCount} 个，这次 API 没列出
-            </button>
-          )}
-          {shownOthers.map((g) => (
-            <div key={g.type}>
-              {/* agents list the same endpoint differently, so each list says whose it is */}
-              {groups.length > 1 && (
-                <div className={SUBHEAD}>
-                  <ExecutorTile type={g.type} size="xs" />
-                  {g.label} 能选的 · {g.models.length}
-                </div>
-              )}
-              <ul className="divide-y">
-                {g.models.map((m) => (
-                  <ModelRow key={m.id} model={m} />
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <p className="text-muted-foreground text-sm">
+          {!settled.ok
+            ? "连接通过后，这里列出 API 返回的模型。"
+            : settled.models
+              ? "API 没有列出任何模型。"
+              : "这个 API 不提供模型列表。给 agent 或 bot 选模型时手填 id。"}
+        </p>
       )}
-      {!pending && total > 0 && (!onKey || priced) && (
-        <FieldDescription>
-          {!onKey && "还没从 API 拿到列表，先显示目录里的。"}
-          {priced && "价格是每百万 token 的输入 / 输出，美元。"}
-        </FieldDescription>
-      )}
+      {models && models.length > 0 && <FieldDescription>以 API 返回的为准，测试连接时会重新拉取。</FieldDescription>}
     </Field>
   );
 }
@@ -1702,7 +1730,6 @@ export function ProviderEditor({
   view,
   provider,
   env,
-  bots,
   onSaved,
   onCancel,
   onDeleted,
@@ -1710,7 +1737,6 @@ export function ProviderEditor({
   view: ExecutorSettings;
   provider: ProviderRecord | null;
   env: Environment | null;
-  bots: readonly Bot[];
   onSaved: (p: ProviderRecord) => void;
   onCancel: () => void;
   onDeleted: () => void;
@@ -1732,7 +1758,6 @@ export function ProviderEditor({
   const [connection, setConnection] = useState<Connection>(null);
   const [probe, setProbe] = useState<ModelProbe | "running" | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [catalog, setCatalog] = useState<CatalogState>(null);
   // the ids the endpoint listed in the last check that got a list; kept through a re-test
   const [listed, setListed] = useState<string[] | null>(null);
   const testedOnOpen = useRef(false);
@@ -1786,21 +1811,6 @@ export function ProviderEditor({
     if (recent && recent.rev === provider.rev && Date.now() - recent.at < CHECK_REUSE_MS) settle(recent.result);
     else void test(provider);
   }, [provider]);
-
-  // a custom endpoint's models are the form itself; a preset's come from the catalog, before it is saved too
-  const catalogFor = custom || !preset ? null : (record?.id ?? `preset:${preset}`);
-  useEffect(() => {
-    if (!catalogFor) return;
-    let live = true;
-    setCatalog(null);
-    const read = record ? api.providerModels(record.id) : api.presetModels(preset);
-    void read
-      .then((r) => live && setCatalog(r.groups ? { groups: r.groups } : { error: r.error ?? "没有返回模型" }))
-      .catch((e: unknown) => live && setCatalog({ error: String(e) }));
-    return () => {
-      live = false;
-    };
-  }, [catalogFor]);
 
   const save = async () => {
     setBusy(true);
@@ -1875,16 +1885,15 @@ export function ProviderEditor({
       ? null
       : "自定义 API"
     : !chosen
-      ? "这个预设现在没有 agent 提供"
+      ? "这个预设现在没有 harness 提供"
       : chosen.label === title
         ? null
         : chosen.label;
-  // a preset's models are counted in its list below, per agent; one number up here would disagree with it
   const facts = [apiShort(custom ? apiId : chosen?.api), custom && modelList.length > 0 ? `${modelList.length} 个模型` : "", host].filter(Boolean);
   const Heading = creating ? "h3" : "h2";
-  const users = record ? bots.filter((b) => b.model_source === record.id && !b.archived_at) : null;
-  // a saved API's list waits for its first check, rather than showing the catalog and then jumping
-  const modelsPending = record !== null && listed === null && (connection === null || connection === "running");
+  const users = record ? view.executors.filter((e) => e.provider_id === record.id) : null;
+  // what the last check listed, else what was saved from an earlier one, which the settings reload after a check carries
+  const presetModels = record ? (listed ?? provider?.models ?? record.models) : null;
 
   return (
     <EditorFrame
@@ -1928,7 +1937,7 @@ export function ProviderEditor({
         {record && <ConnectionLine state={connection} host={host} dirty={dirty} onTest={() => void test(record)} />}
       </div>
 
-      {!custom && <ModelCatalog catalog={catalog} listed={listed} pending={modelsPending} />}
+      {!custom && <ListedModels models={presetModels} connection={connection} />}
 
       {custom && (
         <>
@@ -2070,14 +2079,14 @@ export function ProviderEditor({
         <Input id="provider-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen?.label ?? "比如：公司网关"} />
       </Field>
 
-      <UsedBy types={usable} bots={users} />
+      <UsedBy types={usable} executors={users} />
 
       {record && (
         <ConfirmDelete
           open={confirming}
           onOpenChange={setConfirming}
           title={`删除「${record.name}」？`}
-          description="保存的密钥会一起删掉。还有 bot 用它做模型来源的话会删不掉，先给它们换一个。"
+          description="保存的密钥会一起删掉。还有 agent 接着它的话会删不掉，先给它们换一个模型 API。"
           onConfirm={() => {
             void api.deleteProvider(record.id).then((r) => (r.error ? setError(r.error) : onDeleted()));
           }}

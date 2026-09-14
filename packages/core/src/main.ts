@@ -3,12 +3,12 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { aboutReader } from "./about.js";
-import { Agents } from "./agents.js";
 import { AttachmentStore } from "./attachments.js";
+import { Bases } from "./bases.js";
 import { CATALOG } from "./catalog.js";
 import { openDb } from "./db/index.js";
 import { Detector } from "./detect.js";
-import { ensureExecutors, ExecutorSettings } from "./executors.js";
+import { ExecutorSettings } from "./executors.js";
 import { Extensions, type ExtensionRoot } from "./extensions.js";
 import { Installer } from "./installer.js";
 import { LOGO_IDS } from "./logos.js";
@@ -17,7 +17,7 @@ import { Registry } from "./registry.js";
 import { scriptedFactory } from "./scripted.js";
 import { NO_VAULT, Secrets, type Vault } from "./secrets.js";
 import { startServer } from "./server.js";
-import { setShellEnv, Sources } from "./sources.js";
+import { setShellEnv, sourceOf, Sources } from "./sources.js";
 import { Store } from "./store.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -116,13 +116,13 @@ const broadcast = (msg: unknown) => {
 
 const installer = new Installer(extensionsDir, join(dataDir, "agents"), () => broadcast({ kind: "extensions" }));
 const detector = new Detector(CATALOG, installer.npmCli);
-const agents = new Agents(CATALOG, extensions, detector, installer);
+const bases = new Bases(CATALOG, extensions, detector, installer);
 // before anything reads a key: endpoints may point at variables only the login shell has
 setShellEnv(await detector.shellEnv());
 
 // scripted replies instead of models: for working on the UI without credentials, spend, or extensions
 if (scripted && store.listExecutors().length === 0) {
-  const executor = store.createExecutor({ name: "脚本回复", type: "scripted", settings: {} });
+  const executor = store.createExecutor({ name: "脚本回复", type: "scripted", source_kind: "own", provider_id: null, model: null });
   if (!store.hasAnyBot()) {
     store.createBot({
       name: "Pi",
@@ -130,7 +130,6 @@ if (scripted && store.listExecutors().length === 0) {
       avatar: "sheep",
       system_prompt: null,
       executor_id: executor.id,
-      model_source: null,
       model: null,
       permission_tier: "read",
     });
@@ -144,24 +143,42 @@ const backfilled = store.backfillTitles();
 if (backfilled > 0) console.log(`[roster] derived ${backfilled} conversation titles`);
 
 const types = () => (scripted ? [] : extensions.types());
+/** The program a type runs: the one a person picked, else the one found on the machine, else Roster's own install. */
+const programOf = (type: string) => store.harnessProgram(type) ?? bases.state(type).path;
 const build = () =>
   scripted
     ? new Registry(Object.fromEntries(store.listExecutors().map((e) => [e.id, scriptedFactory(e.id, 40, e.name)])))
-    : Registry.from(types(), store.listExecutors(), (t) => agents.defaults(t));
+    : Registry.from(types(), store.listExecutors(), (row, type) => ({
+        id: row.id,
+        label: row.name,
+        source: sourceOf(row, store, secrets),
+        program: programOf(type.type),
+      }));
 
 let registry = build();
 const sources = new Sources(store, secrets, () => registry, (t) => settings.presets(t));
 const attachments = new AttachmentStore(join(dataDir, "attachments"));
 const orchestrator = new Orchestrator(store, broadcast as never, registry, sources, attachments);
+// executors are made when someone needs one, so a change only has to rebuild them against what is configured now
 const changed = () => {
-  // an agent made ready by detection or a download gets its executor here, so it is usable at once
-  if (!scripted) ensureExecutors(store, agents.usable());
   registry = build();
   orchestrator.useRegistry(registry);
 };
-const settings = new ExecutorSettings(store, secrets, types, () => registry, changed);
+const settings = new ExecutorSettings(
+  store,
+  secrets,
+  types,
+  () => registry,
+  changed,
+  programOf,
+  (type) => store.harnessProgram(type) !== null || bases.state(type).usable,
+);
 const pushExecutors = () =>
   broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
+
+// before anyone connects: older data can hold an agent on a sign-in its base does not have
+const merged = settings.mergeStrayOwn();
+if (merged > 0) console.log(`[roster] moved ${merged} agents off a sign-in their base does not have`);
 
 // Detection runs in the background; when it lands, executors get the programs it found.
 void detector
@@ -174,15 +191,22 @@ void detector
   })
   .catch((err: unknown) => console.error("[roster] detection failed:", err instanceof Error ? err.message : String(err)));
 
+// what a preset model API serves is its own API's to say, so every start asks again
+if (!scripted) {
+  void settings
+    .refreshModels()
+    .then((relisted) => relisted && pushExecutors())
+    .catch((err: unknown) => console.error("[roster] listing models failed:", err instanceof Error ? err.message : String(err)));
+}
+
 const handle = await startServer({
   store,
   orchestrator,
   attachments,
   settings,
-  sources,
   extensions,
   installer,
-  agents,
+  bases,
   catalog: CATALOG,
   detector,
   reload: async () => {

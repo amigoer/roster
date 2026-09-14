@@ -130,8 +130,8 @@ const isScript = (p: string) => /\.(c|m)?js$/.test(p);
 
 /**
  * A "node" head runs on the host's own runtime, so a machine without node on
- * PATH still works. The executable setting is the agent program the host found
- * or installed, or the one the person named: it goes where the manifest says.
+ * PATH still works. The program is the one the host settled on for this agent
+ * type: it goes where the manifest says.
  */
 function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: ModelSource): Launch {
   const req = createRequire(join(spec.dir, "package.json"));
@@ -139,7 +139,7 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
   const resolveItem = (item: string): string => {
     if (item === "node") return process.execPath;
     if (item === PROGRAM) {
-      if (!program) throw new Error(`没有找到 ${spec.label} 的程序：本机没装，Roster 也没装，先到 Agent 页安装`);
+      if (!program) throw new Error(`没有找到 ${spec.label} 的程序：本机没装，Roster 也没装，先到设置里的 Harness 页安装`);
       return program;
     }
     if (item.startsWith("./") || item.startsWith("../")) return resolve(spec.dir, item);
@@ -701,12 +701,17 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
 }
 
 function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory {
-  const launchFor = (source: ModelSource) => resolveLaunch(spec, instance.settings["executable"], source);
+  const { source } = instance;
+  if (source.kind === "own" && !spec.own) throw new Error(`「${spec.label}」没有自带登录，要接一个模型 API`);
+  if (source.kind === "endpoint" && !(source.endpoint.api && spec.manifest.env?.[source.endpoint.api])) {
+    throw new Error(`「${source.endpoint.name}」接不到「${spec.label}」上：协议对不上`);
+  }
+  const launch = () => resolveLaunch(spec, instance.program, source);
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
   let lastModes: Array<{ id: string; label: string }> = [];
   const snapshotOf = (maxAgeMs: number): Promise<Snapshot> => {
     if (snapshot && Date.now() - snapshot.at < maxAgeMs) return snapshot.value;
-    const entry = { at: Date.now(), value: probe(launchFor({ kind: "own" }), instance.label) };
+    const entry = { at: Date.now(), value: Promise.resolve().then(() => probe(launch(), instance.label)) };
     snapshot = entry;
     entry.value.then(
       (s) => {
@@ -718,57 +723,33 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     );
     return entry.value;
   };
-  const probeFor = (source: ModelSource) =>
-    source.kind === "own" ? snapshotOf(SNAPSHOT_REUSE_MS) : probe(launchFor(source), instance.label);
 
   return {
     id: instance.id,
     type: spec.type,
     label: instance.label,
-    sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
-    capabilities: () => ACP_CAPABILITIES,
-    create: (source) => new AcpRuntime(launchFor(source), instance.label),
+    capabilities: ACP_CAPABILITIES,
+    create: () => new AcpRuntime(launch(), instance.label),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");
       return (model ? selectOptions(model) : []).map((o) => ({ id: o.value, label: o.name, available: !s.loggedOut }));
     },
-    async sessionInfo(settings, source) {
-      const s = await probeFor(source);
+    async sessionInfo(settings) {
+      const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       return infoOf(s.options, s.modes, settings);
     },
-    async sessionOptions(source) {
-      const s = await probeFor(source);
+    async sessionOptions() {
+      const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       return optionsOf(s.options, s.modes, s.commands);
     },
     modeForTier: (tier) => modeForTier(lastModes, tier) ?? "default",
-    async login(): Promise<LoginState> {
-      const launch = launchFor({ kind: "own" });
-      const s = await snapshotOf(0);
-      const methods = loginMethods(spec, launch, s.authMethods);
-      if (s.error && !s.session) return { state: "unknown", detail: s.error, methods };
-      const ok = s.auth ? s.auth.ok : !s.loggedOut;
-      return { state: ok ? "ok" : "none", ...(s.auth?.label ? { account: s.auth.label } : {}), methods };
-    },
-    async authenticate(methodId) {
-      const link = new Link(launchFor({ kind: "own" }), tmpdir(), {
-        requestPermission: () => ({ outcome: { outcome: "cancelled" } }),
-        sessionUpdate: () => {},
-      });
-      try {
-        await link.conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: "roster", version: "0.1.0" } });
-        await link.conn.authenticate({ methodId });
-      } finally {
-        link.close();
-      }
-      snapshot = null;
-    },
-    async check(source) {
-      const s = await probeFor(source).catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }) as Snapshot);
+    async check() {
+      const s = await snapshotOf(0).catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }) as Snapshot);
       if (s.error) return { ok: false, detail: s.error };
-      if (s.loggedOut) return { ok: false, detail: `${instance.label} 没有登录` };
+      if (s.loggedOut) return { ok: false, detail: `${spec.label} 没有登录` };
       const models = byCategory(s.options, "model");
-      return { ok: true, detail: `${instance.label} 启动正常${models ? `，${selectOptions(models).length} 个模型可选` : ""}` };
+      return { ok: true, detail: `启动正常${models ? `，${selectOptions(models).length} 个模型可选` : ""}` };
     },
   };
 }
@@ -780,15 +761,27 @@ export function acpHarness(spec: AcpSpec): HarnessType {
     label: spec.label,
     sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
     capabilities: () => ACP_CAPABILITIES,
-    fields: [
-      {
-        key: "executable",
-        label: `${spec.label} 程序`,
-        kind: "path",
-        placeholder: "留空用本机检测到的，或 Roster 装的",
-        help: "只在想指定某一份时填，比如另一个版本",
-      },
-    ],
     create: (instance) => acpFactory(spec, instance),
+    // the sign-in is the program's, so it is asked afresh every time rather than cached with any executor
+    async login(program): Promise<LoginState> {
+      const launch = resolveLaunch(spec, program, { kind: "own" });
+      const s = await probe(launch, spec.label);
+      const methods = loginMethods(spec, launch, s.authMethods);
+      if (s.error && !s.session) return { state: "unknown", detail: s.error, methods };
+      const ok = s.auth ? s.auth.ok : !s.loggedOut;
+      return { state: ok ? "ok" : "none", ...(s.auth?.label ? { account: s.auth.label } : {}), methods };
+    },
+    async authenticate(methodId, program) {
+      const link = new Link(resolveLaunch(spec, program, { kind: "own" }), tmpdir(), {
+        requestPermission: () => ({ outcome: { outcome: "cancelled" } }),
+        sessionUpdate: () => {},
+      });
+      try {
+        await link.conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: "roster", version: "0.1.0" } });
+        await link.conn.authenticate({ methodId });
+      } finally {
+        link.close();
+      }
+    },
   };
 }

@@ -1,42 +1,42 @@
 import { createContext, useContext } from "react";
-import type { Bot, Capabilities, CapabilitySet, Executor, SourceRef } from "./api";
+import type { Executor, SourceRef } from "./api";
 
-/** The executors core knows, as /api/state ships them. */
+/** The agents core knows, as /api/state ships them. */
 export const Executors = createContext<readonly Executor[]>([]);
 
-/** Every endpoint by name, so a bot's source can be labelled anywhere without its key. */
+/** Every model API by name, so an agent's source can be labelled anywhere without its key. */
 export const SourceRefs = createContext<readonly SourceRef[]>([]);
 
-/** Looks an executor up by id; an id no longer configured still reads as itself rather than as nothing. */
+/** What each base is called, by type id; one not loaded goes by its id. */
+export const BaseLabels = createContext<Readonly<Record<string, string>>>({});
+
+/** Looks an agent up by id; one deleted since still reads as something rather than as nothing. */
 export function useExecutor(): (id: string) => Executor {
   const list = useContext(Executors);
-  return (id) => list.find((e) => e.id === id) ?? { id, type: "", label: id, sources: { own: true, apis: [] } };
+  return (id) =>
+    list.find((e) => e.id === id) ?? {
+      id,
+      type: "",
+      label: "已删除的 agent",
+      source_kind: "own",
+      provider_id: null,
+      model: null,
+      problem: "这个 agent 已经删除了",
+    };
 }
 
-/** Executor ids in the order they came, except that an agent's extra setups sit right under its own. */
-export function byAgent(ids: readonly string[], typeOf: (id: string) => string): string[] {
-  const first = new Map<string, number>();
-  ids.forEach((id, i) => {
-    const type = typeOf(id);
-    if (!first.has(type)) first.set(type, i);
-  });
-  return ids
-    .map((id, i) => ({ id, i, at: first.get(typeOf(id)) ?? i }))
-    .sort((a, b) => a.at - b.at || a.i - b.i)
-    .map((x) => x.id);
-}
+export const OWN_SOURCE_LABEL = "订阅";
 
-export const OWN_SOURCE_LABEL = "自带登录";
-
-/** What a bot's model source is called: the endpoint's name, or the agent's own sign-in. */
-export function useSourceLabel(): (bot: Pick<Bot, "model_source">) => string {
+/** What an agent's source is called: 订阅 for the base's own sign-in, the model API's name otherwise. */
+export function useSourceLabel(): (executor: Pick<Executor, "source_kind" | "provider_id">) => string {
   const refs = useContext(SourceRefs);
-  return (bot) => (bot.model_source ? (refs.find((r) => r.id === bot.model_source)?.name ?? "已删除的模型 API") : OWN_SOURCE_LABEL);
+  return (e) =>
+    e.source_kind === "own" ? OWN_SOURCE_LABEL : (refs.find((r) => r.id === e.provider_id)?.name ?? "已删除的模型 API");
 }
 
-/** The capabilities that apply to a bot: the channel its model source runs over. */
-export function capsOf(caps: Record<string, CapabilitySet>, bot: Pick<Bot, "executor_id" | "model_source">): Capabilities | undefined {
-  const set = caps[bot.executor_id];
-  if (!set) return undefined;
-  return bot.model_source ? set.endpoint : set.own;
+/** Agents grouped by base, bases in the order they first appear. */
+export function byBase<T extends Pick<Executor, "type">>(list: readonly T[]): Array<[type: string, items: T[]]> {
+  const groups = new Map<string, T[]>();
+  for (const e of list) groups.set(e.type, [...(groups.get(e.type) ?? []), e]);
+  return [...groups.entries()];
 }

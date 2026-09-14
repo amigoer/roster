@@ -1,16 +1,12 @@
-import type {
-  HarnessType,
-  ModelOption,
-  ModelSource,
-  ProviderConfig,
-  ProviderPreset,
-  SourceKind,
-} from "@roster/adapter-api";
+import type { HarnessType, ModelOption, ModelSource, ProviderConfig, ProviderPreset, SourceKind } from "@roster/adapter-api";
 import type { Registry } from "./registry.js";
 import type { Secrets } from "./secrets.js";
-import type { ProviderRow, Store } from "./store.js";
+import type { ExecutorRow, ProviderRow, Store } from "./store.js";
 
 export const CUSTOM_PRESET = "custom";
+
+/** What a person calls the agent's own sign-in as a model source. */
+export const OWN_SOURCE_LABEL = "订阅";
 
 /**
  * Variables read once from the login shell. An app opened from the dock never
@@ -48,20 +44,17 @@ export function fits(type: HarnessType, provider: Pick<ProviderRow, "preset" | "
   return presets.some((p) => p.id === provider.preset);
 }
 
-/** One place a bot's models can come from, and what it offers. */
-export interface ModelGroup {
-  /** an endpoint id, or null for the agent's own sign-in */
-  source: string | null;
-  label: string;
-  models: ModelOption[];
+/** The source an executor names, key resolved. Throws when its model API is gone. */
+export function sourceOf(row: Pick<ExecutorRow, "source_kind" | "provider_id">, store: Store, secrets: Secrets): ModelSource {
+  if (row.source_kind === "own") return { kind: "own" };
+  const provider = row.provider_id ? store.getProvider(row.provider_id) : undefined;
+  if (!provider || provider.archived_at) throw new Error("它接的模型 API 已经删除了，换一个模型 API");
+  return { kind: "endpoint", endpoint: providerConfigOf(provider, secrets) };
 }
 
-export const kindOf = (sourceId: string | null | undefined): SourceKind => (sourceId ? "endpoint" : "own");
-
 /**
- * Where a bot's models come from, resolved against what is configured right
- * now. An executor never holds an endpoint; the bot names one, and this turns
- * the name into what the adapter takes, key included.
+ * Where executors' models come from, checked and listed against what is
+ * configured right now. An executor names its source; bots only name the executor.
  */
 export class Sources {
   constructor(
@@ -71,57 +64,30 @@ export class Sources {
     private presetsOf: (type: HarnessType) => Promise<ProviderPreset[]>,
   ) {}
 
-  /** Throws when the source is gone or the executor cannot use it. */
-  resolve(executorId: string, sourceId: string | null): ModelSource {
-    const entry = this.registry().entry(executorId);
-    if (!entry) throw new Error(`unknown executor ${executorId}`);
-    if (!sourceId) {
-      if (!entry.factory.sources.own) {
-        throw new Error(`「${entry.factory.label}」没有自带的登录，给这个 bot 选一个模型 API`);
-      }
-      return { kind: "own" };
+  /** Whether a type can run on this source: its own sign-in when it has one, or a model API that speaks its protocol. */
+  async usable(type: HarnessType, kind: SourceKind, providerId: string | null): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (kind === "own") {
+      return type.sources.own ? { ok: true } : { ok: false, reason: `「${type.label}」没有自带登录，要接一个模型 API` };
     }
-    const row = this.store.getProvider(sourceId);
-    if (!row || row.archived_at) throw new Error("这个 bot 用的模型 API 已经删除了");
-    return { kind: "endpoint", endpoint: providerConfigOf(row, this.secrets) };
-  }
-
-  /** Whether a bot on this executor may name this source at all. */
-  async usable(executorId: string, sourceId: string | null): Promise<{ ok: true } | { ok: false; reason: string }> {
-    const entry = this.registry().entry(executorId);
-    if (!entry) return { ok: false, reason: "没有这个 agent" };
-    if (!sourceId) {
-      return entry.factory.sources.own
-        ? { ok: true }
-        : { ok: false, reason: `「${entry.factory.label}」没有自带的登录，要选一个模型 API` };
-    }
-    const row = this.store.getProvider(sourceId);
-    if (!row || row.archived_at) return { ok: false, reason: "要用的模型 API 不存在" };
-    const presets = await this.presetsOf(entry.type).catch(() => []);
-    return fits(entry.type, row, presets)
-      ? { ok: true }
-      : { ok: false, reason: `「${row.name}」接不到「${entry.factory.label}」上：协议对不上` };
-  }
-
-  /** Every model a bot on this executor could pick, grouped by where it comes from. */
-  async groups(executorId: string): Promise<ModelGroup[]> {
-    const entry = this.registry().entry(executorId);
-    if (!entry) return [];
-    const { factory, type } = entry;
-    const groups: ModelGroup[] = [];
-    if (factory.sources.own) {
-      const models = (await factory.models?.().catch(() => [])) ?? [];
-      groups.push({ source: null, label: "自带登录", models });
-    }
-    if (type.sources.apis.length === 0) return groups;
+    const row = providerId ? this.store.getProvider(providerId) : undefined;
+    if (!row || row.archived_at) return { ok: false, reason: "要接的模型 API 不存在" };
     const presets = await this.presetsOf(type).catch(() => []);
-    for (const row of this.store.listProviders()) {
-      if (!fits(type, row, presets)) continue;
-      const endpoint = providerConfigOf(row, this.secrets);
-      const listed = row.models.map((id) => ({ id, available: Boolean(endpoint.apiKey), provider: row.name }));
-      const models = (await type.catalog?.(endpoint).catch(() => undefined)) ?? listed;
-      groups.push({ source: row.id, label: row.name, models: models.length > 0 ? models : listed });
-    }
-    return groups;
+    return fits(type, row, presets) ? { ok: true } : { ok: false, reason: `「${row.name}」接不到「${type.label}」上：协议对不上` };
+  }
+
+  /** The models a model API serves, whichever type drives it: the ids it listed, and nothing a harness knows about them. */
+  endpointModels(provider: ProviderRow): ModelOption[] {
+    const available = Boolean(providerConfigOf(provider, this.secrets).apiKey);
+    return provider.models.map((id) => ({ id, available }));
+  }
+
+  /** Every model a bot on this executor could pick. */
+  async models(executorId: string): Promise<ModelOption[]> {
+    const entry = this.registry().entry(executorId);
+    const row = this.store.getExecutor(executorId);
+    if (!entry || !row) return [];
+    if (row.source_kind === "own") return (await entry.factory.models?.().catch(() => [])) ?? [];
+    const provider = row.provider_id ? this.store.getProvider(row.provider_id) : undefined;
+    return provider ? this.endpointModels(provider) : [];
   }
 }

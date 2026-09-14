@@ -22,7 +22,6 @@ import type {
   Deliver,
   HarnessType,
   InstanceConfig,
-  ModelOption,
   ModelSource,
   NormalizedEvent,
   ProviderConfig,
@@ -113,11 +112,11 @@ interface Launch {
 
 /**
  * Every inherited ANTHROPIC_* goes first: one left over from the host would
- * otherwise quietly win over the endpoint the bot named.
+ * otherwise quietly win over the endpoint the executor names.
  */
-function launchOf(instance: InstanceConfig, provider: ProviderConfig): Launch {
+function launchOf(program: string | undefined, provider: ProviderConfig): Launch {
   const env = cleanEnv();
-  const executable = instance.settings["executable"]?.trim();
+  const executable = program?.trim();
   for (const key of Object.keys(env)) if (key.startsWith("ANTHROPIC_")) delete env[key];
   if (provider.baseUrl) env["ANTHROPIC_BASE_URL"] = provider.baseUrl;
   // the official API authenticates with x-api-key; gateways and compatible endpoints take a bearer token
@@ -197,13 +196,6 @@ function modelLabel(id: string): string {
 function effortsOf(m: ModelInfo, ultracode: boolean): string[] {
   const levels = m.supportsEffort ? (m.supportedEffortLevels ?? []) : [];
   return ultracode && levels.includes("xhigh") ? [...levels, ULTRACODE] : levels;
-}
-
-/** Catalog descriptions lead with the versioned name: "Opus 5 · Best for everyday, complex tasks". */
-function catalogEntry(m: ModelInfo): { label: string; description: string } {
-  const [name, ...rest] = m.description.split(" · ");
-  if (!name || rest.length === 0) return { label: m.displayName, description: m.description };
-  return { label: name, description: rest.join(" · ") };
 }
 
 /** ultracode is true only while it is in effect: a model without xhigh suspends it until the session is back on one */
@@ -721,7 +713,7 @@ async function readUltracode(q: Query, catalog: ModelInfo[]): Promise<boolean> {
 const PROBE_TIMEOUT_MS = 20_000;
 const CATALOG_REUSE_MS = 10 * 60_000;
 
-/** One cache per endpoint: two endpoints serve different catalogs, and must not show each other's. */
+/** One cache per executor: each binds its own endpoint, and two endpoints must not show each other's catalogs. */
 function probeCache(launch: Launch): (maxAgeMs: number) => Promise<Snapshot> {
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
   return (maxAgeMs) => {
@@ -775,53 +767,31 @@ async function probe(launch: Launch): Promise<Snapshot> {
   }
 }
 
-/** The aliases the CLI resolves on its own; a custom endpoint serves exactly what it was set up with. */
-function catalogOf(endpoint: ProviderConfig): ModelOption[] {
-  if (endpoint.preset === CUSTOM_PRESET) {
-    return (endpoint.models ?? []).map((id) => ({ id, label: `${endpoint.name} · ${id}`, available: Boolean(endpoint.apiKey), provider: endpoint.name }));
-  }
-  const available = Boolean(endpoint.apiKey);
-  return [
-    { id: "sonnet", label: "Sonnet · 均衡", available, provider: "anthropic" },
-    { id: "opus", label: "Opus · 最强", available, provider: "anthropic" },
-    { id: "haiku", label: "Haiku · 最快", available, provider: "anthropic" },
-  ];
-}
-
 const endpointOf = (source: ModelSource): ProviderConfig => {
   if (source.kind !== "endpoint") throw new Error("claude: the SDK channel runs on an endpoint; the agent's own sign-in goes over ACP");
   return source.endpoint;
 };
 
 function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
-  // probes are per endpoint, since each serves its own catalog; the launch env carries the key, so the cache is keyed by id only
-  const probes = new Map<string, (maxAgeMs: number) => Promise<Snapshot>>();
-  const snapshotFor = (endpoint: ProviderConfig) => {
-    let p = probes.get(endpoint.id);
-    if (!p) {
-      p = probeCache(launchOf(instance, endpoint));
-      probes.set(endpoint.id, p);
-    }
-    return p;
-  };
+  const endpoint = endpointOf(instance.source);
+  const launch = launchOf(instance.program, endpoint);
+  const snapshot = probeCache(launch);
   return {
     id: instance.id,
     label: instance.label,
     type: "claude-code",
-    sources: { own: false, apis: ["anthropic-messages"] },
-    capabilities: () => CLAUDE_CAPABILITIES,
-    create: (source) => new ClaudeRuntime(launchOf(instance, endpointOf(source))),
-    // starting the CLI with this executor's binary and the endpoint's environment is what can fail here
-    async check(source) {
-      const endpoint = endpointOf(source);
-      const snapshot = await snapshotFor(endpoint)(0).catch((err: unknown) => err as Error);
-      if (snapshot instanceof Error) return { ok: false, detail: `Claude Code 启动不了：${snapshot.message}` };
-      const account = snapshot.account;
+    capabilities: CLAUDE_CAPABILITIES,
+    create: () => new ClaudeRuntime(launch),
+    // starting the CLI with this program and the endpoint's environment is what can fail here
+    async check() {
+      const probed = await snapshot(0).catch((err: unknown) => err as Error);
+      if (probed instanceof Error) return { ok: false, detail: `Claude Code 启动不了：${probed.message}` };
+      const account = probed.account;
       const via = account?.apiKeySource ?? account?.tokenSource;
-      return { ok: true, detail: `Claude Code 启动正常，认证走 ${via ?? endpoint.name}` };
+      return { ok: true, detail: `启动正常，认证走 ${via ?? endpoint.name}` };
     },
-    async sessionInfo({ model, effort, mode, fast }, source): Promise<SessionInfo> {
-      const { catalog, applied, fast: gate, ultracode } = await snapshotFor(endpointOf(source))(CATALOG_REUSE_MS);
+    async sessionInfo({ model, effort, mode, fast }): Promise<SessionInfo> {
+      const { catalog, applied, fast: gate, ultracode } = await snapshot(CATALOG_REUSE_MS);
       // an alias such as "opus" resolves through the catalog; no model means the CLI's default
       const id = model ? (catalog.find((m) => m.value === model)?.resolvedModel ?? model) : applied?.model;
       const row = catalog.find((m) => m.resolvedModel === id || m.value === id);
@@ -839,22 +809,13 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
         fast: fast && row?.supportsFastMode && gate?.available ? "on" : "off",
       };
     },
-    async sessionOptions(source): Promise<SessionOptions> {
-      const endpoint = endpointOf(source);
-      const { catalog, fast, ultracode, commands } = await snapshotFor(endpoint)(CATALOG_REUSE_MS);
-      // a custom endpoint serves what it was set up with; the CLI's catalog only knows Anthropic's own names
-      const models =
-        endpoint.preset === CUSTOM_PRESET && endpoint.models?.length
-          ? endpoint.models.map((id) => ({ id, label: id, efforts: [] as string[] }))
-          : catalog
-              .filter((m) => m.value !== "default")
-              .map((m) => ({
-                id: m.value,
-                ...(m.resolvedModel ? { resolved: m.resolvedModel } : {}),
-                ...catalogEntry(m),
-                efforts: effortsOf(m, ultracode),
-                fast: m.supportsFastMode === true,
-              }));
+    async sessionOptions(): Promise<SessionOptions> {
+      const { catalog, fast, ultracode, commands } = await snapshot(CATALOG_REUSE_MS);
+      // only what the endpoint's API listed; the CLI's own catalog just says which efforts and fast mode an id takes
+      const models = (endpoint.models ?? []).map((id) => {
+        const row = catalog.find((m) => m.resolvedModel === id || m.value === id);
+        return { id, label: id, efforts: row ? effortsOf(row, ultracode) : [], fast: row?.supportsFastMode === true };
+      });
       return {
         models,
         efforts: [
@@ -877,19 +838,9 @@ export const claudeHarness: HarnessType = {
   label: "Claude Code",
   sources: { own: false, apis: ["anthropic-messages"] },
   capabilities: () => CLAUDE_CAPABILITIES,
-  fields: [
-    {
-      key: "executable",
-      label: "Claude Code 可执行文件",
-      kind: "path",
-      placeholder: "留空用本机检测到的，或 Roster 装的",
-      help: "只在想指定另一份 claude 时填，比如另一个版本；订阅登录也走这一份",
-    },
-  ],
   presets: async () => [
-    { id: ANTHROPIC_PRESET, label: "Anthropic", api: "anthropic-messages", baseUrl: "https://api.anthropic.com", models: 3, keyLabel: "Anthropic API key" },
+    { id: ANTHROPIC_PRESET, label: "Anthropic", api: "anthropic-messages", baseUrl: "https://api.anthropic.com", keyLabel: "Anthropic API key" },
   ],
-  catalog: async (endpoint) => catalogOf(endpoint),
   create: claudeExecutor,
 };
 

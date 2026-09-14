@@ -2,11 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { BotRuntimeFactory, ExtensionManifest, HarnessType, ModelSource, ProgramManifest } from "@roster/adapter-api";
+import type { ExtensionManifest, HarnessType, ProgramManifest } from "@roster/adapter-api";
 import { acpHarness } from "./acp.js";
 
 /** The contract major version this build speaks. An extension written for another is not loaded. */
-export const CONTRACT_API = 1;
+export const CONTRACT_API = 2;
 
 export interface Extension {
   /** the harness type it provides, which is also what the catalog calls it */
@@ -67,48 +67,20 @@ function missingProgram(dir: string, command: readonly string[]): string | null 
 
 /**
  * One type out of two halves: the code drives endpoints, the ACP block drives
- * the agent's own sign-in. Which half answers follows the model source.
+ * the agent's own sign-in. An executor is built by the half its source needs,
+ * once, so nothing downstream picks a channel again.
  */
 function compose(code: HarnessType, acp: HarnessType): HarnessType {
-  const fields = [...code.fields, ...acp.fields.filter((f) => !code.fields.some((c) => c.key === f.key))];
   return {
     type: code.type,
     label: code.label,
+    ...(code.version ? { version: code.version } : {}),
     sources: { own: acp.sources.own, apis: code.sources.apis },
     capabilities: (kind) => (kind === "own" ? acp.capabilities("own") : code.capabilities("endpoint")),
-    fields,
     ...(code.presets ? { presets: () => code.presets!() } : {}),
-    ...(code.catalog ? { catalog: (endpoint) => code.catalog!(endpoint) } : {}),
-    create: (instance) => {
-      const c = code.create(instance);
-      const a = acp.create(instance);
-      const pick = (source: ModelSource): BotRuntimeFactory => (source.kind === "own" ? a : c);
-      return {
-        id: instance.id,
-        type: code.type,
-        label: instance.label,
-        sources: { own: a.sources.own, apis: c.sources.apis },
-        capabilities: (kind) => (kind === "own" ? a.capabilities("own") : c.capabilities("endpoint")),
-        create: (source) => pick(source).create(source),
-        ...(a.models ? { models: () => a.models!() } : {}),
-        sessionInfo: (settings, source) => {
-          const f = pick(source);
-          return f.sessionInfo ? f.sessionInfo(settings, source) : Promise.resolve({});
-        },
-        sessionOptions: (source) => {
-          const f = pick(source);
-          return f.sessionOptions ? f.sessionOptions(source) : Promise.resolve({ models: [], efforts: [], modes: [], compact: false });
-        },
-        modeForTier: (tier, kind) => (kind === "own" ? a.modeForTier?.(tier, kind) : c.modeForTier?.(tier, kind)) ?? "default",
-        ...(a.quota ? { quota: () => a.quota!() } : {}),
-        ...(a.login ? { login: () => a.login!() } : {}),
-        ...(a.authenticate ? { authenticate: (id: string) => a.authenticate!(id) } : {}),
-        check: (source) => {
-          const f = pick(source);
-          return f.check ? f.check(source) : Promise.resolve({ ok: true });
-        },
-      };
-    },
+    create: (instance) => ({ ...(instance.source.kind === "own" ? acp : code).create(instance), type: code.type }),
+    ...(acp.login ? { login: (program) => acp.login!(program) } : {}),
+    ...(acp.authenticate ? { authenticate: (methodId, program) => acp.authenticate!(methodId, program) } : {}),
   };
 }
 

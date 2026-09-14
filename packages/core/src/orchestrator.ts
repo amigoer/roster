@@ -3,14 +3,13 @@ import type {
   BotRuntime,
   Capabilities,
   ContextDetail,
-  ModelSource,
+  ModelOption,
   NormalizedEvent,
   Quota,
   SessionInfo,
   SessionOptions,
   SessionSettings,
   SourceKind,
-  Sources as SourceShape,
   ToolCall,
   ToolDecision,
 } from "@roster/adapter-api";
@@ -19,7 +18,7 @@ import { composeDelivery, MODE_LABEL, type Ask } from "./delivery.js";
 import type { CoreEvent } from "./log.js";
 import { findMentions } from "./mentions.js";
 import type { Registry } from "./registry.js";
-import { kindOf, type ModelGroup, type Sources } from "./sources.js";
+import type { Sources } from "./sources.js";
 import { titleFrom, UNTITLED } from "./store.js";
 import type { ConversationRow, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
 
@@ -52,6 +51,16 @@ const outOfDate = (entry: QuotaRead): boolean =>
   true;
 
 const sameInfo = (a: SessionInfo, b: SessionInfo) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The picks a session's options still offer; the rest belonged to what it ran before. */
+function stillOffered(settings: MemberSettings, options: SessionOptions): MemberSettings {
+  return {
+    ...(settings.model && options.models.some((m) => m.id === settings.model) ? { model: settings.model } : {}),
+    ...(settings.effort && options.efforts.some((e) => e.id === settings.effort) ? { effort: settings.effort } : {}),
+    ...(settings.mode && options.modes.some((m) => m.id === settings.mode) ? { mode: settings.mode } : {}),
+    ...(settings.fast !== undefined && options.fast?.available !== false ? { fast: settings.fast } : {}),
+  };
+}
 
 export type PresenceState = "starting" | "thinking" | "tool" | "waiting_permission" | "waiting_lock" | "compacting";
 
@@ -117,7 +126,7 @@ export class Orchestrator {
   #lives = new Map<string, Live>();
   #groups = new Map<string, Group>();
   #pending = new Map<string, Pending>();
-  #models: { at: number; value: Record<string, ModelGroup[]> } | null = null;
+  #models: { at: number; value: Record<string, ModelOption[]> } | null = null;
   /** plan usage per executor: two executors may well be two accounts */
   #quotas = new Map<string, QuotaRead>();
 
@@ -132,24 +141,32 @@ export class Orchestrator {
 
   /**
    * Readable without starting anything, so the UI can degrade before a turn
-   * runs. Per model source, because the channels differ: the same executor
-   * driven over ACP for its own sign-in cannot do what it does over an SDK.
+   * runs. One set per executor: its source settles the channel, and the
+   * channel settles what it can do.
    */
-  capabilities(): Record<string, Partial<Record<SourceKind, Capabilities>>> {
-    return Object.fromEntries(
-      this.registry.entries().map(([id, e]) => [
-        id,
-        {
-          ...(e.sources.own ? { own: e.capabilities("own") } : {}),
-          ...(e.sources.apis.length > 0 ? { endpoint: e.capabilities("endpoint") } : {}),
-        },
-      ]),
-    );
+  capabilities(): Record<string, Capabilities> {
+    return Object.fromEntries(this.registry.entries().map(([id, e]) => [id, e.capabilities]));
   }
 
-  /** What bots can run on, under the names people gave them. */
-  executors(): Array<{ id: string; type: string; label: string; sources: SourceShape }> {
-    return this.registry.entries().map(([id, e]) => ({ id, type: e.type, label: e.label, sources: e.sources }));
+  /** Every live executor under the name people gave it; one that cannot run says why. */
+  executors(): Array<{
+    id: string;
+    type: string;
+    label: string;
+    source_kind: SourceKind;
+    provider_id: string | null;
+    model: string | null;
+    problem: string | null;
+  }> {
+    return this.store.listExecutors().map((e) => ({
+      id: e.id,
+      type: e.type,
+      label: e.name,
+      source_kind: e.source_kind,
+      provider_id: e.provider_id,
+      model: e.model,
+      problem: this.registry.entry(e.id) ? null : (this.registry.problem(e.id) ?? "现在建不出来"),
+    }));
   }
 
   /**
@@ -163,11 +180,11 @@ export class Orchestrator {
     this.#quotas.clear();
   }
 
-  /** Every model each executor could run, grouped by where it comes from. */
-  async models(): Promise<Record<string, ModelGroup[]>> {
+  /** Every model each executor could run. */
+  async models(): Promise<Record<string, ModelOption[]>> {
     if (this.#models && Date.now() - this.#models.at < 5 * 60_000) return this.#models.value;
     const entries = await Promise.all(
-      this.registry.ids().map(async (id) => [id, await this.sources.groups(id).catch(() => [])] as const),
+      this.registry.ids().map(async (id) => [id, await this.sources.models(id).catch(() => [])] as const),
     );
     this.#models = { at: Date.now(), value: Object.fromEntries(entries) };
     return this.#models.value;
@@ -212,36 +229,14 @@ export class Orchestrator {
   /**
    * Switches what one member's session runs with, in this conversation only. A
    * live session switches in place; otherwise the pick waits for its next start.
-   * A model from another source is another backend session: the old context
-   * cannot follow, so the member starts over from the shared transcript.
+   * Only what the executor's own options offer can be picked: its source is not
+   * a session's to change.
    */
   async configure(conversationId: string, memberId: string, patch: MemberSettings): Promise<void> {
     const member = this.#memberOf(conversationId, memberId);
-    const current = this.#effective(member).sourceId;
-    const next = patch.source !== undefined ? patch.source : current;
-    if (next !== current) {
-      const group = (await this.sources.groups(member.spec.executor_id)).find((g) => g.source === next);
-      if (!group) throw new Error("这个 agent 用不了这个模型来源");
-      if (patch.model !== undefined && !group.models.some((m) => m.id === patch.model)) {
-        throw new Error(`不认识的模型：${patch.model}`);
-      }
-      const live = this.#lives.get(memberId);
-      if (live?.running) throw new Error("它正在干活，等这一轮结束再换模型来源");
-      // effort and mode belonged to the old source's option set; only the model comes along
-      this.store.restartSession(memberId, { source: next, ...(patch.model !== undefined ? { model: patch.model } : {}) });
-      if (live) {
-        this.#drop(live);
-        live.session = null;
-      }
-      this.#notice(conversationId, `${this.#name(member)} 换了模型来源，重新开了一个会话`);
-      this.#pushConversations();
-      const info = await this.#resting(this.store.getMember(memberId)!);
-      this.broadcast({ kind: "session", conversationId, memberId, info });
-      return;
-    }
     const options = await this.#optionsFor(member);
     if (!options) throw new Error("这个 agent 不支持在会话里切换");
-    if (patch.model !== undefined && !options.models.some((m) => m.id === patch.model && m.source === current)) {
+    if (patch.model !== undefined && !options.models.some((m) => m.id === patch.model)) {
       throw new Error(`不认识的模型：${patch.model}`);
     }
     if (patch.effort !== undefined && !options.efforts.some((e) => e.id === patch.effort)) {
@@ -255,7 +250,13 @@ export class Orchestrator {
     }
 
     const live = this.#lives.get(memberId);
-    const { source: _source, ...settings } = patch;
+    const { model, effort, mode, fast } = patch;
+    const settings: MemberSettings = {
+      ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+      ...(mode !== undefined ? { mode } : {}),
+      ...(fast !== undefined ? { fast } : {}),
+    };
     // the session reports what actually took, which the push then carries
     if (live?.runtime?.configure) await live.runtime.configure(settings);
     this.store.setSettings(memberId, { ...member.settings, ...settings });
@@ -490,10 +491,18 @@ export class Orchestrator {
     }
     const live = this.#lives.get(memberId);
     if (live?.running) throw new Error("它正在干活，等这一轮结束再同步");
+    const picked = member.settings;
     this.store.refreshSpec(memberId);
     if (live) {
       this.#drop(live);
       live.session = null;
+    }
+    // picks the new setup still offers carry over; the rest belonged to the old one
+    const refreshed = this.store.getMember(memberId);
+    if (refreshed && Object.keys(picked).length > 0) {
+      const options = await this.#optionsFor(refreshed).catch(() => null);
+      const kept = options ? stillOffered(picked, options) : {};
+      if (Object.keys(kept).length > 0) this.store.setSettings(memberId, kept);
     }
     this.#notice(conversationId, `${this.#name(member)} 更新了设定`);
     this.#pushConversations();
@@ -649,12 +658,11 @@ export class Orchestrator {
     const conv = this.store.getConversation(live.conversationId);
     if (!member || !conv) throw new Error("成员已不在会话里");
     const executor = this.registry.get(member.spec.executor_id);
-    if (!executor) throw new Error(`unknown executor ${member.spec.executor_id}`);
-    const { settings, sourceId } = this.#effective(member);
-    // resolved now, key included: an endpoint edited since the last turn is what the next session runs on
-    const source = this.sources.resolve(member.spec.executor_id, sourceId);
+    if (!executor) throw new Error(this.registry.problem(member.spec.executor_id) ?? "它用的 agent 已经删除了，给这个 bot 换一个 agent 再同步");
+    const settings = this.#effective(member);
 
-    const runtime = executor.create(source);
+    // the registry is rebuilt on every settings change, so an endpoint edited since the last turn is already in here, key included
+    const runtime = executor.create();
     // a replaced runtime can still emit while it winds down; only the current one speaks
     runtime.subscribe((e) => {
       if (live.runtime === runtime) this.#onEvent(live, e);
@@ -716,7 +724,7 @@ export class Orchestrator {
         this.store.setReport(live.memberId, e.info);
         // a mode the session moved into by itself -- leaving Plan once its plan is approved -- is where it now is
         const member = this.store.getMember(live.memberId);
-        if (member && e.info.mode && e.info.mode !== this.#effective(member).settings.mode) {
+        if (member && e.info.mode && e.info.mode !== this.#effective(member).mode) {
           this.store.setSettings(member.id, { ...member.settings, mode: e.info.mode });
         }
         this.broadcast({ kind: "session", conversationId: live.conversationId, memberId: live.memberId, info: e.info });
@@ -836,8 +844,7 @@ export class Orchestrator {
     // A backend with permission modes of its own decides by the mode picked for
     // the session, the way it would outside Roster. Discussion is talk only, so
     // there anything past reading goes through the human for every backend.
-    const kind = kindOf(this.#effective(member).sourceId);
-    const ownModes = this.registry.get(member.spec.executor_id)?.capabilities(kind).permissionModes === true;
+    const ownModes = this.registry.get(member.spec.executor_id)?.capabilities.permissionModes === true;
     const deferring = ownModes && conv.mode !== "discussion";
     // the live tier, not the join-time snapshot: lowering it must take effect now
     const tier: Tier = conv.mode === "discussion" ? "read" : bot.permission_tier;
@@ -913,59 +920,33 @@ export class Orchestrator {
 
   /**
    * What a member's session starts with: its own picks over the join-time spec --
-   * not the bot as since edited -- and, for a mode nobody picked, the one its tier names.
-   * The source is where the models come from: an endpoint id, or null for the agent's own sign-in.
+   * not the bot as since edited -- then the executor's default model, and, for a
+   * mode nobody picked, the one its tier names.
    */
-  #effective(m: MemberRow): { settings: SessionSettings; sourceId: string | null } {
+  #effective(m: MemberRow): SessionSettings {
     const tier = this.store.getBot(m.bot_id)?.permission_tier ?? "read";
-    const sourceId = m.settings.source !== undefined ? m.settings.source : (m.spec.model_source ?? null);
-    const model = m.settings.model ?? m.spec.model ?? undefined;
-    const mode = m.settings.mode ?? this.registry.get(m.spec.executor_id)?.modeForTier?.(tier, kindOf(sourceId));
+    const model = m.settings.model ?? m.spec.model ?? this.store.getExecutor(m.spec.executor_id)?.model ?? undefined;
+    const mode = m.settings.mode ?? this.registry.get(m.spec.executor_id)?.modeForTier?.(tier);
     return {
-      sourceId,
-      settings: {
-        ...(model ? { model } : {}),
-        ...(m.settings.effort ? { effort: m.settings.effort } : {}),
-        ...(mode ? { mode } : {}),
-        ...(m.settings.fast !== undefined ? { fast: m.settings.fast } : {}),
-      },
+      ...(model ? { model } : {}),
+      ...(m.settings.effort ? { effort: m.settings.effort } : {}),
+      ...(mode ? { mode } : {}),
+      ...(m.settings.fast !== undefined ? { fast: m.settings.fast } : {}),
     };
-  }
-
-  #sourceOf(m: MemberRow): ModelSource | null {
-    try {
-      return this.sources.resolve(m.spec.executor_id, this.#effective(m).sourceId);
-    } catch {
-      return null;
-    }
   }
 
   /** A member with no live session: the backend's preview of its settings, and the context its last session left. */
   async #resting(m: MemberRow): Promise<SessionInfo> {
     const executor = this.registry.get(m.spec.executor_id);
-    const source = this.#sourceOf(m);
-    const preview = source ? await executor?.sessionInfo?.(this.#effective(m).settings, source).catch(() => null) : null;
+    const preview = (await executor?.sessionInfo?.(this.#effective(m)).catch(() => null)) ?? null;
     return { ...preview, ...(m.report?.context ? { context: m.report.context } : {}) };
   }
 
-  /**
-   * What a member's session can be switched to: its source's own options, plus
-   * the models of every other source it could move to, each marked with where
-   * it comes from. Picking one of those is a source switch, not a live change.
-   */
+  /** What a member's session can be switched to: its executor's own options, nothing from any other source. */
   async #optionsFor(m: MemberRow): Promise<SessionOptions | null> {
     const executor = this.registry.get(m.spec.executor_id);
-    const source = this.#sourceOf(m);
-    if (!executor?.sessionOptions || !source) return null;
-    const own = await executor.sessionOptions(source).catch(() => null);
-    if (!own) return null;
-    const sourceId = this.#effective(m).sourceId;
-    const groups = await this.sources.groups(m.spec.executor_id).catch(() => []);
-    const current = own.models.map((x) => ({ ...x, source: sourceId }));
-    const others = groups
-      .filter((g) => g.source !== sourceId)
-      .flatMap((g) => g.models.map((x) => ({ id: x.id, label: x.label ?? x.id, efforts: [], source: g.source, sourceLabel: g.label })));
-    return { ...own, models: [...current, ...others] };
+    if (!executor?.sessionOptions) return null;
+    return executor.sessionOptions().catch(() => null);
   }
 
   /** Re-reads an executor's plan usage once the last read is older than maxAgeMs, and pushes it if it moved. */

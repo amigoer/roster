@@ -1,23 +1,25 @@
-import type { HarnessType, ProgramManifest } from "@roster/adapter-api";
+import type { ProgramManifest } from "@roster/adapter-api";
 import type { CatalogEntry } from "./catalog.js";
 import type { DetectedProgram, Detector } from "./detect.js";
 import type { Extension, Extensions } from "./extensions.js";
 import type { InstalledProgram, Installer } from "./installer.js";
 
-/** Where an agent's program is, if anywhere: on the machine already, or fetched by Roster. */
+/** Where a type's program is, if anywhere: on the machine already, or fetched by Roster. */
 export interface ProgramState {
   /** the adapter drives a separate program; false for a library adapter such as pi */
   needed: boolean;
   detected?: DetectedProgram;
   installed?: InstalledProgram;
-  /** what a session runs: the person's own pick is applied later, this is the fallback */
+  /** what a session runs when nobody picked a program: the one found, else Roster's own */
   path?: string;
-  /** a bot on this agent can start */
+  /** of that program, or of the library a program-less adapter carries */
+  version?: string;
+  /** an executor of this type can start */
   usable: boolean;
 }
 
-/** One agent as the settings page shows it: adapter and program, each with where it stands. */
-export interface AgentView extends CatalogEntry {
+/** One base -- a harness type -- as the settings page shows it: adapter and program, each with where it stands. */
+export interface BaseView extends CatalogEntry {
   adapter: "bundled" | "installed" | "linked" | "missing" | "error";
   adapterError?: string;
   state: ProgramState;
@@ -26,9 +28,9 @@ export interface AgentView extends CatalogEntry {
 /**
  * Adapters ship with Roster; programs are found or fetched. This joins the
  * three sources of truth -- the catalog, what is loaded, what is on disk --
- * into one answer per agent: can a bot on it run, and with which program.
+ * into one answer per type: can an executor of it run, and with which program.
  */
-export class Agents {
+export class Bases {
   constructor(
     private catalog: readonly CatalogEntry[],
     private extensions: Extensions,
@@ -43,33 +45,26 @@ export class Agents {
 
   state(type: string): ProgramState {
     const manifest = this.program(type);
-    if (!manifest) return { needed: false, usable: true };
+    if (!manifest) {
+      const version = this.extensions.list().find((e) => e.type === type)?.harness?.version;
+      return { needed: false, ...(version ? { version } : {}), usable: true };
+    }
     const detected = this.detector.current()?.programs.find((p) => p.id === type);
     const installed = this.installer.program(type, manifest) ?? undefined;
-    const path = detected?.path ?? installed?.path;
+    const runs = detected ?? installed;
     return {
       needed: true,
       ...(detected ? { detected } : {}),
       ...(installed ? { installed } : {}),
-      ...(path ? { path } : {}),
-      usable: Boolean(path),
+      ...(runs ? { path: runs.path } : {}),
+      ...(runs?.version ? { version: runs.version } : {}),
+      usable: Boolean(runs),
     };
   }
 
-  /** What fills an executor's empty settings: the program this machine has. */
-  defaults(type: HarnessType): Readonly<Record<string, string>> {
-    const { path } = this.state(type.type);
-    return path ? { executable: path } : {};
-  }
-
-  /** Types a bot could run on right now: adapter loaded, program at hand. */
-  usable(): HarnessType[] {
-    return this.extensions.types().filter((t) => this.state(t.type).usable);
-  }
-
-  view(): AgentView[] {
+  view(): BaseView[] {
     const loaded = this.extensions.list();
-    const of = (entry: CatalogEntry, ext: Extension | undefined): AgentView => ({
+    const of = (entry: CatalogEntry, ext: Extension | undefined): BaseView => ({
       ...entry,
       adapter: ext ? (ext.error ? "error" : ext.origin) : "missing",
       ...(ext?.error ? { adapterError: ext.error } : {}),

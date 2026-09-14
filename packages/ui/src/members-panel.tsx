@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { activeMembers, api, type Bot, type Conversation, type Member, type Mode, type Presence } from "./api";
 import { BotAvatar, busyOf, HumanAvatar, TIER_LABEL } from "./bot-avatar";
-import { useExecutor, useSourceLabel } from "./executors";
+import { useExecutor } from "./executors";
 import { leaderOf } from "./mentions";
 import { presenceLabel } from "./presence";
 import { Button } from "@/components/ui/button";
@@ -209,8 +209,9 @@ function MemberRow({
   onRemove: () => void;
 }) {
   const { bot } = member;
-  const executor = useExecutor()(bot.executor_id);
-  const sourceLabel = useSourceLabel();
+  // what this member's session runs on, which can lag behind the bot until it is synced
+  const executor = useExecutor()(member.executor_id);
+  const model = member.model ?? executor.model;
   return (
     <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2">
       <button onClick={onOpen} title="查看资料" className="mt-0.5">
@@ -222,10 +223,10 @@ function MemberRow({
           {isLeader && <Crown className="size-3.5 shrink-0 text-amber-500" aria-label="群主" />}
         </div>
         <div className="text-muted-foreground truncate text-xs">
-          {presence ? presenceLabel(presence) : (bot.title ?? `${executor.label}${bot.model ? ` · ${bot.model}` : ""}`)}
+          {presence ? presenceLabel(presence) : (bot.title ?? `${executor.label}${model ? ` · ${model}` : ""}`)}
         </div>
         <div className="text-muted-foreground/70 truncate text-[11px]">
-          {executor.label} · {bot.model ?? sourceLabel(bot)} · {TIER_LABEL[bot.permission_tier]?.label}
+          {executor.label} · {model ?? "默认模型"} · {TIER_LABEL[bot.permission_tier]?.label}
         </div>
         {member.stale && (
           <button

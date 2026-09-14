@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Crown, Search } from "lucide-react";
-import { api, type Bot, type CapabilitySet, type Conversation, type Mode } from "./api";
+import { api, type Bot, type Capabilities, type Conversation, type Mode } from "./api";
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
-import { capsOf, useExecutor } from "./executors";
+import { useExecutor } from "./executors";
 import { ModePicker } from "./members-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,7 +48,7 @@ export function NewConversation({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   bots: Bot[];
-  capabilities: Record<string, CapabilitySet>;
+  capabilities: Record<string, Capabilities>;
   defaultDir: string;
   /** preselected, e.g. from a contact's profile */
   initialBotIds: string[];
@@ -231,9 +231,9 @@ export function NewConversation({
             {error && <p className="text-destructive text-xs">{error}</p>}
           </div>
 
-          {chosen.length === 1 && capsOf(capabilities, chosen[0]!) && (
+          {chosen.length === 1 && capabilities[chosen[0]!.executor_id] && (
             <div className="border-t pt-3">
-              <CapabilityNotes caps={capsOf(capabilities, chosen[0]!)!} />
+              <CapabilityNotes caps={capabilities[chosen[0]!.executor_id]!} />
             </div>
           )}
         </div>

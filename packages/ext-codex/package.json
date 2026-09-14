@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "description": "Codex for Roster: OpenAI's coding agent over the Agent Client Protocol",
   "roster": {
-    "api": 1,
+    "api": 2,
     "type": "codex",
     "label": "Codex",
     "acp": {

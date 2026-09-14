@@ -70,7 +70,7 @@ try {
   // nothing is seeded any more: the bots live in the data dir this is pointed at
   const state = await j("/api/state");
   const bot = state.bots.find((b) => process.env.ROSTER_SMOKE_BOT ? b.name === process.env.ROSTER_SMOKE_BOT : true);
-  check("a bot exists to talk to (install an extension, add an executor and a bot first)", Boolean(bot));
+  check("a bot exists to talk to (set up an agent and a bot on it first)", Boolean(bot));
   if (!bot) throw new Error("no bot");
   log(`talking to ${bot.name} on ${state.executors.find((e) => e.id === bot.executor_id)?.label ?? bot.executor_id}`);
 

@@ -14,16 +14,16 @@ Roster is a desktop app for the coding agents you already use: Claude Code, Code
 - **Bots are contacts.** A bot keeps a name, avatar, preset prompt, agent, model and permission level. The same bot can join any number of conversations.
 - **Groups are agent teams.** Pick several bots and choose how turns pass: you lead with @mentions, a leader bot splits the task and assigns it, or every member answers each message while you decide. Members can talk at the same time; only one edits files at a time.
 - **Your agents, detected.** Agents already on your machine are used as they are. Missing ones are downloaded into Roster's own folder.
-- **Subscription or API.** A bot runs on the agent's own sign-in, or on a model API you add. Keys can come from environment variables; keys you save are encrypted with a key the operating system protects (Keychain on macOS).
+- **Subscription or API, fixed per agent.** An agent pairs a harness, the coding agent program such as Claude Code, with where its models come from: the program's own sign-in, or a model API you add. A bot picks an agent, so how it runs is settled in one place. Keys can come from environment variables; keys you save are encrypted with a key the operating system protects (Keychain on macOS).
 - **Permission levels.** Read-only, can write, or can execute. Anything beyond a bot's level becomes an approval card in the chat, never a blocking dialog.
 - **What needs you comes first.** Conversations waiting for an approval or a reply sort to the top, longest wait first. The desktop app adds notifications and a Dock badge.
 - **One working directory per conversation**, chosen when you start it. Attachments, slash commands and a context usage panel are built in.
 
 Planned: a space (空间) that collects the documents and reports agents produce.
 
-## Agents
+## Harnesses
 
-| Agent | Sign-in | Model API |
+| Harness | Sign-in | Model API |
 |---|---|---|
 | Claude Code | Claude subscription | Anthropic-compatible API |
 | Codex | ChatGPT account | OpenAI-compatible API |
@@ -44,7 +44,7 @@ pnpm build
 pnpm start
 ```
 
-Settings (设置) > Agent shows which agents were found and offers to download the rest. Add API keys under Settings > 模型 API.
+Settings (设置) > Harness shows which harnesses were found and offers to download the rest. Add API keys under Settings > 模型 API. An agent (a harness plus its subscription or a model API) can be made under Settings > Agent, or straight from the bot editor.
 
 To run without Electron, use `pnpm core` and open http://127.0.0.1:7788 in a browser. Without the desktop app there is no keychain, so saved keys are stored unencrypted; read them from environment variables instead.
 

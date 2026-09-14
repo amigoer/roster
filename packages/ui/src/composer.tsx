@@ -332,7 +332,7 @@ export function Composer({
             items={suggestions}
             index={index}
             wide={menu.type === "/"}
-            commandsLabel={solo ? `${executor(solo.bot.executor_id).label} 的命令` : "命令"}
+            commandsLabel={solo ? `${executor(solo.executor_id).label} 的命令` : "命令"}
             memberCount={members.length}
             onPick={(s) => void pick(s, true)}
             onHover={(i) => setMenu({ ...menu, index: i })}

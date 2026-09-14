@@ -154,10 +154,9 @@ export function SessionBar({
   const solo = conv.shape === "direct" ? members[0] : undefined;
   const info = solo ? sessions[solo.id] : undefined;
   const executor = useExecutor();
-  // by member: two members on one executor can run on different sources
   const choices = solo ? options[solo.id] : undefined;
-  // a group has no one session, so its ring shows the first executor that has plan limits at all
-  const planOwner = solo?.bot.executor_id ?? [...new Set(members.map((m) => m.bot.executor_id))].find((id) => quota[id]?.windows.length);
+  // a group has no one session, so its ring shows the first agent that has plan limits at all
+  const planOwner = solo?.executor_id ?? [...new Set(members.map((m) => m.executor_id))].find((id) => quota[id]?.windows.length);
   const plan = planOwner ? quota[planOwner] : null;
   if (!info && !plan?.windows.length) return null;
 
@@ -170,16 +169,14 @@ export function SessionBar({
     if (solo) void run(() => api.configure(conv.id, solo.id, patch));
   };
 
-  // entries of other sources carry a source label; picking one restarts the session there
-  const mine = (choices?.models ?? []).filter((m) => m.sourceLabel === undefined);
-  const elsewhere = (choices?.models ?? []).filter((m) => m.sourceLabel !== undefined);
-  const model = mine.find((m) => m.resolved === info?.model || m.id === info?.model);
+  // only the agent's own models: where they come from is the agent's, not the session's, to change
+  const models = choices?.models ?? [];
+  const model = models.find((m) => m.resolved === info?.model || m.id === info?.model);
   // the newest of each family leads; older versions and variants wait under More models
   const primary: Model[] = [];
   const more: Model[] = [];
-  for (const m of mine) (primary.some((p) => familyOf(p) === familyOf(m)) ? more : primary).push(m);
+  for (const m of models) (primary.some((p) => familyOf(p) === familyOf(m)) ? more : primary).push(m);
   primary.sort((a, b) => rankOf(a) - rankOf(b));
-  const otherSources = [...new Map(elsewhere.map((m) => [m.source ?? "", m.sourceLabel!])).entries()];
 
   const efforts = (choices?.efforts ?? []).filter((e) => (model ? model.efforts.includes(e.id) : true));
   const effort = choices?.efforts.find((e) => e.id === info?.effort);
@@ -230,32 +227,6 @@ export function SessionBar({
                       ))}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
-                </>
-              )}
-              {otherSources.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-muted-foreground px-2.5 pt-2 pb-1 text-xs font-normal">
-                    换个模型来源 · 会重新开一个会话
-                  </DropdownMenuLabel>
-                  {otherSources.map(([source, label]) => (
-                    <DropdownMenuSub key={source}>
-                      <DropdownMenuSubTrigger className="rounded-lg px-2.5 py-2">{label}</DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="min-w-52 rounded-xl p-1.5">
-                        {elsewhere
-                          .filter((m) => (m.source ?? "") === source)
-                          .map((m) => (
-                            <DropdownMenuItem
-                              key={m.id}
-                              onSelect={() => pick({ source: m.source ?? null, model: m.id })}
-                              className="gap-6 rounded-lg px-2.5 py-2"
-                            >
-                              <Entry item={{ id: m.id, label: m.label }} index={undefined} current={undefined} />
-                            </DropdownMenuItem>
-                          ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  ))}
                 </>
               )}
               {model?.fast && (

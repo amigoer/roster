@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { SessionInfo, SessionSettings } from "@roster/adapter-api";
+import type { SessionInfo, SessionSettings, SourceKind } from "@roster/adapter-api";
 import { attachmentsPreview, type AttachmentRef } from "./attachments.js";
 import { routeOf, type CoreEvent } from "./log.js";
 
@@ -15,10 +15,9 @@ export interface BotRow {
   /** a logo id; see logos.ts */
   avatar: string | null;
   system_prompt: string | null;
-  /** the executor it runs on */
+  /** the executor it runs on, which also settles where its models come from */
   executor_id: string;
-  /** the endpoint its models come from; null means the agent's own sign-in */
-  model_source: string | null;
+  /** its own pick among the executor's models; null runs the executor's default */
   model: string | null;
   permission_tier: Tier;
   created_at: number;
@@ -26,17 +25,18 @@ export interface BotRow {
   archived_at: number | null;
 }
 
-export type BotInput = Pick<
-  BotRow,
-  "name" | "title" | "avatar" | "system_prompt" | "executor_id" | "model_source" | "model" | "permission_tier"
->;
+export type BotInput = Pick<BotRow, "name" | "title" | "avatar" | "system_prompt" | "executor_id" | "model" | "permission_tier">;
 
 export interface ExecutorRow {
   id: string;
   name: string;
   /** a harness type registered in code */
   type: string;
-  settings: Record<string, string>;
+  /** own runs on the agent's own sign-in; endpoint on provider_id */
+  source_kind: SourceKind;
+  provider_id: string | null;
+  /** what bots on it run when they name no model of their own */
+  model: string | null;
   /** bumped whenever what it runs with changes, so members started on the old setup show as stale */
   rev: number;
   created_at: number;
@@ -44,7 +44,7 @@ export interface ExecutorRow {
   archived_at: number | null;
 }
 
-export type ExecutorInput = Pick<ExecutorRow, "name" | "type" | "settings">;
+export type ExecutorInput = Pick<ExecutorRow, "name" | "type" | "source_kind" | "provider_id" | "model">;
 
 export interface ProviderRow {
   id: string;
@@ -53,6 +53,7 @@ export interface ProviderRow {
   preset: string;
   api: string | null;
   base_url: string | null;
+  /** what its API listed for a preset; what a person entered for a custom endpoint */
   models: string[];
   headers: Record<string, string>;
   /** where the key is in secrets; null when there is none or it comes from key_env */
@@ -75,16 +76,12 @@ export type ProviderInput = Pick<ProviderRow, "name" | "preset" | "api" | "base_
  */
 export type BotSpec = Pick<BotRow, "name" | "system_prompt" | "executor_id" | "model"> & {
   executor_rev?: number;
-  /** absent in snapshots from before endpoints were the bot's to name; read as the agent's own sign-in */
-  model_source?: string | null;
+  /** the revision of the model API the executor named, when it named one */
   source_rev?: number;
 };
 
-/** A member's picks: the session settings, plus which source they were made for. */
-export type MemberSettings = SessionSettings & {
-  /** an endpoint id, null for the agent's own sign-in; absent means the spec's */
-  source?: string | null;
-};
+/** A member's picks for its session. The source is not among them: it belongs to the executor. */
+export type MemberSettings = SessionSettings;
 
 export interface ConversationRow {
   id: string;
@@ -122,9 +119,12 @@ export interface MemberRow {
 export interface MemberView {
   id: string;
   bot: BotRow;
+  /** what its session runs on, from the snapshot rather than the bot as since edited */
+  executor_id: string;
+  model: string | null;
   joined_at: number;
   left_at: number | null;
-  /** preset, model or backend changed since this member joined */
+  /** preset, model or executor changed since this member joined */
   stale: boolean;
 }
 
@@ -196,7 +196,6 @@ const specOf = (bot: BotRow, executorRev: number, sourceRev: number): BotSpec =>
   system_prompt: bot.system_prompt,
   executor_id: bot.executor_id,
   executor_rev: executorRev,
-  model_source: bot.model_source,
   source_rev: sourceRev,
   model: bot.model,
 });
@@ -206,19 +205,19 @@ const sameSpec = (a: BotSpec, b: BotSpec) =>
   a.executor_id === b.executor_id &&
   // snapshots from before executors had revisions were taken at the first one
   (a.executor_rev ?? 1) === (b.executor_rev ?? 1) &&
-  (a.model_source ?? null) === (b.model_source ?? null) &&
   (a.source_rev ?? 1) === (b.source_rev ?? 1) &&
   (a.model ?? "") === (b.model ?? "");
 
 const json = <T,>(text: string): T => JSON.parse(text) as T;
 
-type RawExecutor = Omit<ExecutorRow, "settings"> & { config_json: string; provider_ids_json: string };
+type RawExecutor = ExecutorRow & { config_json: string; provider_ids_json: string };
 type RawProvider = Omit<ProviderRow, "models" | "headers"> & { models_json: string; headers_json: string };
+type RawBot = BotRow & { model_source?: string | null; tools_json?: string };
 
-const executorOf = ({ config_json, provider_ids_json: _legacy, ...rest }: RawExecutor): ExecutorRow => ({
-  ...rest,
-  settings: json(config_json),
-});
+const executorOf = ({ config_json: _program, provider_ids_json: _legacy, ...rest }: RawExecutor): ExecutorRow => rest;
+
+// the legacy columns only the migrations read stay out of everything else
+const botOf = ({ model_source: _source, tools_json: _tools, ...rest }: RawBot): BotRow => rest;
 
 const providerOf = ({ models_json, headers_json, ...rest }: RawProvider): ProviderRow => ({
   ...rest,
@@ -261,10 +260,10 @@ export class Store {
     const t = now();
     this.db
       .prepare(
-        `INSERT INTO executors (id, name, type, config_json, rev, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO executors (id, name, type, source_kind, provider_id, model, rev, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
-      .run(id, input.name, input.type, JSON.stringify(input.settings), t, t);
+      .run(id, input.name, input.type, input.source_kind, input.provider_id, input.model, t, t);
     return this.getExecutor(id)!;
   }
 
@@ -273,16 +272,47 @@ export class Store {
     const current = this.getExecutor(id);
     if (!current) throw new Error(`unknown executor ${id}`);
     const next = { ...current, ...patch };
-    const changed = JSON.stringify(next.settings) !== JSON.stringify(current.settings);
+    const changed =
+      next.source_kind !== current.source_kind || next.provider_id !== current.provider_id || next.model !== current.model;
     this.db
-      .prepare(`UPDATE executors SET name = ?, config_json = ?, rev = rev + ?, updated_at = ? WHERE id = ?`)
-      .run(next.name, JSON.stringify(next.settings), changed ? 1 : 0, now(), id);
+      .prepare(
+        `UPDATE executors SET name = ?, source_kind = ?, provider_id = ?, model = ?, rev = rev + ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(next.name, next.source_kind, next.provider_id, next.model, changed ? 1 : 0, now(), id);
     return this.getExecutor(id)!;
   }
 
   archiveExecutor(id: string): boolean {
     const r = this.db.prepare(`UPDATE executors SET archived_at = ? WHERE id = ? AND archived_at IS NULL`).run(now(), id);
     return Number(r.changes) > 0;
+  }
+
+  /**
+   * Moves what runs on one executor onto another and archives it. Members still
+   * in a conversation start a fresh backend session there, owed the backlog, as
+   * a sync would; members that left keep pointing at it, so history still says
+   * who spoke.
+   */
+  mergeExecutor(fromId: string, intoId: string): void {
+    const into = this.getExecutor(intoId);
+    if (!into) throw new Error(`unknown executor ${intoId}`);
+    const t = now();
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`UPDATE bots SET executor_id = ?, updated_at = ? WHERE executor_id = ? AND archived_at IS NULL`).run(intoId, t, fromId);
+      this.db
+        .prepare(
+          `UPDATE members SET spec_json = json_set(spec_json, '$.executor_id', ?, '$.executor_rev', ?, '$.source_rev', ?),
+                              resume_token = NULL, delivered_seq = 0, settings_json = '{}', session_json = NULL
+            WHERE left_at IS NULL AND json_extract(spec_json, '$.executor_id') = ?`,
+        )
+        .run(intoId, into.rev, this.#sourceRevOf(into.provider_id), fromId);
+      this.archiveExecutor(fromId);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   executorNameTaken(name: string, exceptId?: string): boolean {
@@ -294,16 +324,30 @@ export class Store {
   }
 
   liveBotsOn(executorId: string): BotRow[] {
-    return this.db
-      .prepare(`SELECT * FROM bots WHERE archived_at IS NULL AND executor_id = ? ORDER BY created_at`)
-      .all(executorId) as unknown as BotRow[];
+    return (
+      this.db
+        .prepare(`SELECT * FROM bots WHERE archived_at IS NULL AND executor_id = ? ORDER BY created_at`)
+        .all(executorId) as unknown as RawBot[]
+    ).map(botOf);
   }
 
-  #revOf(executorId: string): number {
-    const row = this.db.prepare(`SELECT rev FROM executors WHERE id = ?`).get(executorId) as unknown as
-      | { rev: number }
-      | undefined;
-    return row?.rev ?? 1;
+  /** Members still in a conversation someone can open whose session was started on this executor. */
+  membersOn(executorId: string): Array<{ id: string; conversation_id: string }> {
+    return this.db
+      .prepare(
+        `SELECT m.id, m.conversation_id FROM members m JOIN conversations c ON c.id = m.conversation_id
+          WHERE m.left_at IS NULL AND c.archived_at IS NULL AND json_extract(m.spec_json, '$.executor_id') = ?`,
+      )
+      .all(executorId) as unknown as Array<{ id: string; conversation_id: string }>;
+  }
+
+  /** Live executors that run on this model API. */
+  executorsOnProvider(providerId: string): ExecutorRow[] {
+    return (
+      this.db
+        .prepare(`SELECT * FROM executors WHERE archived_at IS NULL AND provider_id = ? ORDER BY created_at, id`)
+        .all(providerId) as unknown as RawExecutor[]
+    ).map(executorOf);
   }
 
   #sourceRevOf(providerId: string | null): number {
@@ -315,7 +359,34 @@ export class Store {
   }
 
   #specOf(bot: BotRow): BotSpec {
-    return specOf(bot, this.#revOf(bot.executor_id), this.#sourceRevOf(bot.model_source));
+    const executor = this.getExecutor(bot.executor_id);
+    return specOf(bot, executor?.rev ?? 1, this.#sourceRevOf(executor?.provider_id ?? null));
+  }
+
+  // ---- harness types ----
+
+  /** The program a person picked for a type, if they picked one. */
+  harnessProgram(type: string): string | null {
+    const row = this.db.prepare(`SELECT program FROM harness_settings WHERE type = ?`).get(type) as unknown as
+      | { program: string | null }
+      | undefined;
+    return row?.program ?? null;
+  }
+
+  harnessPrograms(): Record<string, string> {
+    const rows = this.db
+      .prepare(`SELECT type, program FROM harness_settings WHERE program IS NOT NULL`)
+      .all() as unknown as Array<{ type: string; program: string }>;
+    return Object.fromEntries(rows.map((r) => [r.type, r.program]));
+  }
+
+  setHarnessProgram(type: string, program: string | null): void {
+    this.db
+      .prepare(
+        `INSERT INTO harness_settings (type, program, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(type) DO UPDATE SET program = excluded.program, updated_at = excluded.updated_at`,
+      )
+      .run(type, program, now());
   }
 
   // ---- providers ----
@@ -392,6 +463,15 @@ export class Store {
     return this.getProvider(id)!;
   }
 
+  /**
+   * What a preset endpoint's API listed. A fresh list is not a new setup, so
+   * the revision stays: a running session keeps its model, and the next one
+   * picks the list up.
+   */
+  setListedModels(id: string, models: readonly string[]): void {
+    this.db.prepare(`UPDATE providers SET models_json = ?, updated_at = ? WHERE id = ?`).run(JSON.stringify(models), now(), id);
+  }
+
   archiveProvider(id: string): boolean {
     const r = this.db.prepare(`UPDATE providers SET archived_at = ? WHERE id = ? AND archived_at IS NULL`).run(now(), id);
     return Number(r.changes) > 0;
@@ -405,13 +485,6 @@ export class Store {
     );
   }
 
-  /** Live bots whose models come from this endpoint. */
-  botsUsingSource(providerId: string): BotRow[] {
-    return this.db
-      .prepare(`SELECT * FROM bots WHERE archived_at IS NULL AND model_source = ? ORDER BY created_at`)
-      .all(providerId) as unknown as BotRow[];
-  }
-
   // ---- bots ----
 
   createBot(b: BotInput & { id?: string }): BotRow {
@@ -419,23 +492,11 @@ export class Store {
     const t = now();
     this.db
       .prepare(
-        `INSERT INTO bots (id, name, title, avatar, system_prompt, executor_id, model_source, model,
+        `INSERT INTO bots (id, name, title, avatar, system_prompt, executor_id, model,
                            permission_tier, tools_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
       )
-      .run(
-        id,
-        b.name,
-        b.title,
-        b.avatar,
-        b.system_prompt,
-        b.executor_id,
-        b.model_source ?? null,
-        b.model,
-        b.permission_tier,
-        t,
-        t,
-      );
+      .run(id, b.name, b.title, b.avatar, b.system_prompt, b.executor_id, b.model, b.permission_tier, t, t);
     return this.getBot(id)!;
   }
 
@@ -446,21 +507,10 @@ export class Store {
     this.db
       .prepare(
         `UPDATE bots SET name = ?, title = ?, avatar = ?, system_prompt = ?, executor_id = ?,
-                         model_source = ?, model = ?, permission_tier = ?, updated_at = ?
+                         model = ?, permission_tier = ?, updated_at = ?
          WHERE id = ?`,
       )
-      .run(
-        next.name,
-        next.title,
-        next.avatar,
-        next.system_prompt,
-        next.executor_id,
-        next.model_source ?? null,
-        next.model,
-        next.permission_tier,
-        now(),
-        id,
-      );
+      .run(next.name, next.title, next.avatar, next.system_prompt, next.executor_id, next.model, next.permission_tier, now(), id);
     return this.getBot(id)!;
   }
 
@@ -519,13 +569,14 @@ export class Store {
   }
 
   listBots(): BotRow[] {
-    return this.db
-      .prepare(`SELECT * FROM bots WHERE archived_at IS NULL ORDER BY created_at`)
-      .all() as unknown as BotRow[];
+    return (
+      this.db.prepare(`SELECT * FROM bots WHERE archived_at IS NULL ORDER BY created_at`).all() as unknown as RawBot[]
+    ).map(botOf);
   }
 
   getBot(id: string): BotRow | undefined {
-    return this.db.prepare(`SELECT * FROM bots WHERE id = ?`).get(id) as unknown as BotRow | undefined;
+    const row = this.db.prepare(`SELECT * FROM bots WHERE id = ?`).get(id) as unknown as RawBot | undefined;
+    return row && botOf(row);
   }
 
   nameTaken(name: string, exceptId?: string): boolean {
@@ -618,9 +669,7 @@ export class Store {
       .all() as unknown as ConversationRow[];
 
     // two queries for the whole list rather than two per conversation
-    const bots = new Map(
-      (this.db.prepare(`SELECT * FROM bots`).all() as unknown as BotRow[]).map((b) => [b.id, b]),
-    );
+    const bots = new Map((this.db.prepare(`SELECT * FROM bots`).all() as unknown as RawBot[]).map((b) => [b.id, botOf(b)]));
     const byConv = new Map<string, MemberView[]>();
     for (const m of this.db
       .prepare(`SELECT * FROM members ORDER BY joined_at, rowid`)
@@ -695,19 +744,6 @@ export class Store {
       .run(JSON.stringify(this.#specOf(bot)), memberId);
   }
 
-  /**
-   * A new model source is a new backend session: the old one's context cannot
-   * follow it, so the member is owed the backlog again. The picks that caused
-   * this are kept; nothing else from the old session is.
-   */
-  restartSession(memberId: string, settings: MemberSettings): void {
-    this.db
-      .prepare(
-        `UPDATE members SET resume_token = NULL, delivered_seq = 0, settings_json = ?, session_json = NULL WHERE id = ?`,
-      )
-      .run(JSON.stringify(settings), memberId);
-  }
-
   setSettings(memberId: string, settings: MemberSettings): void {
     this.db.prepare(`UPDATE members SET settings_json = ? WHERE id = ?`).run(JSON.stringify(settings), memberId);
   }
@@ -756,12 +792,15 @@ export class Store {
   }
 
   #view(m: RawMember, bot: BotRow): MemberView {
+    const spec = JSON.parse(m.spec_json) as BotSpec;
     return {
       id: m.id,
       bot,
+      executor_id: spec.executor_id,
+      model: spec.model ?? null,
       joined_at: m.joined_at,
       left_at: m.left_at,
-      stale: !sameSpec(JSON.parse(m.spec_json) as BotSpec, this.#specOf(bot)),
+      stale: !sameSpec(spec, this.#specOf(bot)),
     };
   }
 

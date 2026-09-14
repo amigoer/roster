@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "description": "Gemini CLI for Roster: Google's coding agent over the Agent Client Protocol",
   "roster": {
-    "api": 1,
+    "api": 2,
     "type": "gemini-cli",
     "label": "Gemini CLI",
     "acp": {

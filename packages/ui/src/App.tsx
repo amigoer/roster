@@ -5,7 +5,7 @@ import {
   api,
   connect,
   type Bot,
-  type CapabilitySet,
+  type Capabilities,
   type Conversation,
   type Executor,
   type ExecutorSettings,
@@ -29,7 +29,7 @@ import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
 import { ContextPanel } from "./context-panel";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
-import { capsOf, Executors, SourceRefs } from "./executors";
+import { BaseLabels, Executors, SourceRefs } from "./executors";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
 import { MentionNames } from "./markdown";
 import { MembersPanel, MODES } from "./members-panel";
@@ -39,7 +39,7 @@ import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { Resizer, useColumnWidth } from "./resizable";
-import { AgentPanel, ExecutorEditor, ExtensionsPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
+import { AgentEditor, BasePanel, ExtensionsPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
 import { useTypography } from "./typography";
@@ -108,12 +108,15 @@ export default function App() {
   const { typography, setFont, setCustomFont, setSize } = useTypography();
   const [nav, setNav] = useState<Nav>("messages");
   const [bots, setBots] = useState<Bot[]>([]);
-  const [caps, setCaps] = useState<Record<string, CapabilitySet>>({});
+  /** by agent: its source settles its channel, and the channel settles what it can do */
+  const [caps, setCaps] = useState<Record<string, Capabilities>>({});
   const [logos, setLogos] = useState<Logo[]>([]);
   const [executors, setExecutors] = useState<Executor[]>([]);
-  /** endpoints by name, so a bot's model source can be labelled anywhere */
+  /** model APIs by name, so an agent's source can be labelled anywhere */
   const [sourceRefs, setSourceRefs] = useState<SourceRef[]>([]);
-  /** executors and providers as the settings page edits them; loaded when it is first opened */
+  /** what each base is called, by type */
+  const [baseLabels, setBaseLabels] = useState<Record<string, string>>({});
+  /** agents, bases and model APIs as the settings page edits them; loaded when it is first opened */
   const [settingsView, setSettingsView] = useState<ExecutorSettings | null>(null);
   const [settingsSel, setSettingsSel] = useState<SettingsSelection>(null);
   /** what is installed and what could be; refreshed whenever core says extensions changed */
@@ -130,9 +133,9 @@ export default function App() {
   const [presence, setPresence] = useState<Record<string, Presence>>({});
   /** what each member's session runs with; kept across switches, so going back shows it at once */
   const [sessions, setSessions] = useState<Record<string, SessionInfo>>({});
-  /** plan usage per executor, which is account-wide */
+  /** plan usage per agent, which is account-wide */
   const [quota, setQuota] = useState<Record<string, Quota | null>>({});
-  /** what a session on each executor can be switched to */
+  /** what each member's session can be switched to */
   const [sessionOptions, setSessionOptions] = useState<Record<string, SessionOptions>>({});
   const [draft, setDraft] = useState("");
   const [contact, setContact] = useState<Contact | null>(null);
@@ -177,8 +180,8 @@ export default function App() {
       setSettingsSel(next);
     });
   const reloadExtensions = () => void api.extensions().then(setExtView).catch(() => {});
-  const settingsBack = (type: string): SettingsSelection =>
-    extView?.agents.some((a) => a.id === type) ? { kind: "agent", id: type } : { kind: "extensions" };
+  const settingsBack = (type: string | undefined): SettingsSelection =>
+    type && extView?.bases.some((a) => a.id === type) ? { kind: "base", id: type } : null;
   const loadAbout = () =>
     void api
       .about()
@@ -222,6 +225,7 @@ export default function App() {
         setLogos(s.logos ?? []);
         setExecutors(s.executors ?? []);
         setSourceRefs(s.sources ?? []);
+        setBaseLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label])));
         setDefaultDir(s.defaultDir ?? "");
         setPresence(Object.fromEntries((s.presence ?? []).map((p) => [p.memberId, p])));
         if (!activeRef.current && s.conversations[0]) setActive(s.conversations[0].id);
@@ -251,6 +255,8 @@ export default function App() {
           return;
         case "extensions":
           setExtBump((n) => n + 1);
+          // a base that came or went changes what the agent picker groups under
+          void api.state(archivedRef.current).then((s) => setBaseLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label]))));
           if (settingsLoaded.current) reloadExtensions();
           return;
         case "bots":
@@ -458,6 +464,7 @@ export default function App() {
   return (
     <Logos.Provider value={logos}>
     <Executors.Provider value={executors}>
+    <BaseLabels.Provider value={baseLabels}>
     <SourceRefs.Provider value={sourceRefs}>
     <TooltipProvider delayDuration={200}>
       <div className="bg-sidebar text-sidebar-foreground flex h-full">
@@ -638,12 +645,13 @@ export default function App() {
                       ? "关于"
                       : settingsSel?.kind === "provider"
                       ? "模型 API"
-                      : settingsSel?.kind === "agent" ||
-                          settingsSel?.kind === "executor" ||
-                          settingsSel?.kind === "extensions" ||
-                          (settingsView && settingsView.executors.length === 0)
+                      : settingsSel?.kind === "agent"
                         ? "Agent"
-                        : "设置"}
+                        : settingsSel?.kind === "base" ||
+                            settingsSel?.kind === "extensions" ||
+                            (settingsView && settingsView.executors.length === 0)
+                          ? "Harness"
+                          : "设置"}
                 </span>
               </header>
               {settingsSel?.kind === "appearance" ? (
@@ -659,14 +667,13 @@ export default function App() {
                 <AboutPanel about={about} />
               ) : !settingsView ? (
                 <Empty label="" />
-              ) : settingsSel?.kind === "agent" ? (
-                <AgentPanel
+              ) : settingsSel?.kind === "base" ? (
+                <BasePanel
                   key={settingsSel.id}
                   id={settingsSel.id}
                   view={settingsView}
                   ext={extView}
-                  bots={bots}
-                  onSaved={() => reloadSettings({ kind: "agent", id: settingsSel.id })}
+                  onSaved={() => reloadSettings({ kind: "base", id: settingsSel.id })}
                   onChanged={() => {
                     reloadExtensions();
                     void api.executorSettings().then(setSettingsView);
@@ -674,19 +681,18 @@ export default function App() {
                   onCancel={() => setSettingsSel(null)}
                   onSelect={setSettingsSel}
                 />
-              ) : settingsSel?.kind === "executor" ? (
-                <ExecutorEditor
-                  key={settingsSel.id ?? `new-${settingsSel.type}`}
+              ) : settingsSel?.kind === "agent" ? (
+                <AgentEditor
+                  key={settingsSel.id ?? `new-${settingsSel.type ?? ""}`}
                   view={settingsView}
                   executor={settingsView.executors.find((e) => e.id === settingsSel.id) ?? null}
                   type={settingsSel.type}
-                  env={extView?.environment ?? null}
                   ext={extView}
-                  onSaved={(e) => reloadSettings({ kind: "executor", id: e.id, type: e.type })}
-                  // back to the agent's page; a setup whose agent is gone has only the overview to go back to
+                  bots={bots}
+                  onSaved={(e) => reloadSettings({ kind: "agent", id: e.id })}
                   onCancel={() => setSettingsSel(settingsBack(settingsSel.type))}
-                  onDeleted={() => reloadSettings(settingsBack(settingsSel.type))}
-                  onExtensions={() => setSettingsSel({ kind: "extensions", id: settingsSel.type })}
+                  onDeleted={() => reloadSettings(null)}
+                  onSelect={setSettingsSel}
                 />
               ) : settingsSel?.kind === "provider" ? (
                 <ProviderEditor
@@ -694,7 +700,6 @@ export default function App() {
                   view={settingsView}
                   provider={settingsView.providers.find((p) => p.id === settingsSel.id) ?? null}
                   env={extView?.environment ?? null}
-                  bots={bots}
                   onSaved={(p) => reloadSettings({ kind: "provider", id: p.id })}
                   onCancel={() => setSettingsSel(null)}
                   onDeleted={() => reloadSettings(null)}
@@ -729,9 +734,9 @@ export default function App() {
                   template={editing.template}
                   bots={bots}
                   caps={caps}
-                  onManageAgents={(type) => {
+                  onManageAgents={(id) => {
                     setNav("settings");
-                    setSettingsSel(type ? { kind: "agent", id: type } : null);
+                    setSettingsSel({ kind: "agent", id });
                   }}
                   onCancel={() => setEditing(null)}
                   onSaved={(b) => {
@@ -827,7 +832,7 @@ export default function App() {
                         </Badge>
                       ) : (
                         members[0] && (
-                          <CapabilityBadge executor={members[0].bot.executor_id} caps={capsOf(caps, members[0].bot)} />
+                          <CapabilityBadge executor={members[0].executor_id} caps={caps[members[0].executor_id]} />
                         )
                       )}
                     </div>
@@ -972,6 +977,7 @@ export default function App() {
       <Toaster position="top-center" offset={{ top: 68 }} />
     </TooltipProvider>
     </SourceRefs.Provider>
+    </BaseLabels.Provider>
     </Executors.Provider>
     </Logos.Provider>
   );

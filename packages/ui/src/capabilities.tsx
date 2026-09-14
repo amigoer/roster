@@ -61,7 +61,7 @@ export function CapabilityBadge({ executor, caps }: { executor: string; caps?: C
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {/* just the executor's name: a bare count beside it reads as noise, and the
+        {/* just the agent's name: a bare count beside it reads as noise, and the
             tooltip already spells out what it can and cannot do */}
         <Badge variant="outline" className="cursor-default px-1.5 py-0 text-[10px] font-normal">
           {label}

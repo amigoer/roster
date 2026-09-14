@@ -3,12 +3,12 @@
  * one bot. It never learns whether that bot is alone in a conversation or one of
  * several in a group -- that is the orchestrator's concern.
  *
- * Three things exist on their own. A harness type is code, shipped as an
- * extension: Claude Code, pi-agent, an ACP agent. An executor is a configured
- * instance of one, and it is what a bot runs on. A model endpoint is where
- * models come from and which key opens them; it runs nothing itself. A bot
- * names an executor and a model source: an endpoint it can speak to, or the
- * agent's own sign-in when the agent brings its models with it.
+ * The layers are strict. A harness type is code, shipped as an extension:
+ * Claude Code, pi-agent, an ACP agent; it holds no state of its own. An
+ * executor -- an agent, to a person -- binds one harness type to one model
+ * source: the agent's own sign-in, or one model endpoint. A model endpoint is
+ * where models come from and which key opens them; it runs nothing itself. A
+ * bot names an executor, and with it everything about how it runs.
  *
  * This package is types only. An extension imports it with `import type` and
  * needs nothing from Roster at runtime.
@@ -193,10 +193,6 @@ export interface SessionOptions {
     efforts: string[];
     /** takes fast mode */
     fast?: boolean;
-    /** the endpoint id this model comes from; null for the agent's own sign-in. Filled in by the host, not by a backend. */
-    source?: string | null;
-    /** what a person calls that source; filled in by the host with the entries of other sources */
-    sourceLabel?: string;
   }>;
   efforts: Array<{ id: string; label: string; description?: string }>;
   modes: Array<{ id: string; label: string; description?: string }>;
@@ -235,15 +231,6 @@ export interface ModelOption {
   label?: string;
   /** Credentials for its provider are configured, so it should work as-is. */
   available: boolean;
-  /** who serves it, e.g. "deepseek", so a brand is not guessed from the id */
-  provider?: string;
-  /** Facts the catalog knows about the model; left out when it would only be guessing. */
-  contextWindow?: number;
-  reasoning?: boolean;
-  /** takes images as well as text */
-  images?: boolean;
-  /** USD per million tokens */
-  cost?: { input: number; output: number };
 }
 
 /** A model endpoint and the credentials for it, independent of which harness calls it. */
@@ -257,7 +244,10 @@ export interface ProviderConfig {
   baseUrl?: string;
   /** plaintext, and only ever in memory: never logged, never sent back to the UI */
   apiKey?: string;
-  /** model ids a custom endpoint serves; a preset brings its own catalog */
+  /**
+   * The model ids it serves: what its own API listed, or what a person entered
+   * for a custom endpoint that lists none. No harness adds to or describes them.
+   */
   models?: readonly string[];
   headers?: Readonly<Record<string, string>>;
 }
@@ -265,20 +255,18 @@ export interface ProviderConfig {
 /** The preset id of an endpoint a person described by hand: protocol, address, models. */
 export type CustomPreset = "custom";
 
-/** An endpoint a harness can reach by id alone, so a person only has to bring a key. */
+/** An endpoint a harness can reach by id alone, so a person only has to bring a key. Its models are whatever its API lists. */
 export interface ProviderPreset {
   id: string;
   label: string;
   api: string;
   baseUrl?: string;
-  /** how many models its catalog lists */
-  models: number;
   /** what the provider calls the key, e.g. "DeepSeek API key" */
   keyLabel?: string;
 }
 
 /**
- * Where a bot's models come from. "own" is the agent's own sign-in -- a
+ * Where an executor's models come from. "own" is the agent's own sign-in -- a
  * subscription, an account -- which cannot be taken apart into an endpoint;
  * "endpoint" is one the person set up, handed over with its key resolved.
  */
@@ -286,7 +274,7 @@ export type ModelSource = { kind: "own" } | { kind: "endpoint"; endpoint: Provid
 
 export type SourceKind = ModelSource["kind"];
 
-/** Which model sources a harness or executor offers at all. */
+/** Which model sources a harness type offers at all. */
 export interface Sources {
   /** the agent signs in on its own and brings its own catalog */
   own: boolean;
@@ -334,9 +322,9 @@ export interface BotRuntime {
 }
 
 /**
- * One executor: a harness type bound to its instance configuration. A runtime
- * is created per session and per model source; nothing about an endpoint is
- * held here between sessions.
+ * One executor: a harness type bound to one model source. A runtime is created
+ * per session, and the source never changes under it -- another source is
+ * another executor.
  */
 export interface BotRuntimeFactory {
   /** the executor's id, which bots reference */
@@ -345,64 +333,51 @@ export interface BotRuntimeFactory {
   readonly type: string;
   /** what a person calls it */
   readonly label: string;
-  readonly sources: Sources;
-  /** Readable without constructing a runtime, so the UI can degrade before anything starts. Differs by source: the channels differ. */
-  capabilities(kind: SourceKind): Capabilities;
-  create(source: ModelSource): BotRuntime;
-  /** The agent's own catalog, for the own source. Suggestions only; free text stays allowed. */
+  /** Readable without constructing a runtime, so the UI can degrade before anything starts. */
+  readonly capabilities: Capabilities;
+  create(): BotRuntime;
+  /** The models the agent's own sign-in offers; an endpoint's are the ids its API listed, which the host already has. Suggestions only; free text stays allowed. */
   models?(): Promise<ModelOption[]>;
-  /** What a runtime started with these settings on this source would report, so it can be shown before one exists. */
-  sessionInfo?(settings: SessionSettings, source: ModelSource): Promise<SessionInfo>;
-  sessionOptions?(source: ModelSource): Promise<SessionOptions>;
+  /** What a runtime started with these settings would report, so it can be shown before one exists. */
+  sessionInfo?(settings: SessionSettings): Promise<SessionInfo>;
+  sessionOptions?(): Promise<SessionOptions>;
   /** The permission mode that grants what a tier grants; a session nobody picked a mode for starts there. */
-  modeForTier?(tier: ToolEffect, kind: SourceKind): string;
+  modeForTier?(tier: ToolEffect): string;
   /** Plan usage for the agent's own sign-in; null when it has no such limit. */
   quota?(): Promise<Quota | null>;
-  /** Whether the agent's own sign-in is there, and how to get one. */
-  login?(): Promise<LoginState>;
-  /** Runs a sign-in method the agent can complete on its own, without a terminal. */
-  authenticate?(methodId: string): Promise<void>;
-  /** Whether this configuration can actually reach the models of a source, without spending anything. */
-  check?(source: ModelSource): Promise<{ ok: boolean; detail?: string }>;
+  /** Whether this executor can actually reach its models, without spending anything. */
+  check?(): Promise<{ ok: boolean; detail?: string }>;
 }
 
-/** A form field a harness type asks for when an executor of it is set up. */
-export interface HarnessField {
-  key: string;
-  label: string;
-  kind: "text" | "path" | "secret" | "env" | "select";
-  required?: boolean;
-  placeholder?: string;
-  help?: string;
-  options?: ReadonlyArray<{ id: string; label: string }>;
-}
-
+/** Everything a harness type is handed to build one executor. */
 export interface InstanceConfig {
   id: string;
   label: string;
-  /** values for the type's fields */
-  settings: Readonly<Record<string, string>>;
+  source: ModelSource;
+  /** the agent program the host settled on: the person's pick, else the one found on the machine, else Roster's own install */
+  program?: string;
 }
 
 /**
- * A kind of agent Roster knows how to drive. Types come from extensions;
- * people add executors of them, never new types.
+ * A kind of agent Roster knows how to drive. Types come from extensions and
+ * hold no state; people add executors of them, never new types.
  */
 export interface HarnessType {
   readonly type: string;
   readonly label: string;
+  /** the version of the agent an adapter carries as a library, such as pi; a separate program's is read from the program */
+  readonly version?: string;
   readonly sources: Sources;
+  /** Differs by source kind: the channels differ. */
   capabilities(kind: SourceKind): Capabilities;
-  readonly fields: readonly HarnessField[];
   /** endpoints it can reach by id alone */
   presets?(): Promise<ProviderPreset[]>;
-  /**
-   * The models an endpoint offers when this type drives it. A custom endpoint's
-   * own list is the answer when this is absent; a preset's catalog lives in the
-   * type that knows the preset.
-   */
-  catalog?(endpoint: ProviderConfig): Promise<ModelOption[]>;
+  /** Throws when the source is one this type cannot run on. */
   create(instance: InstanceConfig): BotRuntimeFactory;
+  /** Whether the agent's own sign-in is there on this machine, and how to get one. It belongs to the program, not to an executor. */
+  login?(program?: string): Promise<LoginState>;
+  /** Runs a sign-in method the agent can complete on its own, without a terminal. */
+  authenticate?(methodId: string, program?: string): Promise<void>;
 }
 
 /**
@@ -457,9 +432,9 @@ export interface AcpManifest {
   /** how the person signs the agent in when it advertises no in-protocol method */
   login?: { terminal?: readonly string[] };
   /**
-   * Where an executor's "executable" setting goes. Into this environment
-   * variable when the command is an adapter that wraps the real program (Claude
-   * Code behind claude-agent-acp); in place of the program itself otherwise.
+   * Where the program path goes. Into this environment variable when the
+   * command is an adapter that wraps the real program (Claude Code behind
+   * claude-agent-acp); in place of the program itself otherwise.
    */
   executable?: { env: string };
 }
