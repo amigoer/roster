@@ -67,7 +67,7 @@ function botInput(
   if (has("system_prompt")) out.system_prompt = optText(body["system_prompt"], 12_000);
   if (has("executor_id")) {
     const executor = String(body["executor_id"] ?? "");
-    if (!executors.includes(executor)) throw new Rejection(`没有这个执行器：${executor || "（空）"}`);
+    if (!executors.includes(executor)) throw new Rejection(`没有这个 agent：${executor || "（空）"}`);
     out.executor_id = executor;
   }
   // null is the agent's own sign-in; whether the executor offers it is checked once both are known

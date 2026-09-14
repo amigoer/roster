@@ -221,7 +221,7 @@ export class Orchestrator {
     const next = patch.source !== undefined ? patch.source : current;
     if (next !== current) {
       const group = (await this.sources.groups(member.spec.executor_id)).find((g) => g.source === next);
-      if (!group) throw new Error("这个执行器用不了这个模型来源");
+      if (!group) throw new Error("这个 agent 用不了这个模型来源");
       if (patch.model !== undefined && !group.models.some((m) => m.id === patch.model)) {
         throw new Error(`不认识的模型：${patch.model}`);
       }
@@ -240,7 +240,7 @@ export class Orchestrator {
       return;
     }
     const options = await this.#optionsFor(member);
-    if (!options) throw new Error("这个执行器不支持在会话里切换");
+    if (!options) throw new Error("这个 agent 不支持在会话里切换");
     if (patch.model !== undefined && !options.models.some((m) => m.id === patch.model && m.source === current)) {
       throw new Error(`不认识的模型：${patch.model}`);
     }
@@ -274,7 +274,7 @@ export class Orchestrator {
   async compact(conversationId: string, memberId: string): Promise<void> {
     const member = this.#memberOf(conversationId, memberId);
     const options = await this.#optionsFor(member).catch(() => null);
-    if (!options?.compact) throw new Error("这个执行器不能压缩上下文");
+    if (!options?.compact) throw new Error("这个 agent 不能压缩上下文");
     const live = this.#live(conversationId, memberId);
     if (live.gone) throw new Error("成员已离开");
     if (live.running) throw new Error("正在回复，等这一轮结束再压缩");
@@ -287,7 +287,7 @@ export class Orchestrator {
       void (async () => {
         const runtime = await this.#ensure(live);
         if (!live.running || live.turnId !== turnId) return;
-        if (!runtime.compact) throw new Error("这个执行器不能压缩上下文");
+        if (!runtime.compact) throw new Error("这个 agent 不能压缩上下文");
         // completion arrives as the backend's turn.end, which finishes this like any turn
         await runtime.compact();
       })().catch((err: unknown) => this.#fail(live, turnId, err));
@@ -300,7 +300,7 @@ export class Orchestrator {
     const live = this.#live(conversationId, memberId);
     if (live.gone) throw new Error("成员已离开");
     const runtime = await this.#ensure(live);
-    if (!runtime.contextDetail) throw new Error("这个执行器不能查看上下文明细");
+    if (!runtime.contextDetail) throw new Error("这个 agent 不能查看上下文明细");
     return runtime.contextDetail();
   }
 

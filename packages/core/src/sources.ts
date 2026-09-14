@@ -89,7 +89,7 @@ export class Sources {
   /** Whether a bot on this executor may name this source at all. */
   async usable(executorId: string, sourceId: string | null): Promise<{ ok: true } | { ok: false; reason: string }> {
     const entry = this.registry().entry(executorId);
-    if (!entry) return { ok: false, reason: "没有这个执行器" };
+    if (!entry) return { ok: false, reason: "没有这个 agent" };
     if (!sourceId) {
       return entry.factory.sources.own
         ? { ok: true }

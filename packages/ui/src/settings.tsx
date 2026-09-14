@@ -87,12 +87,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-/** An extensions selection without an id opens the agent page with no agent picked. */
+/**
+ * Settings speak of agents only. An agent's own page edits the executor bots
+ * on it run on; a further executor of the same agent is an extra setup.
+ */
 export type SettingsSelection =
   | { kind: "appearance" }
   | { kind: "about" }
+  /** every agent Roster knows, to fetch more; an id scrolls to that agent's card */
   | { kind: "extensions"; id?: string }
-  /** an executor lives under its agent, so the agent it belongs to travels with it */
+  | { kind: "agent"; id: string }
+  /** an extra setup, or one whose agent is gone; the agent it belongs to travels with it */
   | { kind: "executor"; id: string | null; type: string }
   | { kind: "provider"; id: string | null }
   | null;
@@ -239,7 +244,7 @@ function AgentSettings({
   onSelect: (s: SettingsSelection) => void;
 }) {
   const presets = presetsOf(view);
-  const is = (kind: "extensions" | "provider", id: string) =>
+  const is = (kind: "agent" | "provider", id: string) =>
     selected !== null && selected.kind === kind && "id" in selected && selected.id === id;
   const agents = ext?.agents ?? [];
   const ready = agents.filter((a) => a.state.usable);
@@ -261,8 +266,8 @@ function AgentSettings({
           <button
             key={a.id}
             type="button"
-            onClick={() => onSelect({ kind: "extensions", id: a.id })}
-            className={cn(ROW, rowState(is("extensions", a.id) || (selected?.kind === "executor" && selected.type === a.id)))}
+            onClick={() => onSelect({ kind: "agent", id: a.id })}
+            className={cn(ROW, rowState(is("agent", a.id) || (selected?.kind === "executor" && selected.type === a.id)))}
           >
             <ExtensionTile type={a.id} brand={a.brand} />
             <div className="min-w-0 flex-1">
@@ -565,59 +570,11 @@ function JobLine({ job }: { job: InstallJob }) {
   return null;
 }
 
-/** An agent's executors, folded until asked for: most agents have exactly one and it needs nothing. */
-function ExecutorList({
-  executors,
-  open,
-  onToggle,
-  onOpen,
-}: {
-  executors: ExecutorRecord[];
-  open: boolean;
-  onToggle: () => void;
-  onOpen: (e: ExecutorRecord) => void;
-}) {
-  return (
-    <div className="-mx-2">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="text-muted-foreground hover:text-foreground flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
-      >
-        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
-        {executors.length} 个执行器
-      </button>
-      {open && (
-        <ul>
-          {executors.map((e) => (
-            <li key={e.id}>
-              <button
-                type="button"
-                onClick={() => onOpen(e)}
-                className="hover:bg-accent flex w-full items-center gap-3 rounded-md py-1.5 pr-2 pl-6.5 text-left transition-colors"
-              >
-                <span className="min-w-0 truncate text-sm">{e.name}</span>
-                <span
-                  className={cn("text-muted-foreground ml-auto min-w-0 truncate text-xs", e.settings.executable && "font-mono text-[11px]")}
-                  title={e.settings.executable}
-                >
-                  {e.settings.executable || "默认配置"}
-                </span>
-                <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 /**
  * Every agent Roster can drive, and where each stands on this machine: the
  * adapter ships with Roster, the program is found or fetched. The first thing a
- * fresh install sees, and the place to come back to for more.
+ * fresh install sees, and the place to come back to for more. Each agent's own
+ * setup is on its own page.
  */
 export function ExtensionsPanel({
   bump,
@@ -641,20 +598,6 @@ export function ExtensionsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<AgentView | null>(null);
-  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set(focus ? [focus] : []));
-
-  // picking an agent opens its executors; ones opened by hand stay open
-  useEffect(() => {
-    if (focus) setUnfolded((s) => (s.has(focus) ? s : new Set([...s, focus])));
-  }, [focus]);
-
-  const toggle = (id: string) =>
-    setUnfolded((s) => {
-      const next = new Set(s);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
 
   const load = () => api.extensions().then(setExt);
   useEffect(() => {
@@ -711,8 +654,8 @@ export function ExtensionsPanel({
           <h2 className="text-lg font-semibold">{intro ? "先有一个能用的 agent" : "Agent"}</h2>
           <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
             {intro
-              ? "本机已经装了的 agent 直接就能用；没有的可以在这里下载。能用的 agent 会自动建好执行器，之后到通讯录里建 bot。"
-              : "适配器随 Roster 内置。agent 程序本机有就直接用，没有才下载到 Roster 自己的目录里；卸载就是删目录。"}
+              ? "本机已经装了的 agent 直接就能用；没有的在这里下载，下载完就能用。之后到通讯录里建 bot，给它选一个 agent。"
+              : "适配器随 Roster 内置。agent 程序本机有就直接用，没有才下载到 Roster 自己的目录里，下载完就能用。"}
           </p>
         </div>
 
@@ -739,12 +682,8 @@ export function ExtensionsPanel({
             const status = agentStatus(a);
             const job = jobOf(a.id);
             const running = job?.state === "running" || busy === a.id;
-            const type = view.types.find((t) => t.type === a.id);
             const needsProgram = a.state.needed && !a.state.usable && a.adapter !== "missing" && a.adapter !== "error";
             const needsAdapter = a.adapter === "missing" || a.adapter === "error";
-            const mine = view.executors.filter((e) => e.type === a.id);
-            // with nothing to set, a second executor would be a copy of the first
-            const canAdd = type !== undefined && (mine.length === 0 || type.fields.length > 0);
             return (
               <Item
                 key={a.id}
@@ -773,14 +712,6 @@ export function ExtensionsPanel({
                     </p>
                   )}
                   {job && <JobLine job={job} />}
-                  {mine.length > 0 && (
-                    <ExecutorList
-                      executors={mine}
-                      open={unfolded.has(a.id)}
-                      onToggle={() => toggle(a.id)}
-                      onOpen={(e) => onSelect({ kind: "executor", id: e.id, type: e.type })}
-                    />
-                  )}
                 </ItemContent>
                 <ItemActions className="flex-col items-stretch gap-1.5">
                   {needsAdapter ? (
@@ -794,30 +725,10 @@ export function ExtensionsPanel({
                       下载安装
                     </Button>
                   ) : (
-                    <>
-                      {canAdd && (
-                        <Button
-                          size="sm"
-                          variant={mine.length > 0 ? "outline" : "default"}
-                          onClick={() => onSelect({ kind: "executor", id: null, type: a.id })}
-                        >
-                          <Plus />
-                          {mine.length > 0 ? "再建一个" : "建执行器"}
-                        </Button>
-                      )}
-                      {a.state.installed && !a.state.detected && (
-                        <>
-                          <Button size="sm" variant="outline" disabled={running} onClick={() => void run(a.id, () => api.updateExtension(a.id))}>
-                            {running ? <Loader className="animate-spin" /> : <RefreshCw />}
-                            重新下载
-                          </Button>
-                          <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={running} onClick={() => setRemoving(a)}>
-                            <Trash2 />
-                            卸载
-                          </Button>
-                        </>
-                      )}
-                    </>
+                    <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "agent", id: a.id })}>
+                      设置
+                      <ChevronRight />
+                    </Button>
                   )}
                 </ItemActions>
               </Item>
@@ -828,9 +739,9 @@ export function ExtensionsPanel({
         {orphans.length > 0 && (
           <div className="space-y-2">
             <div>
-              <h3 className="text-sm font-medium">认不出类型的执行器</h3>
+              <h3 className="text-sm font-medium">认不出来的 agent</h3>
               <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                它们的 agent 现在不在 Roster 里，用它们的 bot 启动不了。适配器装回来就能接着用；不要了就点进去删掉。
+                这些 agent 的适配器现在不在 Roster 里，用它们的 bot 启动不了。适配器装回来就能接着用；不要了就点进去删掉。
               </p>
             </div>
             <div className="rounded-xl border p-1">
@@ -857,30 +768,6 @@ export function ExtensionsPanel({
           </p>
         )}
       </div>
-
-      <AlertDialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>卸载「{removing?.label}」？</AlertDialogTitle>
-            <AlertDialogDescription>
-              Roster 下载的这份程序会被删掉；用它的执行器和 bot 还留着，只是启动不了，再下载就能继续用。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                const a = removing;
-                setRemoving(null);
-                if (a) void run(a.id, () => api.removeExtension(a.id));
-              }}
-            >
-              卸载
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </ScrollArea>
   );
 }
@@ -1003,6 +890,317 @@ function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
   );
 }
 
+/** What an agent's type asks for. The program falls back to what this machine has, so the agent's own setup leaves it empty. */
+function SettingFields({
+  info,
+  agent,
+  env,
+  settings,
+  onChange,
+  extra = false,
+}: {
+  info: HarnessTypeInfo;
+  agent: AgentView | undefined;
+  env: Environment | null;
+  settings: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  /** an extra setup exists to run another program, so the program is asked for rather than defaulted */
+  extra?: boolean;
+}) {
+  const found = env?.programs.find((p) => p.id === info.type);
+  return (
+    <>
+      {info.fields.map((f) => {
+        const isProgram = f.key === "executable";
+        const program = isProgram ? (agent?.state.path ?? null) : null;
+        return (
+          <Field key={f.key}>
+            <FieldLabel htmlFor={`executor-${f.key}`}>{f.label}</FieldLabel>
+            <Input
+              id={`executor-${f.key}`}
+              value={settings[f.key] ?? ""}
+              onChange={(e) => onChange(f.key, e.target.value)}
+              placeholder={
+                isProgram && extra ? `另一份 ${agent?.program?.bin ?? "程序"} 的完整路径` : program ? `留空就用 ${program}` : f.placeholder
+              }
+              spellCheck={false}
+              className={cn(f.kind === "path" && "font-mono text-xs")}
+            />
+            <FieldDescription>
+              {isProgram && extra
+                ? program
+                  ? `${info.label} 自己用的是 ${program}，这里填另一份。`
+                  : "填另一份程序的完整路径。"
+                : program
+                  ? `留空用${found ? "本机检测到" : "Roster 装"}的${found?.version ? `（${found.version}）` : ""}；只在想换一份程序时填。`
+                  : f.help}
+            </FieldDescription>
+          </Field>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * One agent's page. The executor it edits and tests is the agent's own, the
+ * oldest of its type, and bots on the agent run on it. A later executor of the
+ * same type is an extra setup, listed at the bottom and edited on its own page.
+ */
+export function AgentPanel({
+  id,
+  view,
+  ext,
+  bots,
+  onSaved,
+  onChanged,
+  onCancel,
+  onSelect,
+}: {
+  id: string;
+  view: ExecutorSettings;
+  ext: ExtensionsView | null;
+  bots: readonly Bot[];
+  onSaved: () => void;
+  /** the agent's program was fetched or removed */
+  onChanged: () => void;
+  onCancel: () => void;
+  onSelect: (s: SettingsSelection) => void;
+}) {
+  const agent = ext?.agents.find((a) => a.id === id);
+  const info = view.types.find((t) => t.type === id);
+  const mine = view.executors.filter((e) => e.type === id);
+  const own = mine[0];
+  const extras = mine.slice(1);
+  const label = agent?.label ?? info?.label ?? id;
+  const [settings, setSettings] = useState<Record<string, string>>(own?.settings ?? {});
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [check, setCheck] = useState<{ ok: boolean; items: CheckItem[] } | "running" | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  // core makes the agent's own executor a moment after the agent becomes ready
+  const ownId = own?.id;
+  useEffect(() => {
+    setSettings(own?.settings ?? {});
+    setCheck(null);
+  }, [ownId]);
+
+  const job = ext?.jobs.find((j) => j.id === id);
+  const acting = busy || job?.state === "running";
+  const needsAdapter = agent?.adapter === "missing" || agent?.adapter === "error";
+  const needsProgram = Boolean(agent?.state.needed && !agent.state.usable && !needsAdapter);
+  // only a program Roster fetched is Roster's to fetch again or remove
+  const fetched = Boolean(agent?.state.installed && !agent.state.detected);
+  const dirty = own !== undefined && (info?.fields ?? []).some((f) => (settings[f.key] ?? "").trim() !== (own.settings[f.key] ?? ""));
+  const users = bots.filter((b) => !b.archived_at && mine.some((e) => e.id === b.executor_id));
+  const status = agent ? agentStatus(agent) : null;
+
+  const save = async () => {
+    if (!own) return;
+    setBusy(true);
+    setError(null);
+    const r = await api.updateExecutor(own.id, { settings });
+    setBusy(false);
+    if (r.error || !r.executor) return setError(r.error ?? "保存失败");
+    setCheck(null);
+    onSaved();
+  };
+
+  const test = async () => {
+    if (!own) return;
+    setCheck("running");
+    const r = await api.checkExecutor(own.id).catch((e: unknown) => ({ ok: false, items: [], error: String(e) }));
+    setCheck(r.error ? { ok: false, items: [{ label: "测试", ok: false, detail: r.error }] } : r);
+  };
+
+  const run = async (call: () => Promise<ExtensionsView & { error?: string }>) => {
+    setBusy(true);
+    setError(null);
+    const r = await call().catch((e: unknown) => ({ error: String(e) }) as ExtensionsView & { error?: string });
+    setBusy(false);
+    if (r.error) return setError(r.error);
+    onChanged();
+  };
+
+  return (
+    <EditorFrame error={error} busy={busy} canSave={dirty} saveLabel="保存" onSave={() => void save()} onCancel={onCancel}>
+      <div className="space-y-4">
+        <div className="flex items-start gap-4">
+          <ExtensionTile type={id} brand={agent?.brand} size="lg" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="truncate text-lg leading-snug font-semibold">{label}</h2>
+              {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
+            </div>
+            {agent?.description && <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{agent.description}</p>}
+            {agent?.adapterError && <p className="text-destructive mt-1 text-xs">{agent.adapterError}</p>}
+          </div>
+        </div>
+        {(needsAdapter || needsProgram) && (
+          <Alert>
+            <Download />
+            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${agent?.program?.bin ?? "它的程序"}`}</AlertTitle>
+            <AlertDescription>
+              <p>{needsAdapter ? "装上适配器之后才能用。" : "下载会装到 Roster 自己的目录，不动系统；下载完，用它的 bot 就能启动。"}</p>
+              <Button
+                size="sm"
+                className="mt-2"
+                disabled={acting || (needsAdapter && !agent?.extension)}
+                onClick={() => void run(() => api.installExtension(id))}
+              >
+                {acting ? <Loader className="animate-spin" /> : <Download />}
+                {needsAdapter ? "装适配器" : "下载安装"}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {job && <JobLine job={job} />}
+      </div>
+
+      {info && own && info.fields.length > 0 && (
+        <SettingFields
+          info={info}
+          agent={agent}
+          env={ext?.environment ?? null}
+          settings={settings}
+          onChange={(key, value) => setSettings((s) => ({ ...s, [key]: value }))}
+        />
+      )}
+
+      {fetched && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground mr-auto text-xs">
+            程序是 Roster 下载的{agent?.state.installed?.version ? `（${agent.state.installed.version}）` : ""}
+          </span>
+          <Button size="sm" variant="outline" disabled={acting} onClick={() => void run(() => api.updateExtension(id))}>
+            {acting ? <Loader className="animate-spin" /> : <RefreshCw />}
+            重新下载
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive"
+            disabled={acting}
+            onClick={() => setRemoving(true)}
+          >
+            <Trash2 />
+            卸载
+          </Button>
+        </div>
+      )}
+
+      {own && info?.sources.own && <LoginCard executorId={own.id} />}
+
+      {own && (
+        <div className="space-y-2">
+          <Button variant="outline" size="sm" onClick={() => void test()} disabled={check === "running"}>
+            测试连接
+          </Button>
+          <p className="text-muted-foreground text-xs">测的是保存过的配置：程序能不能启动、自带登录在不在。不会发起对话，不花钱。</p>
+          <CheckResult result={check} />
+        </div>
+      )}
+
+      {info && (
+        <Field>
+          <FieldLabel>能做什么</FieldLabel>
+          <CapabilitiesOf type={info} />
+          {info.sources.apis.length > 0 && (
+            <FieldDescription>能接的协议：{info.sources.apis.map((a) => API_LABEL[a] ?? a).join("、")}</FieldDescription>
+          )}
+        </Field>
+      )}
+
+      <Field>
+        <FieldLabel>在用的 bot</FieldLabel>
+        {users.length > 0 ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-xl border px-4 py-2.5 text-sm">
+            {users.map((b) => {
+              const setup = extras.find((e) => e.id === b.executor_id);
+              return (
+                <span key={b.id} className="inline-flex items-center gap-1.5">
+                  <BotAvatar bot={b} size="xs" />
+                  {b.name}
+                  {setup && <span className="text-muted-foreground text-xs">· {setup.name}</span>}
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">还没有。到通讯录里建 bot 时，选它当 agent。</p>
+        )}
+      </Field>
+
+      {info && info.fields.length > 0 && (
+        <Field>
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel>其他配置</FieldLabel>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground -mr-2"
+              onClick={() => onSelect({ kind: "executor", id: null, type: id })}
+            >
+              <Plus />
+              加一份
+            </Button>
+          </div>
+          {extras.length > 0 && (
+            <div className="rounded-xl border p-1">
+              {extras.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => onSelect({ kind: "executor", id: e.id, type: id })}
+                  className={cn(ROW, "hover:bg-accent")}
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm">{e.name}</span>
+                  <span className="text-muted-foreground min-w-0 truncate font-mono text-[11px]" title={e.settings.executable}>
+                    {e.settings.executable}
+                  </span>
+                  <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+          <FieldDescription>
+            一般用不到。想让一部分 bot 跑另一份程序（比如测试版）时再加；建 bot 时，它和 {label} 一起列在 agent 里。
+          </FieldDescription>
+        </Field>
+      )}
+
+      <AlertDialog open={removing} onOpenChange={setRemoving}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>卸载「{label}」？</AlertDialogTitle>
+            <AlertDialogDescription>
+              Roster 下载的这份程序会被删掉；用它的 bot 还留着，只是启动不了，再下载就能继续用。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setRemoving(false);
+                void run(() => api.removeExtension(id));
+              }}
+            >
+              卸载
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </EditorFrame>
+  );
+}
+
+/**
+ * An extra setup of an agent, so some bots run another program than the rest;
+ * or a setup whose agent is gone, kept so it can be seen and deleted. The
+ * agent's own setup is edited on the agent's page.
+ */
 export function ExecutorEditor({
   view,
   executor,
@@ -1016,7 +1214,7 @@ export function ExecutorEditor({
 }: {
   view: ExecutorSettings;
   executor: ExecutorRecord | null;
-  /** the agent it sits under; fixed, since the card it was opened from decides it */
+  /** the agent it belongs to; fixed, since the page it was opened from decides it */
   type: string;
   env: Environment | null;
   ext: ExtensionsView | null;
@@ -1033,13 +1231,15 @@ export function ExecutorEditor({
   const [check, setCheck] = useState<{ ok: boolean; items: CheckItem[] } | "running" | null>(null);
   const [confirming, setConfirming] = useState(false);
   const info = view.types.find((t) => t.type === type);
-  const label = info?.label ?? ext?.agents.find((a) => a.id === type)?.label ?? type;
-  const found = env?.programs.find((p) => p.id === type);
+  const agent = ext?.agents.find((a) => a.id === type);
+  const label = info?.label ?? agent?.label ?? type;
+  // one that sets nothing would run exactly what the agent's own setup runs
+  const setsSomething = !info || info.fields.length === 0 || info.fields.some((f) => Boolean(settings[f.key]?.trim()));
 
   const save = async () => {
     setBusy(true);
     setError(null);
-    const body = { name: name.trim() || info?.label, settings, ...(creating ? { type } : {}) };
+    const body = { name: name.trim(), settings, ...(creating ? { type } : {}) };
     const r = creating ? await api.createExecutor(body) : await api.updateExecutor(executor.id, body);
     setBusy(false);
     if (r.error || !r.executor) return setError(r.error ?? "保存失败");
@@ -1061,7 +1261,7 @@ export function ExecutorEditor({
           <EmptyMedia variant="icon">
             <Download />
           </EmptyMedia>
-          <EmptyTitle>{label} 现在建不了执行器</EmptyTitle>
+          <EmptyTitle>{label} 现在加不了配置</EmptyTitle>
           <EmptyDescription>它的适配器没有加载上，先回 Agent 页看看。</EmptyDescription>
         </EmptyHeader>
         <Button onClick={onExtensions}>去 Agent 页</Button>
@@ -1071,24 +1271,23 @@ export function ExecutorEditor({
 
   return (
     <EditorFrame
-      title={creating ? `新建 ${label} 执行器` : `编辑「${executor.name}」`}
+      title={creating ? `给 ${label} 加一份配置` : `编辑「${executor.name}」`}
+      {...(creating || executor.known
+        ? { description: `让一部分 bot 跑另一份 ${label} 程序，比如测试版。建 bot 时，它和 ${label} 一起列在 agent 里。` }
+        : {})}
       error={error}
       busy={busy}
-      canSave={Boolean(info)}
-      saveLabel={creating ? "创建" : "保存"}
+      canSave={Boolean(info) && name.trim() !== "" && setsSomething}
+      saveLabel={creating ? "添加" : "保存"}
       onSave={() => void save()}
       onCancel={onCancel}
       {...(creating ? {} : { onDelete: () => setConfirming(true) })}
     >
-      <p className="text-muted-foreground text-sm leading-relaxed">
-        这是 {label} 下面的执行器，bot 跑在它上面。模型从哪来由 bot 自己选：用 agent 自带的登录，或者某个模型 API。同一个 agent 建第二个执行器，只在想指定另一份程序时才有意义。
-      </p>
-
       {!creating && !executor.known && (
         <Alert>
           <AlertTitle>没有它的适配器</AlertTitle>
           <AlertDescription>
-            类型「{executor.type}」现在没有适配器提供。装回来之前，用它的 bot 启动不了。
+            「{executor.type}」这个 agent 现在没有适配器提供。装回来之前，用它的 bot 启动不了。
             <Button variant="link" size="xs" className="h-auto p-0" onClick={onExtensions}>
               去 Agent 页
             </Button>
@@ -1098,45 +1297,22 @@ export function ExecutorEditor({
 
       <Field>
         <FieldLabel htmlFor="executor-name">名字</FieldLabel>
-        <Input id="executor-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={label} />
+        <Input id="executor-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`比如：${label} 测试版`} />
+        <FieldDescription>建 bot 选 agent 时，看到的就是这个名字。</FieldDescription>
       </Field>
 
-      {info?.fields.map((f) => {
-        const detected = f.key === "executable" ? found : undefined;
-        const program = f.key === "executable" ? (ext?.agents.find((a) => a.id === type)?.state.path ?? null) : null;
-        return (
-          <Field key={f.key}>
-            <FieldLabel htmlFor={`executor-${f.key}`}>{f.label}</FieldLabel>
-            <div className="flex gap-1.5">
-              <Input
-                id={`executor-${f.key}`}
-                value={settings[f.key] ?? ""}
-                onChange={(e) => setSettings((s) => ({ ...s, [f.key]: e.target.value }))}
-                placeholder={program ? `留空就用 ${program}` : f.placeholder}
-                spellCheck={false}
-                className={cn(f.kind === "path" && "font-mono text-xs")}
-              />
-            </div>
-            <FieldDescription>
-              {program
-                ? `留空用${detected ? "本机检测到" : "Roster 装"}的${detected?.version ? `（${detected.version}）` : ""}；只在想指定另一份时填。`
-                : f.help}
-            </FieldDescription>
-          </Field>
-        );
-      })}
+      {info && (
+        <SettingFields
+          info={info}
+          agent={agent}
+          env={env}
+          settings={settings}
+          onChange={(key, value) => setSettings((s) => ({ ...s, [key]: value }))}
+          extra
+        />
+      )}
 
       {!creating && info?.sources.own && <LoginCard executorId={executor.id} />}
-
-      {info && (
-        <Field>
-          <FieldLabel>能做什么</FieldLabel>
-          <CapabilitiesOf type={info} />
-          {info.sources.apis.length > 0 && (
-            <FieldDescription>能接的协议：{info.sources.apis.map((a) => API_LABEL[a] ?? a).join("、")}</FieldDescription>
-          )}
-        </Field>
-      )}
 
       {!creating && (
         <div className="space-y-2">
@@ -1153,7 +1329,7 @@ export function ExecutorEditor({
           open={confirming}
           onOpenChange={setConfirming}
           title={`删除「${executor.name}」？`}
-          description="还有 bot 在用它的话会删不掉，先给那些 bot 换个执行器。"
+          description="还有 bot 在用它的话会删不掉，先给那些 bot 换一个 agent。"
           onConfirm={() => {
             void api.deleteExecutor(executor.id).then((r) => (r.error ? setError(r.error) : onDeleted()));
           }}

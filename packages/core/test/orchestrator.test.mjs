@@ -16,7 +16,7 @@ import { openDb } from "../dist/db/index.js";
 import { AttachmentStore, MAX_BYTES } from "../dist/attachments.js";
 import { composeDelivery } from "../dist/delivery.js";
 import { Rejection } from "../dist/errors.js";
-import { checkEndpoint, ExecutorSettings } from "../dist/executors.js";
+import { checkEndpoint, ensureExecutors, ExecutorSettings } from "../dist/executors.js";
 import { Extensions } from "../dist/extensions.js";
 import { LOGO_IDS, LOGOS, LOGOS_DIR } from "../dist/logos.js";
 import { findMentions } from "../dist/mentions.js";
@@ -879,6 +879,19 @@ describe("executors and providers", () => {
     assert.ok(h.orch.capabilities()[executor.id].endpoint);
     const listed = h.orch.executors().find((e) => e.id === executor.id);
     assert.deepEqual([listed.type, listed.label, listed.sources], ["beta", "新执行器", { own: false, apis: ["openai-completions"] }]);
+  });
+
+  test("an agent that is ready gets one executor of its own, however it became ready", async () => {
+    const h = settingsHarness();
+    const alpha = { type: "alpha", label: "甲" };
+    const beta = { type: "beta", label: "乙" };
+    assert.deepEqual(ensureExecutors(h.store, [alpha]).map((e) => [e.type, e.name, e.settings]), [["alpha", "甲", {}]]);
+    assert.deepEqual(ensureExecutors(h.store, [alpha]), [], "a second pass makes nothing");
+
+    // an extra setup of alpha is not a reason to skip beta, and its name does not clash with beta's own
+    await h.settings.createExecutor({ name: "乙", type: "alpha", settings: { path: "/opt/alpha-beta" } });
+    assert.deepEqual(ensureExecutors(h.store, [alpha, beta]).map((e) => [e.type, e.name]), [["beta", "乙 2"]]);
+    assert.deepEqual(h.store.listExecutors().map((e) => e.type), ["alpha", "alpha", "beta"]);
   });
 
   test("an endpoint's models are listed per agent that drives it, and a preset's before there is a key", async () => {

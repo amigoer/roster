@@ -42,7 +42,7 @@ export function CapabilityNotes({ caps }: { caps: Capabilities }) {
       <p className="text-muted-foreground text-xs">
         中途插话：
         {caps.midRunInject.includes("steer") ? "可打断并纠正" : "只能排到下一轮"}
-        {missing.length > 0 && ` · 划掉的 ${missing.length} 项这个执行器不支持`}
+        {missing.length > 0 && ` · 划掉的 ${missing.length} 项这个 agent 不支持`}
       </p>
     </div>
   );

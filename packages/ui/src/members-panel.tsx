@@ -231,7 +231,7 @@ function MemberRow({
           <button
             onClick={onSync}
             className="mt-1 inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
-            title="它还在用加入时的设定；同步后会在执行器上开一个新会话，并把群聊记录重新交给它"
+            title="它还在用加入时的设定；同步后会开一个新会话，并把群聊记录重新交给它"
           >
             <RefreshCw className="size-3" />
             设定有更新，点此同步

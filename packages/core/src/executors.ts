@@ -122,6 +122,24 @@ export async function fetchModels(p: ProviderConfig, preset?: ProviderPreset): P
   }
 }
 
+/**
+ * Gives every agent a bot could run on an executor, so an agent that is ready
+ * needs nothing more before bots are built on it. The oldest executor of a type
+ * is the agent's own; any later one is an extra setup someone added.
+ */
+export function ensureExecutors(store: Store, usable: ReadonlyArray<Pick<HarnessType, "type" | "label">>): ExecutorRow[] {
+  const live = store.listExecutors();
+  const made: ExecutorRow[] = [];
+  for (const t of usable) {
+    if (live.some((e) => e.type === t.type)) continue;
+    let name = t.label;
+    // names are unique, and a setup someone added may already carry this one
+    for (let n = 2; store.executorNameTaken(name); n++) name = `${t.label} ${n}`;
+    made.push(store.createExecutor({ name, type: t.type, settings: {} }));
+  }
+  return made;
+}
+
 /** What the settings page shows of a type: its shape, never its code. */
 export function typeView(t: HarnessType) {
   const caps: Partial<Record<SourceKind, ReturnType<HarnessType["capabilities"]>>> = {};
@@ -200,7 +218,7 @@ export class ExecutorSettings {
     const current = this.#liveExecutor(id);
     const bots = this.store.liveBotsOn(id);
     if (bots.length > 0) {
-      throw new Rejection(`还有 bot 在用「${current.name}」：${bots.map((b) => b.name).join("、")}。先给它们换个执行器`, 409);
+      throw new Rejection(`还有 bot 在用「${current.name}」：${bots.map((b) => b.name).join("、")}。先给它们换一个 agent`, 409);
     }
     this.store.archiveExecutor(id);
     this.#logins.delete(id);
@@ -212,7 +230,7 @@ export class ExecutorSettings {
     this.#liveExecutor(id);
     const executor = this.registry().get(id);
     if (!executor) return Promise.resolve({ state: "unknown", detail: "这个版本不认识它的类型", methods: [] });
-    if (!executor.sources.own) return Promise.resolve({ state: "none", detail: "这种执行器没有自带登录", methods: [] });
+    if (!executor.sources.own) return Promise.resolve({ state: "none", detail: "这个 agent 没有自带登录", methods: [] });
     const cached = this.#logins.get(id);
     if (!fresh && cached && Date.now() - cached.at < LOGIN_REUSE_MS) return cached.value;
     const value = (executor.login?.() ?? Promise.resolve<LoginState>({ state: "unknown", methods: [] })).catch(
@@ -225,7 +243,7 @@ export class ExecutorSettings {
   async authenticate(id: string, methodId: string): Promise<LoginState> {
     this.#liveExecutor(id);
     const executor = this.registry().get(id);
-    if (!executor?.authenticate) throw new Rejection("这个执行器不能由 Roster 代为登录");
+    if (!executor?.authenticate) throw new Rejection("这个 agent 不能由 Roster 代为登录");
     await executor.authenticate(methodId);
     return this.login(id, true);
   }
@@ -365,7 +383,7 @@ export class ExecutorSettings {
 
   #liveExecutor(id: string): ExecutorRow {
     const row = this.store.getExecutor(id);
-    if (!row || row.archived_at) throw new Rejection("没有这个执行器", 404);
+    if (!row || row.archived_at) throw new Rejection("没有这个 agent 配置", 404);
     return row;
   }
 
@@ -377,10 +395,10 @@ export class ExecutorSettings {
 
   async #executorInput(body: Body, current?: ExecutorRow): Promise<ExecutorInput> {
     const type = this.types().find((t) => t.type === (current?.type ?? String(body["type"] ?? "")));
-    if (!type) throw new Rejection(current ? "这个执行器的扩展没有装，先装上再改" : "没有这种执行器类型");
+    if (!type) throw new Rejection(current ? "它的适配器没有装，先装上再改" : "没有这种 agent");
     const name = text(body["name"] ?? current?.name, 40);
-    if (!name) throw new Rejection("执行器要有个名字");
-    if (this.store.executorNameTaken(name, current?.id)) throw new Rejection(`已经有叫「${name}」的执行器了`);
+    if (!name) throw new Rejection("配置要有个名字");
+    if (this.store.executorNameTaken(name, current?.id)) throw new Rejection(`「${name}」这个名字已经用过了`);
 
     const raw = (body["settings"] ?? current?.settings ?? {}) as Body;
     const settings: Record<string, string> = {};

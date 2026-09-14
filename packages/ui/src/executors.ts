@@ -13,6 +13,19 @@ export function useExecutor(): (id: string) => Executor {
   return (id) => list.find((e) => e.id === id) ?? { id, type: "", label: id, sources: { own: true, apis: [] } };
 }
 
+/** Executor ids in the order they came, except that an agent's extra setups sit right under its own. */
+export function byAgent(ids: readonly string[], typeOf: (id: string) => string): string[] {
+  const first = new Map<string, number>();
+  ids.forEach((id, i) => {
+    const type = typeOf(id);
+    if (!first.has(type)) first.set(type, i);
+  });
+  return ids
+    .map((id, i) => ({ id, i, at: first.get(typeOf(id)) ?? i }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map((x) => x.id);
+}
+
 export const OWN_SOURCE_LABEL = "自带登录";
 
 /** What a bot's model source is called: the endpoint's name, or the agent's own sign-in. */

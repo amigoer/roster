@@ -8,7 +8,7 @@ import { AttachmentStore } from "./attachments.js";
 import { CATALOG } from "./catalog.js";
 import { openDb } from "./db/index.js";
 import { Detector } from "./detect.js";
-import { ExecutorSettings } from "./executors.js";
+import { ensureExecutors, ExecutorSettings } from "./executors.js";
 import { Extensions, type ExtensionRoot } from "./extensions.js";
 import { Installer } from "./installer.js";
 import { LOGO_IDS } from "./logos.js";
@@ -154,6 +154,8 @@ const sources = new Sources(store, secrets, () => registry, (t) => settings.pres
 const attachments = new AttachmentStore(join(dataDir, "attachments"));
 const orchestrator = new Orchestrator(store, broadcast as never, registry, sources, attachments);
 const changed = () => {
+  // an agent made ready by detection or a download gets its executor here, so it is usable at once
+  if (!scripted) ensureExecutors(store, agents.usable());
   registry = build();
   orchestrator.useRegistry(registry);
 };
@@ -162,14 +164,10 @@ const pushExecutors = () =>
   broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
 
 // Detection runs in the background; when it lands, executors get the programs it found.
-// A first run gets one executor per agent that is ready to use, so there is something to build a bot on.
 void detector
   .detect()
   .then(() => {
     if (scripted) return;
-    if (store.listExecutors().length === 0) {
-      for (const t of agents.usable()) store.createExecutor({ name: t.label, type: t.type, settings: {} });
-    }
     changed();
     pushExecutors();
     broadcast({ kind: "extensions" });

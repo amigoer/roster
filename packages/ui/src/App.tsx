@@ -39,7 +39,7 @@ import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { Resizer, useColumnWidth } from "./resizable";
-import { ExecutorEditor, ExtensionsPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
+import { AgentPanel, ExecutorEditor, ExtensionsPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
 import { useTypography } from "./typography";
@@ -177,6 +177,8 @@ export default function App() {
       setSettingsSel(next);
     });
   const reloadExtensions = () => void api.extensions().then(setExtView).catch(() => {});
+  const settingsBack = (type: string): SettingsSelection =>
+    extView?.agents.some((a) => a.id === type) ? { kind: "agent", id: type } : { kind: "extensions" };
   const loadAbout = () =>
     void api
       .about()
@@ -636,11 +638,12 @@ export default function App() {
                       ? "关于"
                       : settingsSel?.kind === "provider"
                       ? "模型 API"
-                      : settingsSel?.kind === "executor"
-                        ? "执行器"
-                        : settingsSel?.kind === "extensions" || (settingsView && settingsView.executors.length === 0)
-                          ? "Agent"
-                          : "设置"}
+                      : settingsSel?.kind === "agent" ||
+                          settingsSel?.kind === "executor" ||
+                          settingsSel?.kind === "extensions" ||
+                          (settingsView && settingsView.executors.length === 0)
+                        ? "Agent"
+                        : "设置"}
                 </span>
               </header>
               {settingsSel?.kind === "appearance" ? (
@@ -656,6 +659,21 @@ export default function App() {
                 <AboutPanel about={about} />
               ) : !settingsView ? (
                 <Empty label="" />
+              ) : settingsSel?.kind === "agent" ? (
+                <AgentPanel
+                  key={settingsSel.id}
+                  id={settingsSel.id}
+                  view={settingsView}
+                  ext={extView}
+                  bots={bots}
+                  onSaved={() => reloadSettings({ kind: "agent", id: settingsSel.id })}
+                  onChanged={() => {
+                    reloadExtensions();
+                    void api.executorSettings().then(setSettingsView);
+                  }}
+                  onCancel={() => setSettingsSel(null)}
+                  onSelect={setSettingsSel}
+                />
               ) : settingsSel?.kind === "executor" ? (
                 <ExecutorEditor
                   key={settingsSel.id ?? `new-${settingsSel.type}`}
@@ -665,9 +683,9 @@ export default function App() {
                   env={extView?.environment ?? null}
                   ext={extView}
                   onSaved={(e) => reloadSettings({ kind: "executor", id: e.id, type: e.type })}
-                  // back to the card it was opened from
-                  onCancel={() => setSettingsSel({ kind: "extensions", id: settingsSel.type })}
-                  onDeleted={() => reloadSettings({ kind: "extensions", id: settingsSel.type })}
+                  // back to the agent's page; a setup whose agent is gone has only the overview to go back to
+                  onCancel={() => setSettingsSel(settingsBack(settingsSel.type))}
+                  onDeleted={() => reloadSettings(settingsBack(settingsSel.type))}
                   onExtensions={() => setSettingsSel({ kind: "extensions", id: settingsSel.type })}
                 />
               ) : settingsSel?.kind === "provider" ? (
@@ -711,7 +729,10 @@ export default function App() {
                   template={editing.template}
                   bots={bots}
                   caps={caps}
-                  onManageExecutors={() => setNav("settings")}
+                  onManageAgents={(type) => {
+                    setNav("settings");
+                    setSettingsSel(type ? { kind: "agent", id: type } : null);
+                  }}
                   onCancel={() => setEditing(null)}
                   onSaved={(b) => {
                     setBots((prev) => (prev.some((x) => x.id === b.id) ? prev.map((x) => (x.id === b.id ? b : x)) : [...prev, b]));

@@ -15,7 +15,7 @@ import {
 import { BotAvatar, GroupAvatar, LogoImage, logoOf, TIER_LABEL, useLogos, type Busy } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { DeleteConversation, RenameInput } from "./conversation-menu";
-import { capsOf, useExecutor, useSourceLabel } from "./executors";
+import { byAgent, capsOf, useExecutor, useSourceLabel } from "./executors";
 import { LIST_BODY, ListSearch, ROW, rowState, SectionLabel } from "./list";
 import { Markdown } from "./markdown";
 import { MemberSections, MODES } from "./members-panel";
@@ -267,7 +267,7 @@ export function BotProfile({
               <Markdown>{bot.system_prompt}</Markdown>
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">没有设定，按执行器默认的方式工作。</p>
+            <p className="text-muted-foreground text-sm">没有设定，按 agent 默认的方式工作。</p>
           )}
         </Section>
 
@@ -549,7 +549,7 @@ export function BotEditor({
   template,
   bots,
   caps,
-  onManageExecutors,
+  onManageAgents,
   onCancel,
   onSaved,
 }: {
@@ -558,12 +558,13 @@ export function BotEditor({
   template: Template | null;
   bots: Bot[];
   caps: Record<string, CapabilitySet>;
-  onManageExecutors: () => void;
+  /** opens the settings page of the agent the form is on; empty when it is on none */
+  onManageAgents: (type: string) => void;
   onCancel: () => void;
   onSaved: (bot: Bot) => void;
 }) {
-  const executorIds = Object.keys(caps);
   const executor = useExecutor();
+  const executorIds = byAgent(Object.keys(caps), (id) => executor(id).type);
   const models = useModels();
   const logos = useLogos();
   const [form, setForm] = useState<BotInput>(() => {
@@ -734,7 +735,7 @@ export function BotEditor({
                 </Button>
               </div>
               <span className="text-muted-foreground text-xs">
-                Markdown · 附加在执行器自带的编码提示词之后，不会替换它
+                Markdown · 附加在 agent 自带的编码提示词之后，不会替换它
               </span>
             </div>
             {preview ? (
@@ -759,9 +760,9 @@ export function BotEditor({
           <div className="mt-5 grid gap-4 @md:grid-cols-2">
             <div className="grid content-start gap-2">
               <div className="flex items-baseline justify-between">
-                <Label>执行器</Label>
-                <Button type="button" variant="link" size="xs" className="text-muted-foreground h-auto p-0" onClick={onManageExecutors}>
-                  管理执行器
+                <Label>Agent</Label>
+                <Button type="button" variant="link" size="xs" className="text-muted-foreground h-auto p-0" onClick={() => onManageAgents(executor(form.executor_id).type)}>
+                  管理 agent
                 </Button>
               </div>
               <Select
@@ -771,7 +772,7 @@ export function BotEditor({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选一个执行器" />
+                  <SelectValue placeholder="选一个 agent" />
                 </SelectTrigger>
                 <SelectContent>
                   {executorIds.map((id) => (
@@ -786,7 +787,7 @@ export function BotEditor({
               <Label htmlFor="bot-model">模型</Label>
               {groups.length === 0 ? (
                 <p className="text-muted-foreground text-xs leading-relaxed">
-                  这个执行器现在没有可用的模型来源：它没有自带登录，也没有协议对得上的 API。到设置里加一个模型 API。
+                  这个 agent 现在没有可用的模型来源：它没有自带登录，也没有协议对得上的 API。到设置里加一个模型 API。
                 </p>
               ) : (
                 <Select
@@ -859,7 +860,7 @@ export function BotEditor({
             </div>
             <span className="text-muted-foreground text-xs">
               {formCaps?.permissionModes
-                ? "这个执行器按自己的权限模式审批：档位只决定新会话从哪个模式开始，之后在输入框下方切换。"
+                ? "这个 agent 按自己的权限模式审批：档位只决定新会话从哪个模式开始，之后在输入框下方切换。"
                 : "超出档位的操作会在聊天里发一张卡片问你；改档位立即生效。"}
             </span>
           </div>
