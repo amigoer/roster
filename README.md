@@ -78,6 +78,10 @@ The desktop app serves the built UI from `packages/ui/dist`, so after UI changes
 
 An agent that speaks the Agent Client Protocol (ACP) needs only a manifest under the `roster` key of its `package.json`: the command to start it, which environment variables carry a model API, and how to sign in. See [`packages/ext-codex`](packages/ext-codex/package.json).
 
+## Credits
+
+The projects and assets Roster is built on, and their licenses, are listed in [CREDITS.md](CREDITS.md).
+
 ## License
 
-[Apache License 2.0](LICENSE). Bot avatars come from [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) and provider marks from [LobeHub Icons](https://github.com/lobehub/lobe-icons), both MIT.
+[Apache License 2.0](LICENSE).

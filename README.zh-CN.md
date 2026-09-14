@@ -78,6 +78,10 @@ pnpm -C packages/ui dev      # Vite 开在 :5173，/api 转发到 :7788 的 core
 
 走 Agent Client Protocol（ACP）的 agent 只需要一份清单，写在 `package.json` 的 `roster` 字段下：启动命令、模型 API 对应哪些环境变量、怎么登录。可以参考 [`packages/ext-codex`](packages/ext-codex/package.json)。
 
+## 致谢
+
+Roster 用到的项目、素材以及各自的许可协议，见 [CREDITS.zh-CN.md](CREDITS.zh-CN.md)。
+
 ## 许可协议
 
-[Apache License 2.0](LICENSE)。bot 头像来自 [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill)，服务商品牌标来自 [LobeHub Icons](https://github.com/lobehub/lobe-icons)，均为 MIT 协议。
+[Apache License 2.0](LICENSE)。

@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Check, Copy, ExternalLink, TriangleAlert } from "lucide-react";
+import { Check, Copy, TriangleAlert } from "lucide-react";
 import type { About } from "./api";
 import { LogoImage, useLogos } from "./bot-avatar";
-import { StatusBadge } from "./tiles";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,41 +16,6 @@ export type AboutState = About | { error: string } | null;
 /** A core started before /api/about existed answers it as an unknown route. */
 export const coreOutdated = (about: AboutState): boolean =>
   about !== null && ("error" in about ? about.error === "not found" : about.stale);
-
-type Credit = { name: string; use: string; license: string; url: string };
-
-/** Licenses as the installed packages declare them. */
-const CREDITS: ReadonlyArray<{ group: string; items: readonly Credit[] }> = [
-  {
-    group: "agent 与协议",
-    items: [
-      { name: "pi", use: "pi-agent 就是它，一个库形态的编码 agent", license: "MIT", url: "https://github.com/earendil-works/pi" },
-      { name: "Claude Agent SDK", use: "Claude Code 接模型 API 时走的通道", license: "Anthropic 条款", url: "https://github.com/anthropics/claude-agent-sdk-typescript" },
-      { name: "claude-agent-acp", use: "Claude Code 用订阅登录时走的 ACP 桥", license: "Apache-2.0", url: "https://github.com/agentclientprotocol/claude-agent-acp" },
-      { name: "Agent Client Protocol", use: "驱动 Codex、Gemini CLI 这类 agent 的协议", license: "Apache-2.0", url: "https://github.com/agentclientprotocol/typescript-sdk" },
-    ],
-  },
-  {
-    group: "界面",
-    items: [
-      { name: "Electron", use: "桌面外壳", license: "MIT", url: "https://github.com/electron/electron" },
-      { name: "React", use: "界面", license: "MIT", url: "https://github.com/react/react" },
-      { name: "shadcn/ui", use: "组件的底子", license: "MIT", url: "https://github.com/shadcn-ui/ui" },
-      { name: "Radix UI", use: "组件的交互和无障碍", license: "MIT", url: "https://github.com/radix-ui/primitives" },
-      { name: "Tailwind CSS", use: "样式", license: "MIT", url: "https://github.com/tailwindlabs/tailwindcss" },
-      { name: "Lucide", use: "图标", license: "ISC", url: "https://github.com/lucide-icons/lucide" },
-      { name: "Sonner", use: "提示条", license: "MIT", url: "https://github.com/emilkowalski/sonner" },
-      { name: "react-markdown", use: "消息里的 Markdown", license: "MIT", url: "https://github.com/remarkjs/react-markdown" },
-    ],
-  },
-  {
-    group: "素材",
-    items: [
-      { name: "ip-as-logo", use: "bot 的头像", license: "MIT", url: "https://github.com/s1dashu/ip-as-logo-skill" },
-      { name: "LobeHub Icons", use: "服务商的品牌标", license: "MIT", url: "https://github.com/lobehub/lobe-icons" },
-    ],
-  },
-];
 
 const OS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
 
@@ -109,9 +73,10 @@ function Placeholder({ rows }: { rows: number }) {
 }
 
 /**
- * What this is, which build of it is running, where it keeps its data, and
- * what it is built on. The header is a handful of the bots' own faces: in
- * Roster an agent is a contact, and that is the whole idea.
+ * What this is, which build of it is running and where it keeps its data.
+ * Credits for what it is built on live in CREDITS.md, not here. The
+ * header is a handful of the bots' own faces: in Roster an agent is a
+ * contact, and that is the whole idea.
  */
 export function AboutPanel({ about }: { about: AboutState }) {
   const logos = useLogos();
@@ -224,34 +189,6 @@ export function AboutPanel({ about }: { about: AboutState }) {
             </Field>
           </>
         )}
-
-        <Field>
-          <FieldLabel>用到的开源项目</FieldLabel>
-          <div className="overflow-hidden rounded-xl border [&>*+*]:border-t">
-            {CREDITS.map((g) => (
-              <div key={g.group}>
-                <div className="bg-muted text-muted-foreground border-b px-4 py-1.5 text-xs">{g.group}</div>
-                <ul className="divide-y">
-                  {g.items.map((c) => (
-                    <li key={c.name}>
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:bg-accent/50 focus-visible:bg-accent/50 flex items-center gap-3 px-4 py-2 text-sm transition-colors outline-none"
-                      >
-                        <span className="w-36 shrink-0 truncate font-medium">{c.name}</span>
-                        <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">{c.use}</span>
-                        <StatusBadge tone="quiet">{c.license}</StatusBadge>
-                        <ExternalLink className="text-muted-foreground size-3.5 shrink-0" />
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </Field>
       </div>
     </ScrollArea>
   );

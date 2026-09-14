@@ -202,7 +202,7 @@ export function SettingsList({
             <div className="truncate text-sm font-medium">关于 Roster</div>
             {/* a stale core is easy to miss, so the row says so without the page being opened */}
             <div className={cn("truncate text-xs", outdated ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
-              {outdated ? "core 在跑旧代码，要重启" : about && "version" in about ? `版本 ${about.version}` : "版本和致谢"}
+              {outdated ? "core 在跑旧代码，要重启" : about && "version" in about ? `版本 ${about.version}` : "版本和数据目录"}
             </div>
           </div>
         </button>
