@@ -83,7 +83,7 @@
   --selection: hsl(221 100% 68% / 0.3);
 }
 
-/* what 设置 > 外观 sets on the root: typography.ts writes --app-font and --message-size over these */
+/* what Settings > Appearance sets on the root: typography.ts writes --app-font and --message-size over these */
 :root {
   --font-default:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",

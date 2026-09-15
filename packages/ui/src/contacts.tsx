@@ -13,16 +13,17 @@ import {
   type Presence,
   type Tier,
 } from "./api";
-import { BotAvatar, GroupAvatar, LogoImage, logoOf, TIER_LABEL, useLogos, type Busy } from "./bot-avatar";
+import { BotAvatar, GroupAvatar, LogoImage, logoOf, useLogos, type Busy } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { DeleteConversation, RenameInput } from "./conversation-menu";
 import { byHarness, Executors, HarnessLabels, useExecutor } from "./executors";
+import { useI18n } from "./i18n";
 import { LIST_BODY, ListSearch, ROW, rowState, SectionLabel } from "./list";
 import { Markdown } from "./markdown";
 import { MemberSections, MODES } from "./members-panel";
 import { leaderOf } from "./mentions";
 import { ProviderIcon, providerOf } from "./provider-icon";
-import { TEMPLATES, type Template } from "./templates";
+import { templates, type Template } from "./templates";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,6 +62,7 @@ export function ContactList({
 }) {
   const [query, setQuery] = useState("");
   const executor = useExecutor();
+  const { t, list } = useI18n();
   const isSelected = (kind: Contact["kind"], id: string) => selected?.kind === kind && selected.id === id;
   const q = query.trim().toLowerCase();
   const shownBots = q
@@ -70,12 +72,12 @@ export function ContactList({
 
   return (
     <>
-      <ListSearch value={query} onChange={setQuery} placeholder="搜索 bot 或群聊" />
+      <ListSearch value={query} onChange={setQuery} placeholder={t("contacts.search")} />
       <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.5rem)]">
         <div className={LIST_BODY}>
-          <SectionLabel>Bot · {shownBots.length}</SectionLabel>
+          <SectionLabel>{t("contacts.bots", { count: shownBots.length })}</SectionLabel>
           {bots.length === 0 && (
-            <p className="text-muted-foreground px-2.5 py-4 text-sm">还没有 bot。在右边挑一个角色建一个。</p>
+            <p className="text-muted-foreground px-2.5 py-4 text-sm">{t("contacts.noBots")}</p>
           )}
           {shownBots.map((b) => (
             <button
@@ -87,14 +89,14 @@ export function ContactList({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{b.name}</div>
                 <div className="text-muted-foreground truncate text-xs">
-                  {b.title ?? `${executor(b.executor_id).label} · ${b.model ?? executor(b.executor_id).model ?? "默认模型"}`}
+                  {b.title ?? `${executor(b.executor_id).label} · ${b.model ?? executor(b.executor_id).model ?? t("common.defaultModel")}`}
                 </div>
               </div>
             </button>
           ))}
           {groups.length > 0 && (
             <>
-              <SectionLabel>群聊 · {groups.length}</SectionLabel>
+              <SectionLabel>{t("contacts.groups", { count: groups.length })}</SectionLabel>
               {groups.map((c) => {
                 const members = activeMembers(c);
                 return (
@@ -107,7 +109,7 @@ export function ContactList({
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{c.title}</div>
                       <div className="text-muted-foreground truncate text-xs">
-                        {members.map((m) => m.bot.name).join("、") || "没有成员"}
+                        {list(members.map((m) => m.bot.name)) || t("contacts.noMembers")}
                       </div>
                     </div>
                   </button>
@@ -123,13 +125,13 @@ export function ContactList({
 
 /** The Grok-style roster start: pick a role, then make it yours. */
 export function TemplateGallery({ onPick }: { onPick: (t: Template | null) => void }) {
+  const { t } = useI18n();
+  const roles = useMemo(() => templates(t), [t]);
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto max-w-3xl px-8 py-10">
-        <h2 className="text-lg font-semibold">建一个 Bot</h2>
-        <p className="text-muted-foreground mt-1 text-sm">
-          挑一个角色开始，名字、设定和权限都可以再改。建好的 bot 能单聊，也能拉进群里和别的 bot 一起干活。
-        </p>
+        <h2 className="text-lg font-semibold">{t("gallery.title")}</h2>
+        <p className="text-muted-foreground mt-1 text-sm">{t("gallery.description")}</p>
         <div className="mt-6 grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2.5">
           <button
             onClick={() => onPick(null)}
@@ -139,23 +141,23 @@ export function TemplateGallery({ onPick }: { onPick: (t: Template | null) => vo
               <Plus className="size-4" />
             </span>
             <span>
-              <span className="block text-sm font-medium">空白 Bot</span>
-              <span className="text-muted-foreground block text-xs">从零写设定</span>
+              <span className="block text-sm font-medium">{t("gallery.blank")}</span>
+              <span className="text-muted-foreground block text-xs">{t("gallery.blankHint")}</span>
             </span>
           </button>
-          {TEMPLATES.map((t) => (
+          {roles.map((role) => (
             <button
-              key={t.id}
-              onClick={() => onPick(t)}
+              key={role.id}
+              onClick={() => onPick(role)}
               className="hover:bg-accent/50 flex items-center gap-3 rounded-xl border p-3 text-left transition-colors"
             >
-              <BotAvatar bot={{ id: t.id, avatar: t.avatar }} />
+              <BotAvatar bot={{ id: role.id, avatar: role.avatar }} />
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{t.name}</span>
-                <span className="text-muted-foreground block truncate text-xs">{t.title}</span>
+                <span className="block truncate text-sm font-medium">{role.name}</span>
+                <span className="text-muted-foreground block truncate text-xs">{role.title}</span>
               </span>
               <Badge variant="outline" className="ml-auto shrink-0 px-1.5 py-0 text-[10px] font-normal">
-                {TIER_LABEL[t.permission_tier]?.label}
+                {t(`tier.${role.permission_tier}`)}
               </Badge>
             </button>
           ))}
@@ -198,10 +200,10 @@ export function BotProfile({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [opening, setOpening] = useState(false);
+  const { t } = useI18n();
   const executor = useExecutor()(bot.executor_id);
   const botCaps = caps[bot.executor_id];
   const joined = convs.filter((c) => !c.archived && activeMembers(c).some((m) => m.bot.id === bot.id));
-  const tier = TIER_LABEL[bot.permission_tier];
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -211,18 +213,18 @@ export function BotProfile({
           <BotAvatar bot={bot} size="xl" busy={busy} />
           <div className="min-w-48 flex-1 pt-1">
             <h2 className="truncate text-xl font-semibold">{bot.name}</h2>
-            <p className="text-muted-foreground mt-0.5 text-sm">{bot.title ?? "还没写职责"}</p>
+            <p className="text-muted-foreground mt-0.5 text-sm">{bot.title ?? t("profile.noTitle")}</p>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <Badge variant="outline" className="font-normal">
                 <ProviderIcon provider={providerOf(bot, executor.type)} />
-                {executor.label} · {bot.model ?? executor.model ?? "默认模型"}
+                {executor.label} · {bot.model ?? executor.model ?? t("common.defaultModel")}
               </Badge>
               <Badge variant="outline" className="font-normal">
-                {tier?.label}
+                {t(`tier.${bot.permission_tier}`)}
               </Badge>
               {busy && (
                 <Badge variant="secondary" className="font-normal">
-                  {busy === "needs_you" ? "在等你批准" : "正在干活"}
+                  {busy === "needs_you" ? t("profile.needsApproval") : t("busy.working")}
                 </Badge>
               )}
             </div>
@@ -239,15 +241,15 @@ export function BotProfile({
             }}
           >
             <MessageCircle />
-            发消息
+            {t("profile.message")}
           </Button>
           <Button size="sm" variant="outline" onClick={onGroup}>
             <Users />
-            拉群
+            {t("profile.startGroup")}
           </Button>
           <Button size="sm" variant="outline" onClick={onEdit}>
             <Pencil />
-            编辑
+            {t("common.edit")}
           </Button>
           <Button
             size="sm"
@@ -256,39 +258,39 @@ export function BotProfile({
             onClick={() => setConfirming(true)}
           >
             <Trash2 />
-            删除
+            {t("common.delete")}
           </Button>
         </div>
 
-        <Section title="设定">
+        <Section title={t("bot.instructions")}>
           {bot.system_prompt ? (
             <div className="bg-muted/50 rounded-lg border px-4 py-3">
               <Markdown>{bot.system_prompt}</Markdown>
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">没有设定，按 agent 默认的方式工作。</p>
+            <p className="text-muted-foreground text-sm">{t("profile.noInstructions")}</p>
           )}
         </Section>
 
-        <Section title="权限">
+        <Section title={t("profile.permissions")}>
           <p className="text-sm">
-            <span className="font-medium">{tier?.label}</span>
+            <span className="font-medium">{t(`tier.${bot.permission_tier}`)}</span>
             <span className="text-muted-foreground">
               {" · "}
-              {botCaps?.permissionModes ? "新会话从这一档对应的权限模式开始，会话里可以在输入框下方切换" : tier?.hint}
+              {botCaps?.permissionModes ? t("profile.modesHint") : t(`tier.${bot.permission_tier}.hint`)}
             </span>
           </p>
         </Section>
 
         {botCaps && (
-          <Section title={`${executor.label} 能做什么`}>
+          <Section title={t("profile.capabilities", { name: executor.label })}>
             <CapabilityNotes caps={botCaps} />
           </Section>
         )}
 
-        <Section title={`所在会话 · ${joined.length}`}>
+        <Section title={t("profile.conversations", { count: joined.length })}>
           {joined.length === 0 ? (
-            <p className="text-muted-foreground text-sm">还没参与任何会话。</p>
+            <p className="text-muted-foreground text-sm">{t("profile.noConversations")}</p>
           ) : (
             <div className="-mx-2">
               {joined.map((c) => (
@@ -308,7 +310,7 @@ export function BotProfile({
                   </span>
                   {c.shape === "group" && (
                     <Badge variant="secondary" className="px-1 py-0 text-[10px]">
-                      群
+                      {t("conversation.groupBadge")}
                     </Badge>
                   )}
                 </button>
@@ -321,20 +323,18 @@ export function BotProfile({
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除「{bot.name}」？</AlertDialogTitle>
-            <AlertDialogDescription>
-              它会从通讯录里消失，不能再被拉进新的会话。已经在群里的它会照常工作，聊天记录也都保留。
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("profile.deleteTitle", { name: bot.name })}</AlertDialogTitle>
+            <AlertDialogDescription>{t("profile.deleteBody")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
                 void api.deleteBot(bot.id).then(onDeleted);
               }}
             >
-              删除
+              {t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -363,6 +363,7 @@ export function GroupProfile({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const { t, list } = useI18n();
   const members = activeMembers(conv);
   const mode = MODES.find((m) => m.id === conv.mode);
 
@@ -378,24 +379,24 @@ export function GroupProfile({
             ) : (
               <h2
                 onClick={() => setRenaming(true)}
-                title="点击重命名"
+                title={t("conversation.clickToRename")}
                 className="hover:bg-accent -ml-1.5 w-fit max-w-full cursor-text truncate rounded px-1.5 py-0.5 text-xl font-semibold"
               >
                 {conv.title}
               </h2>
             )}
-            <p className="text-muted-foreground mt-0.5 text-sm">{members.map((m) => m.bot.name).join("、") || "没有成员"}</p>
+            <p className="text-muted-foreground mt-0.5 text-sm">{list(members.map((m) => m.bot.name)) || t("contacts.noMembers")}</p>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               {mode && (
                 <Badge variant="outline" className="font-normal">
                   <mode.icon />
-                  {mode.label}
-                  {conv.mode === "leader" && ` · 群主 ${leaderOf(conv)?.bot.name ?? "-"}`}
+                  {t(`mode.${mode.id}`)}
+                  {conv.mode === "leader" && t("group.leader", { name: leaderOf(conv)?.bot.name ?? "-" })}
                 </Badge>
               )}
               {busy && (
                 <Badge variant="secondary" className="font-normal">
-                  {busy === "needs_you" ? "在等你批准" : "正在干活"}
+                  {busy === "needs_you" ? t("profile.needsApproval") : t("busy.working")}
                 </Badge>
               )}
             </div>
@@ -405,11 +406,11 @@ export function GroupProfile({
         <div className="mt-6 flex flex-wrap gap-2">
           <Button size="sm" onClick={onMessage}>
             <MessageCircle />
-            发消息
+            {t("profile.message")}
           </Button>
           <Button size="sm" variant="outline" onClick={() => setRenaming(true)}>
             <Pencil />
-            重命名
+            {t("common.rename")}
           </Button>
           <Button
             size="sm"
@@ -418,7 +419,7 @@ export function GroupProfile({
             onClick={() => void api.archive(conv.id, true).then(() => onGone(conv.id))}
           >
             <Archive />
-            归档
+            {t("common.archive")}
           </Button>
           <Button
             size="sm"
@@ -427,13 +428,13 @@ export function GroupProfile({
             onClick={() => setConfirming(true)}
           >
             <Trash2 />
-            删除
+            {t("common.delete")}
           </Button>
         </div>
 
         <MemberSections conv={conv} bots={bots} presence={presence} onOpenBot={onOpenBot} className="mt-7 space-y-7" />
 
-        <Section title="工作目录">
+        <Section title={t("conversation.directory")}>
           <p className="font-mono text-xs wrap-anywhere">
             {/* a narrow column breaks after a separator, not inside a directory name */}
             {conv.repo_path.split(/(?<=[\\/])/).map((part, i) => (
@@ -502,6 +503,7 @@ function LogoPicker({
   selfId?: string;
 }) {
   const logos = useLogos();
+  const { t, list } = useI18n();
   const wornBy = new Map<string, string[]>();
   for (const b of bots) {
     if (b.id !== selfId && b.avatar) wornBy.set(b.avatar, [...(wornBy.get(b.avatar) ?? []), b.name]);
@@ -516,7 +518,7 @@ function LogoPicker({
             key={l.id}
             type="button"
             onClick={() => onChange(l.id)}
-            title={worn ? `${l.name} · ${worn.join("、")} 在用` : l.name}
+            title={worn ? t("editor.logoWornBy", { logo: l.name, names: list(worn) }) : l.name}
             aria-label={l.name}
             aria-pressed={on}
             className={cn(
@@ -559,6 +561,8 @@ export function BotEditor({
   onSaved: (bot: Bot) => void;
 }) {
   const executor = useExecutor();
+  const { t } = useI18n();
+  const roles = useMemo(() => templates(t), [t]);
   const harnessLabels = useContext(HarnessLabels);
   // only agents that can run: the agent carries the source, so a broken one would carry the bot down with it
   const agents = useContext(Executors).filter((e) => e.problem === null);
@@ -624,7 +628,7 @@ export function BotEditor({
     if (!c) return;
     setError(null);
     const r = await api.createExecutor({ type: c.type, source_kind: c.source_kind, provider_id: c.provider_id });
-    if (r.error || !r.executor) return setError(r.error ?? "建 agent 失败");
+    if (r.error || !r.executor) return setError(r.error ?? t("editor.createAgentFailed"));
     const made = r.executor;
     setForm((f) => ({ ...f, executor_id: made.id, model: null }));
   };
@@ -635,7 +639,7 @@ export function BotEditor({
     const r = bot ? await api.updateBot(bot.id, form) : await api.createBot(form);
     setBusy(false);
     if (r.error || !r.bot) {
-      setError(r.error ?? "保存失败");
+      setError(r.error ?? t("common.saveFailed"));
       return;
     }
     try {
@@ -657,32 +661,32 @@ export function BotEditor({
     <div className="flex min-h-0 flex-1 flex-col">
       <ScrollArea className="min-h-0 flex-1">
         <div className="@container mx-auto max-w-2xl px-8 py-8">
-          <h2 className="text-lg font-semibold">{bot ? `编辑 ${bot.name}` : "新建 Bot"}</h2>
+          <h2 className="text-lg font-semibold">{bot ? t("editor.titleEdit", { name: bot.name }) : t("bot.new")}</h2>
           {!bot && (
             <div className="mt-4">
-              <div className="text-muted-foreground mb-2 text-xs">从角色开始</div>
+              <div className="text-muted-foreground mb-2 text-xs">{t("editor.fromRole")}</div>
               <div className="flex flex-wrap gap-1.5">
-                {TEMPLATES.map((t) => (
+                {roles.map((role) => (
                   <button
-                    key={t.id}
+                    key={role.id}
                     type="button"
                     onClick={() =>
                       setForm((f) => ({
                         ...f,
-                        name: freeName(t.name, bots),
-                        title: t.title,
-                        avatar: freeLogo(t.avatar, logos, bots),
-                        system_prompt: t.system_prompt,
-                        permission_tier: t.permission_tier,
+                        name: freeName(role.name, bots),
+                        title: role.title,
+                        avatar: freeLogo(role.avatar, logos, bots),
+                        system_prompt: role.system_prompt,
+                        permission_tier: role.permission_tier,
                       }))
                     }
                     className={cn(
                       "hover:bg-accent/60 inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs transition-colors",
-                      form.system_prompt === t.system_prompt && "border-foreground/40 bg-accent",
+                      form.system_prompt === role.system_prompt && "border-foreground/40 bg-accent",
                     )}
                   >
-                    <BotAvatar bot={{ id: t.id, avatar: t.avatar }} size="xs" />
-                    {t.name}
+                    <BotAvatar bot={{ id: role.id, avatar: role.avatar }} size="xs" />
+                    {role.name}
                   </button>
                 ))}
               </div>
@@ -693,15 +697,13 @@ export function BotEditor({
             <BotAvatar bot={{ id: bot?.id ?? "new", avatar: form.avatar }} size="xl" />
             <div className="min-w-48 flex-1">
               <div className="text-sm font-medium">
-                头像 · {logos.find((l) => l.id === form.avatar)?.name ?? "自动分配"}
+                {t("editor.avatar", { name: logos.find((l) => l.id === form.avatar)?.name ?? t("editor.avatarAuto") })}
               </div>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                所有 bot 共用同一套 IP 形象；变淡的是别的 bot 正在用的
-              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("editor.avatarHint")}</p>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={shuffle}>
               <Shuffle />
-              随机换一个
+              {t("editor.shuffle")}
             </Button>
           </div>
           <div className="mt-4">
@@ -710,23 +712,25 @@ export function BotEditor({
 
           <div className="mt-6 grid gap-4 @md:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="bot-name">名字</Label>
+              <Label htmlFor="bot-name">{t("editor.name")}</Label>
               <Input
                 id="bot-name"
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
-                placeholder="比如：Go工程师"
+                placeholder={t("editor.namePlaceholder")}
                 autoFocus={!template && !bot}
               />
-              <span className="text-muted-foreground text-xs">群里用 @{form.name || "名字"} 叫它，不能有空格</span>
+              <span className="text-muted-foreground text-xs">
+                {t("editor.nameHint", { name: form.name || t("editor.nameFallback") })}
+              </span>
             </div>
             <div className="grid content-start gap-2">
-              <Label htmlFor="bot-title">职责</Label>
+              <Label htmlFor="bot-title">{t("editor.role")}</Label>
               <Input
                 id="bot-title"
                 value={form.title ?? ""}
                 onChange={(e) => set("title", e.target.value || null)}
-                placeholder="比如：Go 后端工程师"
+                placeholder={t("editor.rolePlaceholder")}
               />
             </div>
           </div>
@@ -734,7 +738,7 @@ export function BotEditor({
           <div className="mt-5 grid gap-2">
             <div className="flex items-baseline justify-between gap-3">
               <div className="flex items-baseline gap-1">
-                <Label htmlFor="bot-prompt">设定</Label>
+                <Label htmlFor="bot-prompt">{t("bot.instructions")}</Label>
                 <Button
                   type="button"
                   size="xs"
@@ -743,19 +747,17 @@ export function BotEditor({
                   onClick={() => setPreview((p) => !p)}
                 >
                   {preview ? <Pencil /> : <Eye />}
-                  {preview ? "编辑" : "预览"}
+                  {preview ? t("common.edit") : t("common.preview")}
                 </Button>
               </div>
-              <span className="text-muted-foreground text-xs">
-                Markdown · 附加在 agent 自带的编码提示词之后，不会替换它
-              </span>
+              <span className="text-muted-foreground text-xs">{t("editor.promptHint")}</span>
             </div>
             {preview ? (
               <div className="bg-muted/50 min-h-56 rounded-lg border px-4 py-3">
                 {form.system_prompt?.trim() ? (
                   <Markdown>{form.system_prompt}</Markdown>
                 ) : (
-                  <p className="text-muted-foreground text-sm">还没写设定。</p>
+                  <p className="text-muted-foreground text-sm">{t("editor.noPrompt")}</p>
                 )}
               </div>
             ) : (
@@ -763,7 +765,7 @@ export function BotEditor({
                 id="bot-prompt"
                 value={form.system_prompt ?? ""}
                 onChange={(e) => set("system_prompt", e.target.value || null)}
-                placeholder={"你是一名资深 Go 工程师……\n\n工作方式：\n- ……"}
+                placeholder={t("editor.promptPlaceholder")}
                 className="min-h-56 text-sm leading-relaxed"
               />
             )}
@@ -780,17 +782,15 @@ export function BotEditor({
                   className="text-muted-foreground h-auto p-0"
                   onClick={() => onManageAgents(current ? form.executor_id : null)}
                 >
-                  {current ? "管理 agent" : "新建 agent"}
+                  {current ? t("editor.manageAgent") : t("agent.new")}
                 </Button>
               </div>
               {grouped.length === 0 ? (
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  还没有能用的 agent：本机没有能用的 harness，也没有接得上的模型 API。到设置里装一个 harness，或者加一个模型 API。
-                </p>
+                <p className="text-muted-foreground text-xs leading-relaxed">{t("editor.noAgents")}</p>
               ) : (
                 <Select value={form.executor_id} onValueChange={(v) => void pickAgent(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选一个 agent" />
+                    <SelectValue placeholder={t("editor.pickAgent")} />
                   </SelectTrigger>
                   <SelectContent>
                     {grouped.map(([type, items]) => (
@@ -804,7 +804,7 @@ export function BotEditor({
                           ) : (
                             <SelectItem key={candidateValue(item.candidate)} value={candidateValue(item.candidate)}>
                               {item.candidate.name}
-                              <span className="text-muted-foreground"> · 新建</span>
+                              <span className="text-muted-foreground">{t("editor.newSuffix")}</span>
                             </SelectItem>
                           ),
                         )}
@@ -813,12 +813,12 @@ export function BotEditor({
                   </SelectContent>
                 </Select>
               )}
-              <span className="text-muted-foreground text-xs">agent 定了 harness 和模型从哪来：订阅，或者一个模型 API</span>
+              <span className="text-muted-foreground text-xs">{t("editor.agentHint")}</span>
             </div>
             <div className="grid content-start gap-2">
-              <Label htmlFor="bot-model">模型</Label>
+              <Label htmlFor="bot-model">{t("editor.model")}</Label>
               {!current ? (
-                <p className="text-muted-foreground text-xs leading-relaxed">先选一个 agent。</p>
+                <p className="text-muted-foreground text-xs leading-relaxed">{t("editor.pickAgentFirst")}</p>
               ) : (
                 <Select
                   value={customModel || !listed ? CUSTOM_MODEL : (form.model ?? DEFAULT_MODEL)}
@@ -829,23 +829,26 @@ export function BotEditor({
                   }}
                 >
                   <SelectTrigger id="bot-model" className="w-full">
-                    <SelectValue placeholder="选模型" />
+                    <SelectValue placeholder={t("editor.pickModel")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={DEFAULT_MODEL}>
-                      用 agent 的默认{current.model ? `（${current.model}）` : "模型"}
+                      {current.model ? t("editor.agentDefaultNamed", { model: current.model }) : t("editor.agentDefault")}
                     </SelectItem>
                     {choices.map((m) => (
                       <SelectItem key={m.id} value={m.id} disabled={!m.available}>
                         {m.label ?? m.id}
                         {!m.available && (
-                          <span className="text-muted-foreground"> · {current.source_kind === "own" ? "没有登录" : "没有密钥"}</span>
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {current.source_kind === "own" ? t("common.notSignedIn") : t("common.noKey")}
+                          </span>
                         )}
                       </SelectItem>
                     ))}
                     <SelectGroup>
-                      <SelectLabel>其他</SelectLabel>
-                      <SelectItem value={CUSTOM_MODEL}>手动填模型 id…</SelectItem>
+                      <SelectLabel>{t("editor.other")}</SelectLabel>
+                      <SelectItem value={CUSTOM_MODEL}>{t("editor.customModel")}</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
@@ -854,7 +857,7 @@ export function BotEditor({
                 <Input
                   value={form.model ?? ""}
                   onChange={(e) => set("model", e.target.value || null)}
-                  placeholder="模型 id"
+                  placeholder={t("editor.modelId")}
                   spellCheck={false}
                   autoFocus={customModel}
                   className="font-mono text-xs"
@@ -869,27 +872,25 @@ export function BotEditor({
           )}
 
           <div className="mt-5 grid gap-2">
-            <Label>权限档</Label>
+            <Label>{t("editor.tier")}</Label>
             <div className="grid gap-2 @lg:grid-cols-3">
-              {(["read", "write", "execute"] as Tier[]).map((t) => (
+              {(["read", "write", "execute"] as Tier[]).map((tier) => (
                 <button
-                  key={t}
+                  key={tier}
                   type="button"
-                  onClick={() => set("permission_tier", t)}
+                  onClick={() => set("permission_tier", tier)}
                   className={cn(
                     "rounded-lg border px-3 py-2 text-left transition-colors",
-                    form.permission_tier === t ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+                    form.permission_tier === tier ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
                   )}
                 >
-                  <span className="block text-sm font-medium">{TIER_LABEL[t]?.label}</span>
-                  <span className="text-muted-foreground block text-xs leading-snug">{TIER_LABEL[t]?.hint}</span>
+                  <span className="block text-sm font-medium">{t(`tier.${tier}`)}</span>
+                  <span className="text-muted-foreground block text-xs leading-snug">{t(`tier.${tier}.hint`)}</span>
                 </button>
               ))}
             </div>
             <span className="text-muted-foreground text-xs">
-              {formCaps?.permissionModes
-                ? "这个 agent 按自己的权限模式审批：档位只决定新会话从哪个模式开始，之后在输入框下方切换。"
-                : "超出档位的操作会在聊天里发一张卡片问你；改档位立即生效。"}
+              {formCaps?.permissionModes ? t("editor.tierModesHint") : t("editor.tierHint")}
             </span>
           </div>
         </div>
@@ -898,10 +899,10 @@ export function BotEditor({
       <div className="flex shrink-0 items-center justify-end gap-2 px-8 py-3">
         {error && <span className="text-destructive mr-auto text-xs">{error}</span>}
         <Button variant="outline" onClick={onCancel}>
-          取消
+          {t("common.cancel")}
         </Button>
         <Button onClick={() => void save()} disabled={busy || !form.name.trim()}>
-          {bot ? "保存" : "创建"}
+          {bot ? t("common.save") : t("common.create")}
         </Button>
       </div>
     </div>

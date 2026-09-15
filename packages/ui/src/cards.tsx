@@ -14,6 +14,7 @@ import {
 import { api, type AttachmentRef, type Member, type Message } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar } from "./bot-avatar";
+import { useI18n, type I18n } from "./i18n";
 import { Markdown, MentionChip, MentionNames } from "./markdown";
 import { segments } from "./mentions";
 import { ProviderIcon, type Provider } from "./provider-icon";
@@ -43,13 +44,11 @@ export function Who({ kind, provider }: { kind: keyof typeof FACES; provider?: P
   );
 }
 
-function when(ts: number): string {
+function when({ t, clock, day }: Pick<I18n, "t" | "clock" | "day">, ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "刚刚";
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
-  const d = new Date(ts);
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return s < 86400 ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  if (s < 60) return t("time.justNow");
+  if (s < 3600) return t("time.minutesAgo", { count: Math.floor(s / 60) });
+  return s < 86400 ? clock(ts) : `${day(ts)} ${clock(ts)}`;
 }
 
 /**
@@ -77,6 +76,8 @@ function Actions({
   onQuote?: (t: string) => void;
 }) {
   const { copied, copy } = useCopy();
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div
       className={cn(
@@ -88,7 +89,7 @@ function Actions({
       {text && (
         <button
           onClick={() => void copy(text)}
-          title="复制"
+          title={t("common.copy")}
           className="hover:bg-accent hover:text-foreground rounded p-1"
         >
           <CopyIcon copied={copied} />
@@ -97,24 +98,25 @@ function Actions({
       {onQuote && text && (
         <button
           onClick={(e) => onQuote(selectionWithin(e.currentTarget) ?? text)}
-          title="引用到输入框（选中一段则只引用那段）"
+          title={t("cards.quote")}
           className="hover:bg-accent hover:text-foreground rounded p-1"
         >
           <Quote className="size-3.5" />
         </button>
       )}
-      <span className="px-1 text-[11px]">{when(at)}</span>
+      <span className="px-1 text-[11px]">{when(i18n, at)}</span>
     </div>
   );
 }
 
 /** A group chat says who is speaking, the way a person's name sits above their bubble. */
 function Byline({ author }: { author: Member }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-baseline gap-1.5 px-0.5">
       <span className="text-xs font-medium">{author.bot.name}</span>
       {author.bot.title && <span className="text-muted-foreground truncate text-[11px]">{author.bot.title}</span>}
-      {author.left_at !== null && <span className="text-muted-foreground text-[11px]">· 已离开</span>}
+      {author.left_at !== null && <span className="text-muted-foreground text-[11px]">{t("cards.left")}</span>}
     </div>
   );
 }
@@ -202,6 +204,7 @@ function StepsCard({
   indent: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
   const { steps } = body;
   if (steps.length === 0) return null;
   return (
@@ -212,7 +215,7 @@ function StepsCard({
       >
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         <CardAuthor author={author} />
-        <span>执行了 {steps.length} 步</span>
+        <span>{t("cards.steps", { count: steps.length })}</span>
         <span className="flex items-center gap-0.5">
           {steps.map((s) =>
             s.ok === undefined ? (
@@ -243,11 +246,9 @@ function StepsCard({
   );
 }
 
-const DECIDED: Record<string, string> = {
-  allowed: "已允许",
-  denied: "已拒绝",
-  expired: "已失效：Roster 重启过，这一轮已经结束",
-};
+const DECIDED = ["allowed", "denied", "expired"] as const;
+
+const isDecided = (status: string | null): status is (typeof DECIDED)[number] => DECIDED.includes(status as never);
 
 /**
  * In the stream, never a modal: five running conversations would mean five
@@ -271,6 +272,7 @@ function PermissionCard({
   indent: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const { t } = useI18n();
   const decided = message.status && message.status !== "pending";
   const act = async (allow: boolean) => {
     setBusy(true);
@@ -281,7 +283,7 @@ function PermissionCard({
       <Card className="gap-0 overflow-hidden py-0">
         <div className="bg-muted flex items-center gap-2 px-3.5 py-2">
           {author ? <CardAuthor author={author} /> : <ShieldAlert className="size-3.5" />}
-          <span className="text-sm font-medium">请求权限</span>
+          <span className="text-sm font-medium">{t("cards.permission")}</span>
           <span className="font-mono text-sm">{body.call.name}</span>
           <Badge variant="outline" className="bg-background ml-auto px-1.5 py-0 text-[10px]">
             {body.call.effect}
@@ -294,15 +296,15 @@ function PermissionCard({
         <Separator />
         {decided ? (
           <div className="text-muted-foreground px-3.5 py-2 text-sm">
-            {DECIDED[message.status ?? ""] ?? message.status}
+            {isDecided(message.status) ? t(`cards.decided.${message.status}`) : message.status}
           </div>
         ) : (
           <div className="flex gap-2 px-3.5 py-2.5">
             <Button size="sm" disabled={busy} onClick={() => act(true)}>
-              允许
+              {t("cards.allow")}
             </Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => act(false)}>
-              拒绝
+              {t("cards.deny")}
             </Button>
           </div>
         )}
@@ -325,6 +327,7 @@ export function MessageCard({
   author?: Member;
   onQuote?: (text: string) => void;
 }) {
+  const { t } = useI18n();
   const body = JSON.parse(message.body_json) as Record<string, never>;
   const shownAuthor = group ? author : undefined;
   switch (message.card_kind) {
@@ -368,8 +371,7 @@ export function MessageCard({
         <div className="mx-auto max-w-[680px]">
           <Card className="border-destructive/40 px-3 py-2">
             <span className="text-destructive text-xs">
-              {shownAuthor && `${shownAuthor.bot.name}：`}
-              {body["text"]}
+              {shownAuthor ? t("common.labelDetail", { label: shownAuthor.bot.name, detail: String(body["text"]) }) : body["text"]}
             </span>
           </Card>
         </div>

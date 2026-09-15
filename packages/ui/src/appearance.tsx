@@ -1,5 +1,6 @@
+import { useI18n } from "./i18n";
 import { Choice } from "./settings";
-import { THEME_LABELS, THEMES, type Theme } from "./theme";
+import { THEMES, type Theme } from "./theme";
 import {
   CUSTOM_FONT,
   FONT_OPTIONS,
@@ -19,7 +20,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 const CARD = "flex-col items-stretch gap-2 p-2";
-const SAMPLE = "你好 Roster 123";
 
 /** Applies on click; unlike the executor and endpoint editors there is nothing to save. */
 export function AppearancePanel({
@@ -37,45 +37,55 @@ export function AppearancePanel({
   onCustomFont: (name: string) => void;
   onSize: (size: TextSize) => void;
 }) {
+  const { t } = useI18n();
   // a card for a font this machine does not have would pick nothing
   const fonts = FONT_OPTIONS.map((o) => ({ ...o, family: installedFamily(o) })).filter((o) => o.family);
   const custom = cleanFamily(typography.customFont);
   const chosen = chosenFamily(typography);
+  const sample = t("appearance.fontSample");
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto max-w-2xl space-y-6 px-8 py-8">
-        <h2 className="text-lg font-semibold">外观</h2>
+        <h2 className="text-lg font-semibold">{t("settings.appearance")}</h2>
         <Field>
-          <FieldLabel>主题</FieldLabel>
+          <FieldLabel>{t("appearance.theme")}</FieldLabel>
           <RadioGroup value={theme} onValueChange={(v) => onChange(v as Theme)} className="grid grid-cols-3 gap-3">
-            {THEMES.map((t) => (
-              <Choice key={t} value={t} selected={theme === t} className={CARD}>
-                <Preview theme={t} />
-                <span className="text-center text-sm">{THEME_LABELS[t]}</span>
+            {THEMES.map((option) => (
+              <Choice key={option} value={option} selected={theme === option} className={CARD}>
+                <Preview theme={option} />
+                <span className="text-center text-sm">{t(`theme.${option}`)}</span>
               </Choice>
             ))}
           </RadioGroup>
-          <FieldDescription>跟随系统时，系统在浅色和深色之间切换，Roster 也跟着切换。</FieldDescription>
+          <FieldDescription>{t("appearance.themeHint")}</FieldDescription>
         </Field>
 
         <Field>
-          <FieldLabel>字体</FieldLabel>
+          <FieldLabel>{t("appearance.font")}</FieldLabel>
           <RadioGroup value={typography.font} onValueChange={onFont} className="grid grid-cols-3 gap-3">
-            <FontChoice value={SYSTEM_FONT} selected={typography.font === SYSTEM_FONT} label="系统默认" family="var(--font-default)" />
+            <FontChoice
+              value={SYSTEM_FONT}
+              selected={typography.font === SYSTEM_FONT}
+              label={t("appearance.systemFont")}
+              family="var(--font-default)"
+              sample={sample}
+            />
             {fonts.map((o) => (
               <FontChoice
                 key={o.id}
                 value={o.id}
                 selected={typography.font === o.id}
-                label={o.label}
+                label={t(`font.${o.id}`)}
                 family={`"${o.family}", var(--font-default)`}
+                sample={sample}
               />
             ))}
             <FontChoice
               value={CUSTOM_FONT}
               selected={typography.font === CUSTOM_FONT}
-              label="其他字体"
+              label={t("appearance.otherFont")}
               family={custom ? `"${custom}", var(--font-default)` : "var(--font-default)"}
+              sample={sample}
             />
           </RadioGroup>
           {typography.font === CUSTOM_FONT && (
@@ -83,36 +93,37 @@ export function AppearancePanel({
               <Input
                 value={typography.customFont}
                 onChange={(e) => onCustomFont(e.target.value)}
-                placeholder="字体的名字，比如 LXGW WenKai"
+                placeholder={t("appearance.fontPlaceholder")}
                 autoFocus
                 spellCheck={false}
               />
               {/* the name is applied as typed; say when nothing on this machine answers to it */}
               {custom && (
                 <p className={cn("text-xs", fontInstalled(custom) ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400")}>
-                  {fontInstalled(custom) ? `本机有 ${custom}，已经用上了` : `本机没找到 ${custom}，先用系统默认`}
+                  {fontInstalled(custom) ? t("appearance.fontFound", { font: custom }) : t("appearance.fontMissing", { font: custom })}
                 </p>
               )}
             </div>
           )}
           <FieldDescription>
-            整个界面都用这个字体。{chosen ? `现在是 ${chosen}。` : "系统默认在 Mac 上是苹方。"}
+            {t("appearance.fontHint")}
+            {chosen ? t("appearance.fontNow", { font: chosen }) : t("appearance.fontDefault")}
           </FieldDescription>
         </Field>
 
         <Field>
-          <FieldLabel>字号</FieldLabel>
+          <FieldLabel>{t("appearance.size")}</FieldLabel>
           <RadioGroup value={typography.size} onValueChange={(v) => onSize(v as TextSize)} className="grid grid-cols-4 gap-3">
             {TEXT_SIZES.map((s) => (
               <Choice key={s.id} value={s.id} selected={typography.size === s.id} className={CARD}>
                 <span className="flex h-12 items-center justify-center leading-none whitespace-nowrap" style={{ fontSize: s.px }}>
-                  Aa 你好
+                  {t("appearance.sizeSample")}
                 </span>
-                <span className="text-center text-sm">{s.label}</span>
+                <span className="text-center text-sm">{t(`size.${s.id}`)}</span>
               </Choice>
             ))}
           </RadioGroup>
-          <FieldDescription>改的是消息和输入框里的文字，界面其它地方不变。</FieldDescription>
+          <FieldDescription>{t("appearance.sizeHint")}</FieldDescription>
         </Field>
       </div>
     </ScrollArea>
@@ -120,11 +131,23 @@ export function AppearancePanel({
 }
 
 /** The name in the interface font under a line set in the font itself, so the card shows what it offers. */
-function FontChoice({ value, selected, label, family }: { value: string; selected: boolean; label: string; family: string }) {
+function FontChoice({
+  value,
+  selected,
+  label,
+  family,
+  sample,
+}: {
+  value: string;
+  selected: boolean;
+  label: string;
+  family: string;
+  sample: string;
+}) {
   return (
     <Choice value={value} selected={selected} className={CARD}>
       <span className="flex h-12 items-center justify-center text-[15px] leading-none whitespace-nowrap" style={{ fontFamily: family }}>
-        {SAMPLE}
+        {sample}
       </span>
       <span className="text-center text-sm">{label}</span>
     </Choice>

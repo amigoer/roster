@@ -1,12 +1,14 @@
 import { DRAG, NO_DRAG } from "./app-region";
+import { useI18n } from "./i18n";
 import { ContactsIcon, MessagesIcon, SettingsIcon, SpaceIcon } from "./rail-icons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+/** What each entry is called is in the catalog, under nav.<id>. */
 export const NAV = [
-  { id: "messages", label: "消息", icon: MessagesIcon },
-  { id: "contacts", label: "通讯录", icon: ContactsIcon },
-  { id: "space", label: "空间", icon: SpaceIcon },
+  { id: "messages", icon: MessagesIcon },
+  { id: "contacts", icon: ContactsIcon },
+  { id: "space", icon: SpaceIcon },
 ] as const;
 
 /** settings has no place in the rail's three entries; it is the gear under them */
@@ -27,6 +29,7 @@ const RESTING = "text-muted-foreground hover:bg-sidebar-accent hover:text-sideba
 const ICON = "size-[22px]";
 
 export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) => void; waiting: number }) {
+  const { t } = useI18n();
   return (
     <nav className="flex shrink-0 flex-col items-center pb-3" style={{ width: RAIL, ...DRAG }}>
       {/* the traffic lights sit in the top strip, main.cjs puts them there; the entries start where the panel headers end */}
@@ -57,7 +60,7 @@ export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) =
                   on ? "font-medium" : "text-muted-foreground group-hover/nav:text-sidebar-foreground",
                 )}
               >
-                {n.label}
+                {t(`nav.${n.id}`)}
               </span>
             </button>
           );
@@ -69,7 +72,7 @@ export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) =
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label="设置"
+              aria-label={t("nav.settings")}
               aria-current={nav === "settings" ? "page" : undefined}
               onClick={() => onNav("settings")}
               className={cn(TILE, nav === "settings" ? RAISED : RESTING)}
@@ -77,7 +80,7 @@ export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) =
               <SettingsIcon active={nav === "settings"} className={ICON} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">设置：外观、agent 和模型 API</TooltipContent>
+          <TooltipContent side="right">{t("nav.settingsHint")}</TooltipContent>
         </Tooltip>
       </div>
     </nav>

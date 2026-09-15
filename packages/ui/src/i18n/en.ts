@@ -1,0 +1,672 @@
+/** What the window says, in English. Every other locale is checked against this one. */
+export const en = {
+  "common.listSeparator": ", ",
+  "common.labelDetail": "{label}: {detail}",
+  "common.close": "Close",
+  "common.cancel": "Cancel",
+  "common.save": "Save",
+  "common.create": "Create",
+  "common.add": "Add",
+  "common.delete": "Delete",
+  "common.rename": "Rename",
+  "common.archive": "Archive",
+  "common.unarchive": "Unarchive",
+  "common.edit": "Edit",
+  "common.preview": "Preview",
+  "common.copy": "Copy",
+  "common.copied": "Copied",
+  "common.collapse": "Hide",
+  "common.refresh": "Refresh",
+  "common.saveFailed": "Couldn't save",
+  "common.createFailed": "Couldn't create it",
+  "common.defaultModel": "Default model",
+  "common.notSignedIn": "Not signed in",
+  "common.noKey": "No key",
+  "common.unknown": "Unknown",
+  "common.deleteTitle": "Delete “{name}”?",
+  "common.example": "e.g. {example}",
+
+  "time.justNow": "just now",
+  "time.minutesAgo": "{count} min ago",
+  "time.yesterday": "Yesterday",
+
+  "nav.messages": "Messages",
+  "nav.contacts": "Contacts",
+  "nav.space": "Space",
+  "nav.settings": "Settings",
+  "nav.settingsHint": "Settings: appearance, language, agents and model APIs",
+
+  "attention.waiting_permission": "Needs approval",
+  "attention.waiting_input": "Your turn",
+  "attention.error": "Error",
+  "attention.stalled": "Stuck",
+
+  "app.coreSilent": "core didn't answer",
+  "app.startFailed": "Couldn't start the conversation right away",
+  "app.activeOnly": "Show active only",
+  "app.showArchived": "Show archived",
+  "app.notBuiltNamed": "{name}: not in the first version yet",
+  "app.notBuilt": "Not in the first version yet",
+  "app.search": "Search conversations, bots or repos",
+  "app.noConversations": "No conversations yet. Click + at the top right to start one.",
+  "app.noMatches": "No conversations about “{query}”.",
+  "app.archived": "Archived",
+  "app.resizeList": "Resize the list",
+  "app.pickSetting": "Pick a setting on the left",
+  "app.editProfile": "Edit profile",
+  "app.profile": "Profile",
+  "app.groupProfile": "Group profile",
+  "app.roles": "Roles",
+  "app.pickConversation": "Pick a conversation",
+  "app.dropFiles": "Drop to add to this message",
+  "app.hideMembers": "Hide members",
+  "app.membersAndMode": "Members and mode",
+  "app.groupHas": "In this group: {names}",
+  "app.noMessages": "No messages yet",
+  "app.firstMessage": "Send the first message to begin. It becomes this conversation's title.",
+
+  "theme.system": "Follow system",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+
+  "font.hiragino": "Hiragino Sans GB",
+  "font.heiti": "Heiti",
+  "font.yuanti": "Yuanti",
+  "font.songti": "Songti",
+  "font.kaiti": "Kaiti",
+  "font.lxgw": "LXGW WenKai",
+  "font.sourcehan": "Source Han Sans",
+  "font.misans": "MiSans",
+  "font.harmony": "HarmonyOS Sans",
+
+  "size.small": "Small",
+  "size.normal": "Default",
+  "size.large": "Large",
+  "size.xlarge": "Extra large",
+  "size.small.row": "Small text",
+  "size.large.row": "Large text",
+  "size.xlarge.row": "Extra large text",
+
+  "appearance.theme": "Theme",
+  "appearance.themeHint": "When following the system, Roster switches between light and dark whenever the system does.",
+  "appearance.font": "Font",
+  "appearance.systemFont": "System default",
+  "appearance.otherFont": "Other font",
+  "appearance.fontPlaceholder": "Font name, e.g. LXGW WenKai",
+  "appearance.fontFound": "{font} is installed and in use",
+  "appearance.fontMissing": "{font} isn't installed; using the system default for now",
+  "appearance.fontHint": "The whole interface uses this font. ",
+  "appearance.fontNow": "It's {font} now.",
+  "appearance.fontDefault": "On a Mac, the system default is San Francisco, with PingFang for Chinese.",
+  "appearance.fontSample": "Hello Roster 123",
+  "appearance.size": "Text size",
+  "appearance.sizeSample": "Aa Hello",
+  "appearance.sizeHint": "Changes the text in messages and the message box; the rest of the interface stays as it is.",
+
+  "language.label": "Display language",
+  "language.system": "Follow system",
+  "language.systemNow": "Currently {language}",
+  "language.systemHint": "Uses the language your system is set to",
+  "language.systemRow": "Follow system · {language}",
+  "language.hint":
+    "The interface, group notices and the instructions Roster gives agents all use this language. Bots reply in whatever language they choose.",
+  "language.failed": "Couldn't switch the language",
+
+  "settings.general": "General",
+  "settings.appearance": "Appearance",
+  "settings.language": "Language",
+  "settings.about": "About",
+  "settings.aboutRoster": "About Roster",
+  "settings.aboutStale": "core is running old code; restart it",
+  "settings.aboutHint": "Version and data directory",
+  "settings.harnessesCount": "Harnesses · {count}",
+  "settings.moreHarnesses": "More harnesses",
+  "settings.noHarnesses": "No usable harness on this machine yet. Click + to see what you can install.",
+  "settings.versionUnknown": "Version unknown",
+  "settings.agentsCount": "Agents · {count}",
+  "settings.noAgents":
+    "No agents yet. An agent is a harness plus where its model comes from: a subscription, or a model API. Click + to create one, or create one while creating a bot in Contacts.",
+  "settings.defaultModelIs": "Default model {model}",
+  "settings.defaultModelHarness": "Default model follows the harness",
+  "settings.providersCount": "Model APIs · {count}",
+  "settings.noProviders":
+    "No model APIs yet. Agents on a subscription don't need one; to pay per use for DeepSeek, Kimi, your own gateway and the like, click + to add one.",
+  "settings.harness": "Harness",
+
+  "vault.keychain": "the macOS Keychain",
+  "vault.dpapi": "Windows Data Protection",
+  "vault.gnome_libsecret": "GNOME Keyring",
+  "vault.system": "the system",
+  "vault.encrypted": "Keys are saved encrypted, and the key that unlocks them is kept by {keystore}",
+  "vault.plain": "This machine has no system key storage, so keys are saved as plain text in the local database",
+
+  "provider.keyFromEnv": "Reads environment variable {name}",
+  "provider.envUnset": "Environment variable {name} isn't set",
+  "provider.keyHint": "Key {hint}",
+  "provider.customKind": "Custom",
+  "provider.add": "Add model API",
+  "provider.addDescription": "Pick where to call first, then enter the key.",
+  "provider.custom": "Custom API",
+  "provider.presetGone": "No harness offers this preset any more",
+  "provider.modelCount": { one: "{count} model", other: "{count} models" },
+  "provider.change": "Change",
+  "provider.protocol": "Protocol",
+  "provider.address": "Address",
+  "provider.addressAnthropic": "Without /v1, e.g. https://api.example.com/anthropic",
+  "provider.addressOpenAI": "Usually with /v1, e.g. https://api.example.com/v1",
+  "provider.key": "Key",
+  "provider.keyStored": "Save in Roster",
+  "provider.keyEnv": "Read from environment variable",
+  "provider.keySaved": "Saved {hint}; leave empty to keep it",
+  "provider.envFound": "{name} is set on this machine",
+  "provider.useEnv": "Read it instead",
+  "provider.keyStoredEncrypted": "Saved encrypted on this machine; only the first and last few characters are ever shown.",
+  "provider.keyStoredPlain": "This machine has no system key storage, so the key is saved as plain text in the local database.",
+  "provider.keyEnvHint":
+    "Roster doesn't save the key; it reads this variable when needed. Variables set in your login shell (.zshrc, .bashrc) are read too.",
+  "provider.fetchModels": "Fetch from the API",
+  "provider.modelsHint": "One model id per line; the first one is the default.",
+  "provider.namePlaceholder": "e.g. Company gateway",
+  "provider.deleteBody": "Its saved key is deleted too. It can't be deleted while an agent still connects to it, so give those agents another model API first.",
+  "provider.usedBy": "Who can use it",
+  "provider.harnesses": "Harnesses",
+  "provider.noHarnesses": "None; its protocol doesn't match any harness you have",
+  "provider.agents": "Agents on it",
+  "provider.noAgents": "None yet. Pick it as the model API when creating an agent.",
+
+  "preset.foundKeys": "Keys found on this machine",
+  "preset.readsEnv": "Reads environment variable {name}; Roster doesn't save the key",
+  "preset.addWithIt": "Add with it",
+  "preset.where": "Where to call",
+  "preset.search": { one: "Search {count} preset", other: "Search {count} presets" },
+  "preset.noMatches": "No preset called “{query}”. For one that isn't listed, use a custom API and enter the address yourself.",
+  "preset.added": " · Added",
+
+  "connection.connectingTo": "Connecting to {host}…",
+  "connection.connecting": "Connecting…",
+  "connection.unsaved": "There are unsaved changes; it tests again once you save.",
+  "connection.untested": "Not tested yet. A test only fetches the model list once, and costs nothing.",
+
+  "check.running": "Testing…",
+  "check.label": "Test",
+  "check.test": "Test connection",
+
+  "models.search": { one: "Search {count} model", other: "Search {count} models" },
+  "models.searchLabel": "Search models",
+  "models.beforeAdd": "Once it's added, Roster asks the API for its model list; whatever it lists is what you get.",
+  "models.noMatches": "No models match “{query}”",
+  "models.afterConnect": "Once the connection passes, the models the API returns are listed here.",
+  "models.emptyList": "The API didn't list any models.",
+  "models.noList": "This API doesn't provide a model list. Enter the id by hand when picking a model for an agent or bot.",
+  "models.hint": "As the API returns them; testing the connection fetches them again.",
+
+  "harness.status.adapterError": "Adapter error",
+  "harness.status.noAdapter": "No adapter",
+  "harness.status.noProgram": "Program not found",
+  "harness.installAdapter": "Install adapter",
+  "harness.download": "Download",
+  "harness.versionSuffix": " ({version})",
+  "harness.adapterMissingTitle": "Its adapter isn't installed, so it can't be used now",
+  "harness.programMissingTitle": "{bin} isn't on this machine",
+  "harness.programMissingTitleUnnamed": "Its program isn't on this machine",
+  "harness.adapterMissingBody": "It can be used once the adapter is installed.",
+  "harness.programMissingBody":
+    "It downloads into Roster's own directory and leaves the system alone; once it's downloaded, the agents on this harness can start.",
+  "harness.program": "Program",
+  "harness.programEmptyUses": "Leave empty to use {path}",
+  "harness.programFullPath": "Full path to {bin}",
+  "harness.programHintFound":
+    "Leave empty to use the copy found on this machine{version}; fill it in only to run a different one. Every agent on this harness runs this copy, and so does the subscription sign-in.",
+  "harness.programHintInstalled":
+    "Leave empty to use the copy Roster installed; fill it in only to run a different one. Every agent on this harness runs this copy, and so does the subscription sign-in.",
+  "harness.programHintMissing": "It isn't on this machine: download a copy, or enter the full path to the program.",
+  "harness.fetched": "Roster downloaded this program{version}",
+  "harness.downloadAgain": "Download again",
+  "harness.uninstall": "Uninstall",
+  "harness.capabilities": "What it can do",
+  "harness.protocols": "Protocols it takes: {protocols}",
+  "harness.agents": "Agents on this harness",
+  "harness.noAgentsOwn":
+    "None yet. Create one on the subscription, or one connected to a model API; you can also create one while creating a bot in Contacts.",
+  "harness.noAgents": "None yet. Connect a model API to create one; you can also create one while creating a bot in Contacts.",
+  "harness.uninstallTitle": "Uninstall “{name}”?",
+  "harness.uninstallBody":
+    "The copy Roster downloaded is deleted. The agents on this harness stay but can't start; download it again to keep using them.",
+  "harness.onSubscription": "On a subscription",
+  "harness.onModelApi": "On a model API",
+
+  "harnesses.introTitle": "Start with a harness that works",
+  "harnesses.intro":
+    "A harness is a program like Claude Code or Codex that runs the agent loop. One installed on this machine works right away; download the others here. Then create an agent (a harness plus a subscription or model API), and pick it when creating a bot in Contacts.",
+  "harnesses.hint": "Ones with a version number work right away. For one that says “Program not found”, click “Download”, and it works once installed.",
+  "harnesses.programMissing": "{bin} isn't on this machine. Downloading installs it into Roster's own directory and leaves the system alone.",
+  "harnesses.setUp": "Set up",
+  "harnesses.orphansTitle": "Agents whose harness is gone",
+  "harnesses.orphansHint":
+    "The harness these agents run on is no longer in Roster, so bots using them can't start. Install the harness again to keep using them; if you don't need them, open them and delete them.",
+
+  "detect.title": "Already on this machine",
+  "detect.again": "Detect again",
+  "detect.noneHint": "No installed harness was found on this machine. Pick one below to download.",
+  "detect.where.path": "on PATH",
+  "detect.where.npm-global": "global npm package",
+  "detect.where.known-path": "usual install location",
+  "detect.hints": "Also found leads to keys: {hints}. You can use them when adding a model API.",
+  "detect.hintEnv": "environment variable {name}",
+  "detect.hintPi": "{name}, signed in through pi",
+  "detect.shellSilent": "The login shell didn't answer, so only this process's own PATH and environment variables were visible.",
+  "detect.unknownVersion": "unknown version",
+  "detect.new": "New: {program}",
+  "detect.changed": "{program} {from} → {to}",
+  "detect.gone": "{program} is gone",
+  "detect.separator": "; ",
+  "detect.none": "No installed harness was found on this machine",
+  "detect.unchanged": "Nothing changed; found {programs}",
+  "detect.found": "Found {programs}",
+  "detect.failed": "Detection failed",
+  "detect.done": "Detection finished",
+  "detect.doneShellSilent": "Detection finished, but the login shell didn't answer",
+  "detect.summaryShellSilent": "{summary}. Only this process's own PATH and environment variables were visible.",
+
+  "install.downloading": "Downloading…",
+  "install.failed": "Install failed",
+  "install.noOutput": "npm left no output",
+
+  "login.title": "Subscription sign-in",
+  "login.signedIn": "Signed in",
+  "login.signedInAs": "Signed in · {account}",
+  "login.unknown": "Couldn't tell",
+  "login.credentials":
+    "The program keeps its own credentials; Roster doesn't touch them. Every agent on this harness that uses the subscription uses this account.",
+  "login.copyCommand": "Copy command",
+  "login.signIn": "Sign in",
+  "login.terminalHint": "Run it in a terminal, then come back and click Refresh.",
+
+  "agent.new": "New agent",
+  "agent.deleted": "Deleted agent",
+  "agent.deletedProblem": "This agent has been deleted",
+  "agent.newDescription": "An agent is a harness plus where its model comes from: the harness's own subscription sign-in, or a model API.",
+  "agent.unusable": "Can't be used right now",
+  "agent.installHarness": "Install the harness",
+  "agent.noHarnesses": "No usable harness yet.",
+  "agent.installOne": "Install one",
+  "agent.source": "Where the model comes from",
+  "agent.ownTaken": "Already set up: {name}",
+  "agent.ownAccount": "The account {harness} is signed in with",
+  "agent.endpointHint": "Pay per use, with a key you added",
+  "agent.ownOnly": "Uses the account {harness} is signed in with; it doesn't take model APIs.",
+  "agent.ownOnlyTaken": "Uses the account {harness} is signed in with, which already has an agent: {name}. It doesn't take model APIs.",
+  "agent.endpointOnly": "{harness} has no sign-in of its own; connect a model API.",
+  "agent.noFitting": "No model API fits {harness} yet.",
+  "agent.pickProvider": "Pick a model API",
+  "agent.sourceChangeHint": "After a change, members already in conversations show “Setup changed”, and use the new one once synced.",
+  "agent.harnessDefault": "Not set; use {harness}'s own default",
+  "agent.modelPlaceholder": "Leave empty to use its own default",
+  "agent.modelHint": "Used when a bot doesn't pick a model of its own.",
+  "agent.nameHint": "This is what you see when picking an agent for a bot; leave empty to name it automatically.",
+  "agent.testHintOwn":
+    "Tests the saved settings: whether the subscription is signed in, and whether the program starts. It doesn't start a conversation or cost anything.",
+  "agent.testHintEndpoint":
+    "Tests the saved settings: whether the model API's key works, and whether the program starts. It doesn't start a conversation or cost anything.",
+  "agent.bots": "Bots on it",
+  "agent.noBots": "None yet. Pick it when creating a bot in Contacts.",
+  "agent.deleteBody": "It can't be deleted while a bot uses it, or while a member of a conversation still runs on it.",
+
+  "source.own": "Subscription",
+  "source.endpoint": "Model API",
+  "source.deleted": "Deleted model API",
+
+  "api.openai-completions": "OpenAI-compatible (Chat Completions)",
+  "api.openai-responses": "OpenAI Responses",
+  "api.anthropic-messages": "Anthropic-compatible (Messages)",
+  "api.google-generative-ai": "Google Gemini",
+  "api.mistral-conversations": "Mistral",
+
+  "busy.waiting": "Waiting for you",
+  "busy.working": "Working",
+
+  "tier.read": "Read only",
+  "tier.read.hint": "Can read and search files; asks you before writing files or running commands",
+  "tier.write": "Write",
+  "tier.write.hint": "Can edit files in the working directory; asks you before running commands",
+  "tier.execute": "Execute",
+  "tier.execute.hint": "Can edit files and run commands without asking",
+
+  "presence.starting": "Starting",
+  "presence.thinking": "Thinking",
+  "presence.toolNamed": "Running {tool}",
+  "presence.tool": "Running a tool",
+  "presence.permissionNamed": "Waiting for you to approve {tool}",
+  "presence.permission": "Waiting for your approval",
+  "presence.lockNamed": "Waiting for {name} to finish editing files",
+  "presence.lock": "Waiting in line to edit files",
+  "presence.compacting": "Compacting context",
+
+  "recipient.none": "no one (the group has no members yet)",
+  "recipient.all": "all members",
+  "recipient.leader": "the leader, {name}",
+  "recipient.discussion": "all members, once each",
+
+  "capability.interceptToolCall": "Intercept tools before they run",
+  "capability.mutateToolInput": "Change arguments when allowing",
+  "capability.costLimit": "Cost limit",
+  "capability.mcp": "MCP",
+  "capability.branch": "Branch and resume",
+  "capability.midRun.steer": "Messages mid-turn: can interrupt and redirect",
+  "capability.midRun.queue": "Messages mid-turn: wait for the next turn",
+  "capability.missing": {
+    one: " · this agent doesn't support the crossed-out item",
+    other: " · this agent doesn't support the {count} crossed-out items",
+  },
+
+  "upload.failedStatus": "Upload failed ({status})",
+  "upload.unreachable": "Upload failed: can't reach Roster",
+  "attachments.remove": "Remove {name}",
+  "markdown.copyCode": "Copy code",
+  "outline.title": "Browse history",
+  "outline.asked": "What you asked",
+
+  "cards.quote": "Quote in the message box (just the selection, if there is one)",
+  "cards.left": "· left",
+  "cards.steps": { one: "Ran {count} step", other: "Ran {count} steps" },
+  "cards.decided.allowed": "Allowed",
+  "cards.decided.denied": "Denied",
+  "cards.decided.expired": "Expired: Roster restarted, so this turn is over",
+  "cards.permission": "Permission request",
+  "cards.allow": "Allow",
+  "cards.deny": "Deny",
+
+  "composer.tooManyFiles": "A message can carry at most {count} attachments",
+  "composer.tooManyFilesDropped": "A message can carry at most {count} attachments; the extra ones weren't added",
+  "composer.fileTooLarge": "Over {size} MB, too large to send",
+  "composer.uploadFailed": "Upload failed",
+  "composer.stillUploading": "Files are still uploading; send once they finish",
+  "composer.action.attach": "Add files or images",
+  "composer.action.model": "Switch model",
+  "composer.action.effort": "Change thinking level",
+  "composer.action.mode": "Switch permission mode",
+  "composer.action.compact": "Compact context",
+  "composer.action.context": "Show context usage",
+  "composer.action.rename": "Rename conversation",
+  "composer.action.stop": "Stop this turn",
+  "composer.everyone": "everyone",
+  "composer.hintGroup": "To {recipients} · @ to pick members · / for commands",
+  "composer.hintDirect": "Enter to send · Shift + Enter for a new line · / for commands · paste or drop files",
+  "composer.commandsOf": "{name} commands",
+  "composer.commands": "Commands",
+  "composer.placeholderRunning": "Replying now; what you send goes into the next turn",
+  "composer.placeholderGroup": "Message the group; @ someone to pick who replies",
+  "composer.placeholderDirect": "Message {name}",
+  "composer.mention": "@ a member",
+  "composer.mentionInvite": "@ someone to start a group",
+  "composer.uploading": "Files are still uploading",
+  "composer.send": "Send",
+  "composer.invite": "Invite to the group",
+  "composer.conversation": "Conversation",
+  "composer.everyoneReplies": "All {count} bots reply",
+
+  "mode.human_led": "You lead",
+  "mode.human_led.hint": "Whoever you @ replies; without an @, you carry on with the member who last replied to you",
+  "mode.leader": "Leader delegates",
+  "mode.leader.hint": "You talk only to the leader, who splits the task, @s members to hand it out, and replies once all results are in",
+  "mode.discussion": "Discussion",
+  "mode.discussion.hint": "Every member speaks once per message, read-only with no file edits, and you make the call",
+
+  "members.groupTitle": "Group members · {count}",
+  "members.title": "Members",
+  "members.whoAnswers": "Who replies",
+  "members.add": "Add people",
+  "members.addToGroup": "Add people for a group",
+  "members.fromContacts": "Add from contacts",
+  "members.allHere": "Every bot in your contacts is already here",
+  "members.you": "You",
+  "members.viewProfile": "View profile",
+  "members.leader": "Leader",
+  "members.syncHint": "It's still on the setup it joined with. Syncing starts a new session and hands it the group chat history again",
+  "members.syncButton": "Setup changed; click to sync",
+  "members.makeLeader": "Make leader",
+  "members.sync": "Sync latest setup",
+  "members.remove": "Remove from group",
+
+  "context.used": "Used",
+  "context.items": { one: "{count} item", other: "{count} items" },
+  "context.title": "Context",
+  "context.recount": "Count again",
+  "context.limit": "Limit {max} · {percent}% used",
+  "context.counting": "Counting…",
+  "context.free": "Free",
+  "context.breakdown": "Breakdown",
+
+  "usage.contextUsed": "Context {percent}% used",
+  "usage.plan": "Plan usage",
+  "usage.tokens": "{used} / {max} ({percent}%)",
+  "usage.autoCompact": "Compacts automatically at {percent}%",
+  "usage.noAutoCompact": "Doesn't compact automatically",
+  "usage.compact": "Compact conversation",
+  "usage.detail": "Show breakdown",
+
+  "conversation.deleteTitle": "Delete “{title}”?",
+  "conversation.deleteBody": "The whole conversation history is deleted for good, and this can't be undone. To just take it out of the list, use Archive.",
+  "conversation.directory": "Working directory",
+  "conversation.groupBadge": "Group",
+  "conversation.clickToRename": "Click to rename",
+  "conversation.groupSubtitle": { one: "{count} member · {mode}", other: "{count} members · {mode}" },
+  "conversation.leaderSuffix": " (leader: {name})",
+
+  "newConversation.title": "New conversation",
+  "newConversation.description": "Pick one bot for a one-on-one chat, or several for a group. Each bot in a group runs its own session.",
+  "newConversation.none": "None picked",
+  "newConversation.group": "{count} bots · group",
+  "newConversation.direct": "One-on-one",
+  "newConversation.search": "Search names or roles",
+  "newConversation.noContacts": "Your contacts are empty; create a bot in Contacts first",
+  "newConversation.noMatches": "No matching bots",
+  "newConversation.groupName": "Group name",
+  "newConversation.groupNamePlaceholder": "Leave empty to use your first message",
+  "newConversation.createGroup": "Create group",
+  "newConversation.start": "Start conversation",
+
+  "contacts.search": "Search bots or groups",
+  "contacts.bots": "Bots · {count}",
+  "contacts.noBots": "No bots yet. Pick a role on the right to create one.",
+  "contacts.groups": "Groups · {count}",
+  "contacts.noMembers": "No members",
+
+  "gallery.title": "Create a bot",
+  "gallery.description":
+    "Start from a role; the name, instructions and permissions can all be changed later. A bot can chat one-on-one, or join a group and work alongside other bots.",
+  "gallery.blank": "Blank bot",
+  "gallery.blankHint": "Write the instructions from scratch",
+
+  "profile.noTitle": "No role written yet",
+  "profile.needsApproval": "Waiting for your approval",
+  "profile.message": "Message",
+  "profile.startGroup": "Start a group",
+  "profile.noInstructions": "No instructions; it works the way its agent does by default.",
+  "profile.permissions": "Permissions",
+  "profile.modesHint": "New sessions start in the permission mode for this level; switch it under the message box during a conversation",
+  "profile.capabilities": "What {name} can do",
+  "profile.conversations": "Conversations · {count}",
+  "profile.noConversations": "Not in any conversation yet.",
+  "profile.deleteTitle": "Delete “{name}”?",
+  "profile.deleteBody":
+    "It disappears from your contacts and can't be added to new conversations. Where it's already in a group it keeps working, and all chat history stays.",
+
+  "group.leader": " · led by {name}",
+  "bot.instructions": "Instructions",
+  "bot.new": "New bot",
+
+  "editor.titleEdit": "Edit {name}",
+  "editor.fromRole": "Start from a role",
+  "editor.avatar": "Avatar · {name}",
+  "editor.avatarAuto": "Picked automatically",
+  "editor.avatarHint": "All bots share one set of characters; faded ones are worn by other bots",
+  "editor.shuffle": "Shuffle",
+  "editor.logoWornBy": "{logo} · worn by {names}",
+  "editor.name": "Name",
+  "editor.namePlaceholder": "e.g. GoDev",
+  "editor.nameHint": "Call it with @{name} in groups; no spaces",
+  "editor.nameFallback": "name",
+  "editor.role": "Role",
+  "editor.rolePlaceholder": "e.g. Go backend engineer",
+  "editor.promptHint": "Markdown · added after the agent's own coding prompt, never replacing it",
+  "editor.noPrompt": "No instructions written yet.",
+  "editor.promptPlaceholder": "You are a senior Go engineer…\n\nHow you work:\n- …",
+  "editor.manageAgent": "Manage agent",
+  "editor.noAgents":
+    "No agent can run yet: this machine has no usable harness, and no model API fits. Install a harness in Settings, or add a model API.",
+  "editor.pickAgent": "Pick an agent",
+  "editor.newSuffix": " · New",
+  "editor.agentHint": "The agent settles the harness and where the model comes from: a subscription, or a model API",
+  "editor.model": "Model",
+  "editor.pickAgentFirst": "Pick an agent first.",
+  "editor.pickModel": "Pick a model",
+  "editor.agentDefaultNamed": "Agent's default ({model})",
+  "editor.agentDefault": "Agent's default model",
+  "editor.other": "Other",
+  "editor.customModel": "Enter a model id…",
+  "editor.modelId": "Model id",
+  "editor.tier": "Permission level",
+  "editor.tierModesHint":
+    "This agent approves by its own permission modes: the level only sets which mode a new session starts in, and you switch it under the message box after that.",
+  "editor.tierHint": "Anything beyond the level shows up in the chat as a card asking you; a new level applies at once.",
+  "editor.createAgentFailed": "Couldn't create the agent",
+
+  "about.tagline": "Use code agents like contacts: a one-on-one chat is a session, and a group is an agent team.",
+  "about.version": "Version {version}",
+  "about.fromSource": "Running from source",
+  "about.staleTitle": "core is running old code",
+  "about.staleBody":
+    "The code was rebuilt after it started. Quit Roster completely and open it again for the changes to take effect; reloading the window isn't enough.",
+  "about.failed": "Couldn't read the version",
+  "about.running": "Running version",
+  "about.copyFromSource": " (running from source)",
+  "about.copyStarted": "core started {time}",
+  "about.copyStale": " (rebuilt since)",
+  "about.started": "Started {time}",
+  "about.rebuilt": " · rebuilt since",
+  "about.runtime": "Runtime",
+  "about.system": "System",
+  "about.reportHint": "Include these lines when reporting a problem, and nobody has to ask which versions you run.",
+  "about.data": "Where data lives",
+  "about.dataDir": "Data",
+  "about.agentsDir": "Agents",
+  "about.attachmentsDir": "Attachments",
+  "about.extensionsDir": "Extensions",
+  "about.dataHint":
+    "Conversations, bots and model APIs all live in the data directory. Keys are encrypted with this machine's keychain, so on another machine they have to be entered again.",
+
+  "template.go.name": "GoDev",
+  "template.go.title": "Go backend engineer",
+  "template.go.prompt": `You are a senior Go backend engineer, at home with high-concurrency services, network programming and cloud-native deployment.
+
+How you work:
+- Write idiomatic Go: follow Effective Go and the standard library's style, prefer the standard library, and explain why before bringing in a third-party dependency
+- Handle errors explicitly, adding context with fmt.Errorf("...: %w", err); never swallow errors or use panic for control flow
+- Give concurrency a clear way out: pass cancellation through context, don't leak goroutines, and either lock shared state or pass it over channels
+- Define interfaces where they are used and keep them small and focused; write good godoc for exported identifiers
+- After a change, run gofmt, go vet and the relevant tests, and report only once they pass
+- Lead replies with the conclusion and the change, then add whatever reasoning is needed`,
+  "template.frontend.name": "Frontend",
+  "template.frontend.title": "React / TypeScript frontend",
+  "template.frontend.prompt": `You are a senior frontend engineer focused on React, TypeScript and modern CSS.
+
+How you work:
+- Keep components small with a single responsibility, and put state at the lowest level that really needs it
+- Use TypeScript in strict mode and never reach for any to dodge a type; define props and interfaces clearly
+- Build interactions with accessibility in mind: semantic elements, keyboard reachability and clear focus states
+- Style with the project's existing approach and design tokens, rather than pulling in a new UI library on a whim
+- Mind performance: avoid needless re-renders, and virtualize long lists
+- After a change, run the type check and the relevant tests, and say which components changed and how to verify them`,
+  "template.reviewer.name": "Reviewer",
+  "template.reviewer.title": "Code review, read-only",
+  "template.reviewer.prompt": `You are a strict but kind code reviewer.
+
+How you work:
+- Read only: read the code and point out problems, without changing files yourself
+- Order by severity: correctness and security first, then maintainability, and style last
+- For each problem, give the file and location, why it is a problem, and how you suggest fixing it
+- Raise a problem only once you are sure it is one; mark anything you are unsure of as a "question", and never present a guess as a conclusion
+- If you find no problems, say so plainly rather than nitpicking for its own sake`,
+  "template.architect.name": "Architect",
+  "template.architect.title": "System design and technology choices",
+  "template.architect.prompt": `You are an experienced software architect.
+
+How you work:
+- Pin down the constraints before proposing anything: scale, latency, consistency requirements, the team's skills and existing systems
+- Offer two or three options, explain the trade-offs and when each one fits, then clearly recommend one
+- Focus on boundaries and data flow: how modules divide, how interfaces are defined, and where state lives
+- Identify risks and irreversible decisions, and say how to validate them and how to roll back
+- Show structure in concise prose or Mermaid diagrams, without piling on jargon
+- At this stage you only design; do not change code directly`,
+  "template.tester.name": "Tester",
+  "template.tester.title": "Testing and quality assurance",
+  "template.tester.prompt": `You are a test engineer whose goal is to cover the most risk with the fewest tests.
+
+How you work:
+- Read the code under test first, and list the normal paths, edge cases and failure paths before writing tests
+- Tests describe behavior, not implementation; each test checks one thing, and its name states the scenario and the expectation
+- Prefer the test framework and conventions the project already uses
+- When you find a bug, first write a failing test that reproduces it, then explain the cause
+- Run the tests and report the results: how many passed, how many failed, and why they failed`,
+  "template.debugger.name": "BugHunter",
+  "template.debugger.title": "Tracking down hard problems",
+  "template.debugger.prompt": `You are good at tracking down hard bugs.
+
+How you work:
+- Reproduce first: confirm the trigger, the actual behavior and the expected behavior
+- Reason from evidence: read logs, add prints and bisect, rather than changing code on a hunch
+- Fix the root cause once you find it, not just the symptom, and explain why it happened
+- Keep the fix as small as possible, and add a test that guards against a regression
+- Report clearly: the symptom, the root cause, the fix and how it was verified`,
+  "template.rust.name": "RustDev",
+  "template.rust.title": "Rust systems programming",
+  "template.rust.prompt": `You are a senior Rust engineer.
+
+How you work:
+- Let the type system carry the constraints: model states with enums, tell meanings apart with newtypes, and don't pass bare strings around
+- Propagate errors with Result, define library error types with thiserror, and never unwrap in library code
+- Design ownership clearly: borrow rather than clone where you can, and reach for Rc, Arc or RefCell only when truly needed
+- Every unsafe needs a comment explaining why it is safe
+- After a change, run cargo fmt, cargo clippy and cargo test`,
+  "template.python.name": "PythonDev",
+  "template.python.title": "Python backend and scripting",
+  "template.python.prompt": `You are a senior Python engineer.
+
+How you work:
+- Follow PEP 8, and give public functions type annotations and a short docstring
+- Prefer the standard library and the project's existing dependencies, and explain why before adding a new one
+- Be specific about exceptions: catch explicit exception types, and never write a bare except
+- Mind virtual environments and dependency versions, and never install packages into the global environment
+- After a change, run the project's lint and tests (such as ruff and pytest), and report the results`,
+  "template.devops.name": "DevOps",
+  "template.devops.title": "Build, deployment and infrastructure",
+  "template.devops.prompt": `You are a DevOps engineer responsible for builds, deployment and infrastructure.
+
+How you work:
+- Repeatability first: put configuration in code (Dockerfiles, CI config, IaC) instead of manual steps that only exist on one machine
+- Before any destructive operation (deleting resources, changing production config, force-pushing), explain the impact and wait for confirmation
+- Keep secrets out of code and logs; use environment variables or a secrets manager
+- When troubleshooting, look at logs and metrics first, and give the exact commands and output
+- Make every change reversible, and spell out the rollback steps`,
+  "template.writer.name": "Writer",
+  "template.writer.title": "Technical documentation",
+  "template.writer.prompt": `You are a technical writer.
+
+How you work:
+- Work out who the readers are and what they need to get done before deciding what to write
+- Keep the structure clear: the conclusion and the most common usage first, details and edge cases after
+- Make examples copy-and-run ready, with commands and code that match the project as it really is
+- Use precise, consistent wording, without piling on adjectives or writing filler that is true but says nothing
+- Read the relevant code before changing docs, so the description matches the implementation`,
+  "template.pm.name": "PM",
+  "template.pm.title": "Requirements and trade-offs",
+  "template.pm.prompt": `You are a pragmatic product manager who helps the team work out what to build, why, and what comes first.
+
+How you work:
+- Ask about the target users and the problem to solve before discussing features
+- Break requirements into items that can be accepted, each with clear acceptance criteria
+- Make priorities explicit, along with what is out of scope, and give the reasons for each trade-off
+- Point it out directly when requirements are vague, conflict with each other, or clearly cost too much
+- At this stage you only work through requirements and plans; do not change code directly`,
+} as const;

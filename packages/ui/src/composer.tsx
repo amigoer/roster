@@ -29,7 +29,8 @@ import {
 import { fitImage, isImage, MAX_BYTES, MAX_FILES, PendingTray, type Pending } from "./attachments";
 import { BotAvatar } from "./bot-avatar";
 import { useExecutor } from "./executors";
-import { recipientLabel } from "./mentions";
+import { useI18n } from "./i18n";
+import { ALL_ALIASES, recipientLabel } from "./mentions";
 import { SessionBar, type Picker, type PickerRequest } from "./session-bar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -116,6 +117,8 @@ export function Composer({
   /** removed before its upload finished: the file that lands anyway is thrown away */
   const dropped = useRef(new Set<string>());
   const executor = useExecutor();
+  const i18n = useI18n();
+  const { t } = i18n;
 
   const members = activeMembers(conv);
   const group = conv.shape === "group";
@@ -142,7 +145,13 @@ export function Composer({
   const addFiles = (files: File[]) => {
     if (files.length === 0) return;
     const room = MAX_FILES - pendingRef.current.length;
-    setError(files.length > room ? `一条消息最多带 ${MAX_FILES} 个附件${room > 0 ? "，多出来的没有加上" : ""}` : null);
+    setError(
+      files.length <= room
+        ? null
+        : room > 0
+          ? t("composer.tooManyFilesDropped", { count: MAX_FILES })
+          : t("composer.tooManyFiles", { count: MAX_FILES }),
+    );
     for (const raw of files.slice(0, Math.max(0, room))) {
       const file = named(raw);
       const key = crypto.randomUUID();
@@ -153,7 +162,7 @@ export function Composer({
         size: file.size,
         progress: 0,
         ...(isImage(file.type) ? { preview: URL.createObjectURL(file) } : {}),
-        ...(file.size > MAX_BYTES ? { error: `超过 ${MAX_BYTES / 1024 / 1024} MB，发不了` } : {}),
+        ...(file.size > MAX_BYTES ? { error: t("composer.fileTooLarge", { size: MAX_BYTES / 1024 / 1024 }) } : {}),
       };
       setPending((list) => [...list, item]);
       if (item.error) continue;
@@ -165,7 +174,7 @@ export function Composer({
           if (r.attachment) void api.removeAttachment(conv.id, r.attachment.id);
           return;
         }
-        update(key, r.attachment ? { ref: r.attachment, mime: r.attachment.mime, progress: 1 } : { error: r.error ?? "上传失败" });
+        update(key, r.attachment ? { ref: r.attachment, mime: r.attachment.mime, progress: 1 } : { error: r.error ?? t("composer.uploadFailed") });
       })();
     }
   };
@@ -194,7 +203,7 @@ export function Composer({
 
   const submit = async (raw: string) => {
     const text = raw.trim();
-    if (uploading) return setError("文件还在上传，传完再发");
+    if (uploading) return setError(t("composer.stillUploading"));
     const batch = pendingRef.current.filter((p) => p.ref);
     if (!text && batch.length === 0) return;
     const keys = new Set(batch.map((p) => p.key));
@@ -240,16 +249,16 @@ export function Composer({
   const action = (name: string, label: string, icon: LucideIcon, fn: () => void): Action => ({ kind: "action", name, label, icon, run: fn });
 
   const actions: Action[] = [
-    action("attach", "添加文件或图片", Paperclip, () => fileInput.current?.click()),
-    ...(solo && info?.model && choices?.models.length ? [action("model", "切换模型", Sparkles, () => openPicker("model"))] : []),
-    ...(solo && info?.effort && choices?.efforts.length ? [action("effort", "调整思考级别", Gauge, () => openPicker("effort"))] : []),
-    ...(solo && info?.mode && choices?.modes.length ? [action("mode", "切换权限模式", ShieldCheck, () => openPicker("mode"))] : []),
+    action("attach", t("composer.action.attach"), Paperclip, () => fileInput.current?.click()),
+    ...(solo && info?.model && choices?.models.length ? [action("model", t("composer.action.model"), Sparkles, () => openPicker("model"))] : []),
+    ...(solo && info?.effort && choices?.efforts.length ? [action("effort", t("composer.action.effort"), Gauge, () => openPicker("effort"))] : []),
+    ...(solo && info?.mode && choices?.modes.length ? [action("mode", t("composer.action.mode"), ShieldCheck, () => openPicker("mode"))] : []),
     ...(solo && choices?.compact && !running
-      ? [action("compact", "压缩上下文", Shrink, () => void run(() => api.compact(conv.id, solo.id)))]
+      ? [action("compact", t("composer.action.compact"), Shrink, () => void run(() => api.compact(conv.id, solo.id)))]
       : []),
-    ...(solo && info?.context ? [action("context", "查看上下文占用", Layers, () => onContext(solo.id))] : []),
-    action("rename", "重命名会话", PencilLine, onRename),
-    ...(running ? [action("stop", "停止这一轮", Square, () => void api.abort(conv.id))] : []),
+    ...(solo && info?.context ? [action("context", t("composer.action.context"), Layers, () => onContext(solo.id))] : []),
+    action("rename", t("composer.action.rename"), PencilLine, onRename),
+    ...(running ? [action("stop", t("composer.action.stop"), Square, () => void api.abort(conv.id))] : []),
   ];
   // a group wraps what you type in its transcript, where no backend would see the slash
   const commands = solo ? (info?.commands ?? choices?.commands ?? []).filter((c) => !OWN.has(c.name)) : [];
@@ -272,7 +281,9 @@ export function Composer({
     const inGroup = new Set(members.map((m) => m.bot.id));
     return [
       ...members.filter((m) => hit(m.bot)).map((m): Suggestion => ({ kind: "member", bot: m.bot })),
-      ...(members.length > 1 && ("所有人".includes(q) || "all".startsWith(q)) ? [{ kind: "all" } as Suggestion] : []),
+      ...(members.length > 1 && (t("composer.everyone").includes(q) || ALL_ALIASES.some((a) => a.startsWith(q)))
+        ? [{ kind: "all" } as Suggestion]
+        : []),
       // Grok-style: @ someone who is not here yet and they join
       ...bots.filter((b) => !inGroup.has(b.id) && hit(b)).map((b): Suggestion => ({ kind: "invite", bot: b })),
     ];
@@ -296,7 +307,7 @@ export function Composer({
       if (go && !s.command.hint && !rest) return void submit(text);
       return place(`${text} ${rest}`, text.length + 1);
     }
-    const name = s.kind === "all" ? "所有人" : s.bot.name;
+    const name = s.kind === "all" ? t("composer.everyone") : s.bot.name;
     place(`${draft.slice(0, menu.start)}@${name} ${draft.slice(caret)}`, menu.start + name.length + 2);
     if (s.kind === "invite") {
       const r = await api.addMember(conv.id, s.bot.id);
@@ -321,8 +332,8 @@ export function Composer({
   const hint = typed?.hint
     ? `/${typed.name} ${typed.hint}${typed.description ? ` · ${typed.description}` : ""}`
     : group
-      ? `发给 ${recipientLabel(conv, draft, messages)} · @ 指定成员 · / 命令`
-      : "Enter 发送 · Shift + Enter 换行 · / 命令 · 可以粘贴或拖入文件";
+      ? t("composer.hintGroup", { recipients: recipientLabel(i18n, conv, draft, messages) })
+      : t("composer.hintDirect");
 
   return (
     <footer className="shrink-0 px-5 pt-2.5 pb-4">
@@ -332,7 +343,7 @@ export function Composer({
             items={suggestions}
             index={index}
             wide={menu.type === "/"}
-            commandsLabel={solo ? `${executor(solo.executor_id).label} 的命令` : "命令"}
+            commandsLabel={solo ? t("composer.commandsOf", { name: executor(solo.executor_id).label }) : t("composer.commands")}
             memberCount={members.length}
             onPick={(s) => void pick(s, true)}
             onHover={(i) => setMenu({ ...menu, index: i })}
@@ -382,40 +393,40 @@ export function Composer({
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 if (canSend) void submit(draft);
-                else if (uploading) setError("文件还在上传，传完再发");
+                else if (uploading) setError(t("composer.stillUploading"));
               }
             }}
             placeholder={
               running
-                ? "正在回复，发送的消息会排到下一轮"
+                ? t("composer.placeholderRunning")
                 : group
-                  ? `发消息给群聊，@ 指定谁来回复`
-                  : `发送给 ${members[0]?.bot.name ?? ""}`
+                  ? t("composer.placeholderGroup")
+                  : t("composer.placeholderDirect", { name: members[0]?.bot.name ?? "" })
             }
             className="placeholder:text-muted-foreground block max-h-60 min-h-12 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-message leading-relaxed outline-none field-sizing-content"
           />
           <div className="flex items-center gap-0.5 px-2 pb-2">
-            <Tool label="添加文件或图片" onClick={() => fileInput.current?.click()}>
+            <Tool label={t("composer.action.attach")} onClick={() => fileInput.current?.click()}>
               <Paperclip />
             </Tool>
-            <Tool label={group ? "@ 指定成员" : "@ 拉人进群"} onClick={() => insert("@")}>
+            <Tool label={group ? t("composer.mention") : t("composer.mentionInvite")} onClick={() => insert("@")}>
               <AtSign />
             </Tool>
-            <Tool label="命令" onClick={() => insert("/")}>
+            <Tool label={t("composer.commands")} onClick={() => insert("/")}>
               <Slash />
             </Tool>
             <span className={cn("min-w-0 flex-1 truncate px-1.5 text-[11px]", error ? "text-destructive" : "text-muted-foreground")}>
               {error ?? hint}
             </span>
             {running && !draft.trim() && ready.length === 0 ? (
-              <Button size="icon" variant="secondary" className="size-8 rounded-lg" title="停止这一轮" onClick={() => void api.abort(conv.id)}>
+              <Button size="icon" variant="secondary" className="size-8 rounded-lg" title={t("composer.action.stop")} onClick={() => void api.abort(conv.id)}>
                 <Square className="size-3 fill-current" />
               </Button>
             ) : (
               <Button
                 size="icon"
                 className="size-8 rounded-lg"
-                title={uploading ? "文件还在上传" : "发送"}
+                title={uploading ? t("composer.uploading") : t("composer.send")}
                 onClick={() => void submit(draft)}
                 disabled={!canSend}
               >
@@ -485,14 +496,15 @@ function SuggestionList({
   onHover: (i: number) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
   useEffect(() => {
     list.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
   }, [index]);
 
   const headerOf = (s: Suggestion, prev: Suggestion | undefined) => {
     if (s.kind === prev?.kind) return null;
-    if (s.kind === "invite") return "邀请进群";
-    if (s.kind === "action") return "会话";
+    if (s.kind === "invite") return t("composer.invite");
+    if (s.kind === "action") return t("composer.conversation");
     if (s.kind === "command") return commandsLabel;
     return null;
   };
@@ -543,10 +555,10 @@ function SuggestionList({
                   ) : (
                     <BotAvatar bot={s.bot} size="xs" />
                   )}
-                  <span className="font-medium">{s.kind === "all" ? "所有人" : s.bot.name}</span>
+                  <span className="font-medium">{s.kind === "all" ? t("composer.everyone") : s.bot.name}</span>
                   <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
                     {/* a head count here would read as the member count, which now counts you too */}
-                    {s.kind === "all" ? `${memberCount} 个 bot 都回复` : s.bot.title}
+                    {s.kind === "all" ? t("composer.everyoneReplies", { count: memberCount }) : s.bot.title}
                   </span>
                   {s.kind === "invite" && <UserPlus className="text-muted-foreground size-3.5" />}
                 </>

@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Executor, SourceRef } from "./api";
+import { useI18n } from "./i18n";
 
 /** The agents core knows, as /api/state ships them. */
 export const Executors = createContext<readonly Executor[]>([]);
@@ -13,25 +14,25 @@ export const HarnessLabels = createContext<Readonly<Record<string, string>>>({})
 /** Looks an agent up by id; one deleted since still reads as something rather than as nothing. */
 export function useExecutor(): (id: string) => Executor {
   const list = useContext(Executors);
+  const { t } = useI18n();
   return (id) =>
     list.find((e) => e.id === id) ?? {
       id,
       type: "",
-      label: "已删除的 agent",
+      label: t("agent.deleted"),
       source_kind: "own",
       provider_id: null,
       model: null,
-      problem: "这个 agent 已经删除了",
+      problem: t("agent.deletedProblem"),
     };
 }
 
-export const OWN_SOURCE_LABEL = "订阅";
-
-/** What an agent's source is called: 订阅 for the harness's own sign-in, the model API's name otherwise. */
+/** What an agent's source is called: the subscription for the harness's own sign-in, the model API's name otherwise. */
 export function useSourceLabel(): (executor: Pick<Executor, "source_kind" | "provider_id">) => string {
   const refs = useContext(SourceRefs);
+  const { t } = useI18n();
   return (e) =>
-    e.source_kind === "own" ? OWN_SOURCE_LABEL : (refs.find((r) => r.id === e.provider_id)?.name ?? "已删除的模型 API");
+    e.source_kind === "own" ? t("source.own") : (refs.find((r) => r.id === e.provider_id)?.name ?? t("source.deleted"));
 }
 
 /** Agents grouped by harness, harnesses in the order they first appear. */

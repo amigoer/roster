@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, RefreshCw, X } from "lucide-react";
 import { api, type ContextDetail, type ContextUse } from "./api";
+import { useI18n } from "./i18n";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -34,7 +35,8 @@ export const partColor = (i: number) => PALETTE[i % PALETTE.length];
 
 /** One segment per category, drawn against the whole window so the empty track is the room left. */
 export function ContextBar({ context, className }: { context: ContextUse; className?: string }) {
-  const parts = context.parts?.length ? context.parts : [{ name: "已用", tokens: context.used }];
+  const { t } = useI18n();
+  const parts = context.parts?.length ? context.parts : [{ name: t("context.used"), tokens: context.used }];
   return (
     <div className={cn("bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full", className)}>
       {parts.map((p, i) => (
@@ -79,6 +81,7 @@ function Row({ name, value, right }: { name: string; value: string; right?: stri
  */
 function Section({ title, rows }: { title: string; rows: Array<{ name: string; tokens: number }> }) {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
   return (
     <div>
       <button
@@ -88,7 +91,7 @@ function Section({ title, rows }: { title: string; rows: Array<{ name: string; t
       >
         <ChevronRight className={cn("text-muted-foreground size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
         <span className="min-w-0 flex-1 truncate text-left">{title}</span>
-        <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{rows.length} 项</span>
+        <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{t("context.items", { count: rows.length })}</span>
       </button>
       {open && (
         <div className="space-y-1 py-1 pl-5.5">
@@ -125,6 +128,7 @@ export function ContextPanel({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
+  const { t } = useI18n();
 
   useEffect(() => {
     let live = true;
@@ -144,12 +148,12 @@ export function ContextPanel({
     // a column when there is room; over the chat when a column would crush it
     <aside className="bg-background ring-border absolute inset-y-0 right-0 z-20 flex w-80 shrink-0 flex-col overflow-hidden rounded-xl shadow-xl ring-1 @3xl:static @3xl:shadow-panel @3xl:ring-0">
       <header className="flex h-13 shrink-0 items-center justify-between px-4">
-        <span className="text-sm font-semibold">上下文</span>
+        <span className="text-sm font-semibold">{t("context.title")}</span>
         <div className="flex items-center gap-0.5">
-          <Button variant="ghost" size="icon-sm" onClick={() => setNonce((n) => n + 1)} title="重新统计">
+          <Button variant="ghost" size="icon-sm" onClick={() => setNonce((n) => n + 1)} title={t("context.recount")}>
             <RefreshCw className={cn("size-4", loading && "animate-spin")} />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} title="收起">
+          <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.collapse")}>
             <X className="size-4" />
           </Button>
         </div>
@@ -167,13 +171,13 @@ export function ContextPanel({
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-lg font-semibold tabular-nums">{tokens(detail.used)}</span>
                   <span className="text-muted-foreground text-xs tabular-nums">
-                    上限 {tokens(detail.max)} · 已用 {detail.percent}%
+                    {t("context.limit", { max: tokens(detail.max), percent: detail.percent })}
                   </span>
                 </div>
                 <ContextBar context={detail} className="h-2" />
               </>
             ) : (
-              <p className="text-muted-foreground text-sm">{error ?? "统计中…"}</p>
+              <p className="text-muted-foreground text-sm">{error ?? t("context.counting")}</p>
             )}
           </section>
 
@@ -192,7 +196,7 @@ export function ContextPanel({
                 ))}
                 <div className="text-muted-foreground flex items-center gap-2 text-sm">
                   <span className="bg-muted size-2.5 shrink-0 rounded-sm" />
-                  <span className="min-w-0 flex-1 truncate">剩余</span>
+                  <span className="min-w-0 flex-1 truncate">{t("context.free")}</span>
                   <span className="shrink-0 tabular-nums">{tokens(Math.max(0, detail.max - detail.used))}</span>
                   <span className="text-muted-foreground/70 w-11 shrink-0 text-right text-xs tabular-nums">
                     {share(Math.max(0, detail.max - detail.used), detail.max)}
@@ -202,7 +206,7 @@ export function ContextPanel({
 
               {detail.sections.length > 0 && (
                 <section>
-                  <h3 className="text-muted-foreground pb-1 text-xs font-medium">明细</h3>
+                  <h3 className="text-muted-foreground pb-1 text-xs font-medium">{t("context.breakdown")}</h3>
                   {detail.sections.map((s) => (
                     <Section key={s.title} title={s.title} rows={s.rows} />
                   ))}

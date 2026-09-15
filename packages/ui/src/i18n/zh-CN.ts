@@ -1,0 +1,652 @@
+import type { en } from "./en";
+import { translation } from "./translate";
+
+export const zhCN = translation<typeof en>()({
+  "common.listSeparator": "、",
+  "common.labelDetail": "{label}：{detail}",
+  "common.close": "关闭",
+  "common.cancel": "取消",
+  "common.save": "保存",
+  "common.create": "创建",
+  "common.add": "添加",
+  "common.delete": "删除",
+  "common.rename": "重命名",
+  "common.archive": "归档",
+  "common.unarchive": "取消归档",
+  "common.edit": "编辑",
+  "common.preview": "预览",
+  "common.copy": "复制",
+  "common.copied": "已复制",
+  "common.collapse": "收起",
+  "common.refresh": "刷新",
+  "common.saveFailed": "保存失败",
+  "common.createFailed": "创建失败",
+  "common.defaultModel": "默认模型",
+  "common.notSignedIn": "没有登录",
+  "common.noKey": "没有密钥",
+  "common.unknown": "未知",
+  "common.deleteTitle": "删除「{name}」？",
+  "common.example": "比如 {example}",
+
+  "time.justNow": "刚刚",
+  "time.minutesAgo": "{count} 分钟前",
+  "time.yesterday": "昨天",
+
+  "nav.messages": "消息",
+  "nav.contacts": "通讯录",
+  "nav.space": "空间",
+  "nav.settings": "设置",
+  "nav.settingsHint": "设置：外观、语言、agent 和模型 API",
+
+  "attention.waiting_permission": "等你批准",
+  "attention.waiting_input": "等你回复",
+  "attention.error": "出错了",
+  "attention.stalled": "卡住了",
+
+  "app.coreSilent": "core 没有回答",
+  "app.startFailed": "没能直接开始会话",
+  "app.activeOnly": "只看进行中",
+  "app.showArchived": "显示已归档",
+  "app.notBuiltNamed": "{name}：第一版还没做",
+  "app.notBuilt": "第一版还没做",
+  "app.search": "搜索会话、bot 或仓库",
+  "app.noConversations": "还没有会话，点右上角 + 发起。",
+  "app.noMatches": "没有和「{query}」相关的会话。",
+  "app.archived": "已归档",
+  "app.resizeList": "调整列表宽度",
+  "app.pickSetting": "左边选一项设置",
+  "app.editProfile": "编辑资料",
+  "app.profile": "资料",
+  "app.groupProfile": "群资料",
+  "app.roles": "角色",
+  "app.pickConversation": "选一个会话",
+  "app.dropFiles": "松开，添加到这条消息里",
+  "app.hideMembers": "收起成员",
+  "app.membersAndMode": "成员与模式",
+  "app.groupHas": "群里有 {names}",
+  "app.noMessages": "还没有消息",
+  "app.firstMessage": "发第一条消息开始。它会成为这个会话的标题。",
+
+  "theme.system": "跟随系统",
+  "theme.light": "浅色",
+  "theme.dark": "深色",
+
+  "font.hiragino": "冬青黑体",
+  "font.heiti": "黑体",
+  "font.yuanti": "圆体",
+  "font.songti": "宋体",
+  "font.kaiti": "楷体",
+  "font.lxgw": "霞鹜文楷",
+  "font.sourcehan": "思源黑体",
+  "font.misans": "MiSans",
+  "font.harmony": "HarmonyOS Sans",
+
+  "size.small": "小",
+  "size.normal": "标准",
+  "size.large": "大",
+  "size.xlarge": "特大",
+  "size.small.row": "小字号",
+  "size.large.row": "大字号",
+  "size.xlarge.row": "特大字号",
+
+  "appearance.theme": "主题",
+  "appearance.themeHint": "跟随系统时，系统在浅色和深色之间切换，Roster 也跟着切换。",
+  "appearance.font": "字体",
+  "appearance.systemFont": "系统默认",
+  "appearance.otherFont": "其他字体",
+  "appearance.fontPlaceholder": "字体的名字，比如 LXGW WenKai",
+  "appearance.fontFound": "本机有 {font}，已经用上了",
+  "appearance.fontMissing": "本机没找到 {font}，先用系统默认",
+  "appearance.fontHint": "整个界面都用这个字体。",
+  "appearance.fontNow": "现在是 {font}。",
+  "appearance.fontDefault": "系统默认在 Mac 上是苹方。",
+  "appearance.fontSample": "你好 Roster 123",
+  "appearance.size": "字号",
+  "appearance.sizeSample": "Aa 你好",
+  "appearance.sizeHint": "改的是消息和输入框里的文字，界面其它地方不变。",
+
+  "language.label": "显示语言",
+  "language.system": "跟随系统",
+  "language.systemNow": "现在是{language}",
+  "language.systemHint": "用系统设置的语言",
+  "language.systemRow": "跟随系统 · {language}",
+  "language.hint": "界面、群里的提示和 Roster 交给 agent 的说明都用这个语言；bot 用什么语言回复，由它自己决定。",
+  "language.failed": "没能切换语言",
+
+  "settings.general": "通用",
+  "settings.appearance": "外观",
+  "settings.language": "语言",
+  "settings.about": "关于",
+  "settings.aboutRoster": "关于 Roster",
+  "settings.aboutStale": "core 在跑旧代码，要重启",
+  "settings.aboutHint": "版本和数据目录",
+  "settings.harnessesCount": "Harness · {count}",
+  "settings.moreHarnesses": "更多 harness",
+  "settings.noHarnesses": "本机还没有能用的 harness。点 + 看看能装什么。",
+  "settings.versionUnknown": "版本未知",
+  "settings.agentsCount": "Agent · {count}",
+  "settings.noAgents": "还没有 agent。agent 是一个 harness，加上模型从哪来：订阅，或者一个模型 API。点 + 建一个；到通讯录里建 bot 时也能顺手建。",
+  "settings.defaultModelIs": "默认模型 {model}",
+  "settings.defaultModelHarness": "默认模型跟着 harness",
+  "settings.providersCount": "模型 API · {count}",
+  "settings.noProviders": "还没有模型 API。用订阅的 agent 不需要它；想按量调用 DeepSeek、Kimi、自建网关……，点 + 加一个。",
+  "settings.harness": "Harness",
+
+  "vault.keychain": "系统钥匙串",
+  "vault.dpapi": "Windows 凭据保护",
+  "vault.gnome_libsecret": "GNOME 密钥环",
+  "vault.system": "系统",
+  "vault.encrypted": "密钥加密保存，解密用的钥匙交给{keystore}保管",
+  "vault.plain": "这台机器上没有可用的系统密钥保管，密钥是明文存在本地数据库里的",
+
+  "provider.keyFromEnv": "读环境变量 {name}",
+  "provider.envUnset": "环境变量 {name} 没设置",
+  "provider.keyHint": "密钥 {hint}",
+  "provider.customKind": "自定义",
+  "provider.add": "添加模型 API",
+  "provider.addDescription": "先选从哪调，再填密钥。",
+  "provider.custom": "自定义 API",
+  "provider.presetGone": "这个预设现在没有 harness 提供",
+  "provider.modelCount": "{count} 个模型",
+  "provider.change": "换一个",
+  "provider.protocol": "协议",
+  "provider.address": "地址",
+  "provider.addressAnthropic": "不带 /v1，比如 https://api.example.com/anthropic",
+  "provider.addressOpenAI": "一般带 /v1，比如 https://api.example.com/v1",
+  "provider.key": "密钥",
+  "provider.keyStored": "保存在 Roster",
+  "provider.keyEnv": "从环境变量读",
+  "provider.keySaved": "已保存 {hint}，留空不改",
+  "provider.envFound": "本机有 {name}",
+  "provider.useEnv": "改成读它",
+  "provider.keyStoredEncrypted": "加密后存在本地，界面上只显示首尾几位。",
+  "provider.keyStoredPlain": "这台机器上没有系统密钥保管，会以明文存在本地数据库里。",
+  "provider.keyEnvHint": "Roster 不保存密钥，用的时候读这个变量。登录 shell（.zshrc、.bashrc）里设的也读得到。",
+  "provider.fetchModels": "从接口拉取",
+  "provider.modelsHint": "一行一个模型 id，第一个会作为默认。",
+  "provider.namePlaceholder": "比如：公司网关",
+  "provider.deleteBody": "保存的密钥会一起删掉。还有 agent 接着它的话会删不掉，先给它们换一个模型 API。",
+  "provider.usedBy": "谁能用",
+  "provider.harnesses": "能接的 harness",
+  "provider.noHarnesses": "没有，协议跟现有的 harness 都对不上",
+  "provider.agents": "在用的 agent",
+  "provider.noAgents": "还没有。建 agent 时选它当模型 API。",
+
+  "preset.foundKeys": "本机找到的密钥",
+  "preset.readsEnv": "读环境变量 {name}，Roster 不保存密钥",
+  "preset.addWithIt": "用它添加",
+  "preset.where": "从哪调",
+  "preset.search": "搜索 {count} 个预设",
+  "preset.noMatches": "没有叫「{query}」的预设。不在列表里的，用自定义 API 自己填地址。",
+  "preset.added": " · 已添加",
+
+  "connection.connectingTo": "正在连 {host}…",
+  "connection.connecting": "正在连…",
+  "connection.unsaved": "有改动还没保存，保存后会自动再测一次。",
+  "connection.untested": "还没测过。测试只拉一次模型列表，不花钱。",
+
+  "check.running": "测试中…",
+  "check.label": "测试",
+  "check.test": "测试连接",
+
+  "models.search": "搜索 {count} 个模型",
+  "models.searchLabel": "搜索模型",
+  "models.beforeAdd": "添加后会向 API 要一次模型列表，列出什么就是什么。",
+  "models.noMatches": "没有匹配「{query}」的模型",
+  "models.afterConnect": "连接通过后，这里列出 API 返回的模型。",
+  "models.emptyList": "API 没有列出任何模型。",
+  "models.noList": "这个 API 不提供模型列表。给 agent 或 bot 选模型时手填 id。",
+  "models.hint": "以 API 返回的为准，测试连接时会重新拉取。",
+
+  "harness.status.adapterError": "适配器出错",
+  "harness.status.noAdapter": "没装适配器",
+  "harness.status.noProgram": "没找到程序",
+  "harness.installAdapter": "装适配器",
+  "harness.download": "下载安装",
+  "harness.versionSuffix": "（{version}）",
+  "harness.adapterMissingTitle": "适配器没有装上，现在用不了",
+  "harness.programMissingTitle": "本机没找到 {bin}",
+  "harness.programMissingTitleUnnamed": "本机没找到它的程序",
+  "harness.adapterMissingBody": "装上适配器之后才能用。",
+  "harness.programMissingBody": "下载会装到 Roster 自己的目录，不动系统；下载完，这个 harness 上的 agent 就能启动。",
+  "harness.program": "程序",
+  "harness.programEmptyUses": "留空就用 {path}",
+  "harness.programFullPath": "{bin} 的完整路径",
+  "harness.programHintFound": "留空用本机检测到的{version}；想换一份程序时再填。这个 harness 上的 agent 都跑这一份，订阅登录也是。",
+  "harness.programHintInstalled": "留空用Roster 装的；想换一份程序时再填。这个 harness 上的 agent 都跑这一份，订阅登录也是。",
+  "harness.programHintMissing": "本机没找到它：下载一份，或者直接填程序的完整路径。",
+  "harness.fetched": "程序是 Roster 下载的{version}",
+  "harness.downloadAgain": "重新下载",
+  "harness.uninstall": "卸载",
+  "harness.capabilities": "能做什么",
+  "harness.protocols": "能接的协议：{protocols}",
+  "harness.agents": "这个 harness 上的 agent",
+  "harness.noAgentsOwn": "还没有。建一个用订阅的，或者接一个模型 API 的；到通讯录里建 bot 时也能顺手建。",
+  "harness.noAgents": "还没有。接一个模型 API 建一个；到通讯录里建 bot 时也能顺手建。",
+  "harness.uninstallTitle": "卸载「{name}」？",
+  "harness.uninstallBody": "Roster 下载的这份程序会被删掉；这个 harness 上的 agent 还留着，只是启动不了，再下载就能继续用。",
+  "harness.onSubscription": "用订阅时",
+  "harness.onModelApi": "接模型 API 时",
+
+  "harnesses.introTitle": "先有一个能用的 harness",
+  "harnesses.intro":
+    "harness 是 Claude Code、Codex 这样跑 agent 循环的程序。本机装了的直接能用，没有的在这里下载。之后建 agent（harness 加上订阅或模型 API），再到通讯录里建 bot 选它。",
+  "harnesses.hint": "有版本号的直接能用；显示「没找到程序」的点「下载安装」，装完就能用。",
+  "harnesses.programMissing": "本机没找到 {bin}，下载会装到 Roster 自己的目录，不动系统。",
+  "harnesses.setUp": "设置",
+  "harnesses.orphansTitle": "harness 不在了的 agent",
+  "harnesses.orphansHint": "这些 agent 的 harness 现在不在 Roster 里，用它们的 bot 启动不了。harness 装回来就能接着用；不要了就点进去删掉。",
+
+  "detect.title": "本机已经有的",
+  "detect.again": "重新检测",
+  "detect.noneHint": "没在这台机器上找到已装的 harness。下面挑一个下载就行。",
+  "detect.where.path": "PATH 上",
+  "detect.where.npm-global": "npm 全局包",
+  "detect.where.known-path": "常见安装位置",
+  "detect.hints": "还发现了密钥线索：{hints}。添加模型 API 时可以直接用。",
+  "detect.hintEnv": "环境变量 {name}",
+  "detect.hintPi": "pi 登录过的 {name}",
+  "detect.shellSilent": "登录 shell 没有回答，PATH 和环境变量只看到了这个进程自己的。",
+  "detect.unknownVersion": "未知版本",
+  "detect.new": "新发现 {program}",
+  "detect.changed": "{program} {from} → {to}",
+  "detect.gone": "{program} 不见了",
+  "detect.separator": "；",
+  "detect.none": "没在这台机器上找到已装的 harness",
+  "detect.unchanged": "没有变化，找到 {programs}",
+  "detect.found": "找到 {programs}",
+  "detect.failed": "检测失败",
+  "detect.done": "检测完成",
+  "detect.doneShellSilent": "检测完成，但登录 shell 没有回答",
+  "detect.summaryShellSilent": "{summary}。PATH 和环境变量只看到了这个进程自己的。",
+
+  "install.downloading": "正在下载…",
+  "install.failed": "安装失败",
+  "install.noOutput": "npm 没有留下输出",
+
+  "login.title": "订阅登录",
+  "login.signedIn": "已登录",
+  "login.signedInAs": "已登录 · {account}",
+  "login.unknown": "没问到",
+  "login.credentials": "凭据由程序自己保管，Roster 不碰它。这个 harness 上用订阅的 agent 都用这个账号。",
+  "login.copyCommand": "复制命令",
+  "login.signIn": "登录",
+  "login.terminalHint": "在终端里跑完，回来点刷新。",
+
+  "agent.new": "新建 agent",
+  "agent.deleted": "已删除的 agent",
+  "agent.deletedProblem": "这个 agent 已经删除了",
+  "agent.newDescription": "agent 是一个 harness，加上模型从哪来：harness 自带的订阅登录，或者一个模型 API。",
+  "agent.unusable": "现在用不了",
+  "agent.installHarness": "去装 harness",
+  "agent.noHarnesses": "还没有能用的 harness。",
+  "agent.installOne": "去装一个",
+  "agent.source": "模型从哪来",
+  "agent.ownTaken": "已经有了：{name}",
+  "agent.ownAccount": "用 {harness} 自己登录的账号",
+  "agent.endpointHint": "按量调用，用你添加的密钥",
+  "agent.ownOnly": "用 {harness} 自己登录的账号；它不接模型 API。",
+  "agent.ownOnlyTaken": "用 {harness} 自己登录的账号，已经有 agent 了：{name}；它不接模型 API。",
+  "agent.endpointOnly": "{harness} 没有自带登录，接一个模型 API。",
+  "agent.noFitting": "还没有接得上 {harness} 的模型 API。",
+  "agent.pickProvider": "选一个模型 API",
+  "agent.sourceChangeHint": "换了之后，已经在会话里的成员会提示「设定有更新」，同步后才用新的。",
+  "agent.harnessDefault": "不指定，用 {harness} 自己的默认",
+  "agent.modelPlaceholder": "留空用它自己的默认",
+  "agent.modelHint": "bot 没有自己选模型时用这个。",
+  "agent.nameHint": "建 bot 选 agent 时看到的就是它；留空自动起名。",
+  "agent.testHintOwn": "测的是保存过的设置：订阅登录在不在、程序能不能启动。不会发起对话，不花钱。",
+  "agent.testHintEndpoint": "测的是保存过的设置：模型 API 的密钥能不能用、程序能不能启动。不会发起对话，不花钱。",
+  "agent.bots": "在用的 bot",
+  "agent.noBots": "还没有。到通讯录里建 bot 时选它。",
+  "agent.deleteBody": "还有 bot 在用它，或者会话里还有成员跑在它上面的话，会删不掉。",
+
+  "source.own": "订阅",
+  "source.endpoint": "模型 API",
+  "source.deleted": "已删除的模型 API",
+
+  "api.openai-completions": "OpenAI 兼容（Chat Completions）",
+  "api.openai-responses": "OpenAI Responses",
+  "api.anthropic-messages": "Anthropic 兼容（Messages）",
+  "api.google-generative-ai": "Google Gemini",
+  "api.mistral-conversations": "Mistral",
+
+  "busy.waiting": "在等你",
+  "busy.working": "正在干活",
+
+  "tier.read": "只读",
+  "tier.read.hint": "只能读文件、搜索；写文件和执行命令都要问你",
+  "tier.write": "可写",
+  "tier.write.hint": "可以改工作目录里的文件；执行命令要问你",
+  "tier.execute": "可执行",
+  "tier.execute.hint": "可以改文件、执行命令，不再询问",
+
+  "presence.starting": "正在启动",
+  "presence.thinking": "正在思考",
+  "presence.toolNamed": "正在执行 {tool}",
+  "presence.tool": "正在执行工具",
+  "presence.permissionNamed": "等你批准 {tool}",
+  "presence.permission": "等你批准",
+  "presence.lockNamed": "等 {name} 改完文件",
+  "presence.lock": "排队等着改文件",
+  "presence.compacting": "正在压缩上下文",
+
+  "recipient.none": "群里还没有成员",
+  "recipient.all": "所有成员",
+  "recipient.leader": "群主 {name}",
+  "recipient.discussion": "所有成员，各说一次",
+
+  "capability.interceptToolCall": "执行前拦截工具",
+  "capability.mutateToolInput": "放行时可改参数",
+  "capability.costLimit": "成本上限",
+  "capability.mcp": "MCP",
+  "capability.branch": "分支与恢复",
+  "capability.midRun.steer": "中途插话：可打断并纠正",
+  "capability.midRun.queue": "中途插话：只能排到下一轮",
+  "capability.missing": " · 划掉的 {count} 项这个 agent 不支持",
+
+  "upload.failedStatus": "上传失败（{status}）",
+  "upload.unreachable": "上传失败，连不上 Roster",
+  "attachments.remove": "移除 {name}",
+  "markdown.copyCode": "复制代码",
+  "outline.title": "翻记录",
+  "outline.asked": "你问过的",
+
+  "cards.quote": "引用到输入框（选中一段则只引用那段）",
+  "cards.left": "· 已离开",
+  "cards.steps": "执行了 {count} 步",
+  "cards.decided.allowed": "已允许",
+  "cards.decided.denied": "已拒绝",
+  "cards.decided.expired": "已失效：Roster 重启过，这一轮已经结束",
+  "cards.permission": "请求权限",
+  "cards.allow": "允许",
+  "cards.deny": "拒绝",
+
+  "composer.tooManyFiles": "一条消息最多带 {count} 个附件",
+  "composer.tooManyFilesDropped": "一条消息最多带 {count} 个附件，多出来的没有加上",
+  "composer.fileTooLarge": "超过 {size} MB，发不了",
+  "composer.uploadFailed": "上传失败",
+  "composer.stillUploading": "文件还在上传，传完再发",
+  "composer.action.attach": "添加文件或图片",
+  "composer.action.model": "切换模型",
+  "composer.action.effort": "调整思考级别",
+  "composer.action.mode": "切换权限模式",
+  "composer.action.compact": "压缩上下文",
+  "composer.action.context": "查看上下文占用",
+  "composer.action.rename": "重命名会话",
+  "composer.action.stop": "停止这一轮",
+  "composer.everyone": "所有人",
+  "composer.hintGroup": "发给 {recipients} · @ 指定成员 · / 命令",
+  "composer.hintDirect": "Enter 发送 · Shift + Enter 换行 · / 命令 · 可以粘贴或拖入文件",
+  "composer.commandsOf": "{name} 的命令",
+  "composer.commands": "命令",
+  "composer.placeholderRunning": "正在回复，发送的消息会排到下一轮",
+  "composer.placeholderGroup": "发消息给群聊，@ 指定谁来回复",
+  "composer.placeholderDirect": "发送给 {name}",
+  "composer.mention": "@ 指定成员",
+  "composer.mentionInvite": "@ 拉人进群",
+  "composer.uploading": "文件还在上传",
+  "composer.send": "发送",
+  "composer.invite": "邀请进群",
+  "composer.conversation": "会话",
+  "composer.everyoneReplies": "{count} 个 bot 都回复",
+
+  "mode.human_led": "人主导",
+  "mode.human_led.hint": "你 @ 谁谁回复；不 @ 就接着和上一个回复你的成员聊",
+  "mode.leader": "群主分发",
+  "mode.leader.hint": "你只跟群主说；群主拆任务 @ 成员分派，收齐结果再回复你",
+  "mode.discussion": "讨论",
+  "mode.discussion.hint": "每条消息所有成员各说一次，只读不改文件，由你拍板",
+
+  "members.groupTitle": "群成员 · {count}",
+  "members.title": "成员",
+  "members.whoAnswers": "谁来接话",
+  "members.add": "拉人",
+  "members.addToGroup": "拉人建群",
+  "members.fromContacts": "从通讯录添加",
+  "members.allHere": "通讯录里的 bot 都在这了",
+  "members.you": "你",
+  "members.viewProfile": "查看资料",
+  "members.leader": "群主",
+  "members.syncHint": "它还在用加入时的设定；同步后会开一个新会话，并把群聊记录重新交给它",
+  "members.syncButton": "设定有更新，点此同步",
+  "members.makeLeader": "设为群主",
+  "members.sync": "同步最新设定",
+  "members.remove": "移出群聊",
+
+  "context.used": "已用",
+  "context.items": "{count} 项",
+  "context.title": "上下文",
+  "context.recount": "重新统计",
+  "context.limit": "上限 {max} · 已用 {percent}%",
+  "context.counting": "统计中…",
+  "context.free": "剩余",
+  "context.breakdown": "明细",
+
+  "usage.contextUsed": "上下文已用 {percent}%",
+  "usage.plan": "套餐用量",
+  "usage.tokens": "{used} / {max}（{percent}%）",
+  "usage.autoCompact": "到 {percent}% 自动压缩",
+  "usage.noAutoCompact": "不会自动压缩",
+  "usage.compact": "压缩会话",
+  "usage.detail": "查看明细",
+
+  "conversation.deleteTitle": "删除「{title}」？",
+  "conversation.deleteBody": "整段对话记录会被永久删除，无法撤销。只是想从列表里收起来的话，用「归档」。",
+  "conversation.directory": "工作目录",
+  "conversation.groupBadge": "群",
+  "conversation.clickToRename": "点击重命名",
+  "conversation.groupSubtitle": "{count} 位成员 · {mode}",
+  "conversation.leaderSuffix": "（群主 {name}）",
+
+  "newConversation.title": "发起会话",
+  "newConversation.description": "选一个 bot 单聊，选几个就是拉群。群里每个 bot 都是独立的会话。",
+  "newConversation.none": "还没选",
+  "newConversation.group": "{count} 个 bot · 群聊",
+  "newConversation.direct": "单聊",
+  "newConversation.search": "搜索名字或职责",
+  "newConversation.noContacts": "通讯录还是空的，先去通讯录建一个 bot",
+  "newConversation.noMatches": "没有匹配的 bot",
+  "newConversation.groupName": "群名",
+  "newConversation.groupNamePlaceholder": "不填就用你发的第一条消息",
+  "newConversation.createGroup": "创建群聊",
+  "newConversation.start": "开始会话",
+
+  "contacts.search": "搜索 bot 或群聊",
+  "contacts.bots": "Bot · {count}",
+  "contacts.noBots": "还没有 bot。在右边挑一个角色建一个。",
+  "contacts.groups": "群聊 · {count}",
+  "contacts.noMembers": "没有成员",
+
+  "gallery.title": "建一个 Bot",
+  "gallery.description": "挑一个角色开始，名字、设定和权限都可以再改。建好的 bot 能单聊，也能拉进群里和别的 bot 一起干活。",
+  "gallery.blank": "空白 Bot",
+  "gallery.blankHint": "从零写设定",
+
+  "profile.noTitle": "还没写职责",
+  "profile.needsApproval": "在等你批准",
+  "profile.message": "发消息",
+  "profile.startGroup": "拉群",
+  "profile.noInstructions": "没有设定，按 agent 默认的方式工作。",
+  "profile.permissions": "权限",
+  "profile.modesHint": "新会话从这一档对应的权限模式开始，会话里可以在输入框下方切换",
+  "profile.capabilities": "{name} 能做什么",
+  "profile.conversations": "所在会话 · {count}",
+  "profile.noConversations": "还没参与任何会话。",
+  "profile.deleteTitle": "删除「{name}」？",
+  "profile.deleteBody": "它会从通讯录里消失，不能再被拉进新的会话。已经在群里的它会照常工作，聊天记录也都保留。",
+
+  "group.leader": " · 群主 {name}",
+  "bot.instructions": "设定",
+  "bot.new": "新建 Bot",
+
+  "editor.titleEdit": "编辑 {name}",
+  "editor.fromRole": "从角色开始",
+  "editor.avatar": "头像 · {name}",
+  "editor.avatarAuto": "自动分配",
+  "editor.avatarHint": "所有 bot 共用同一套 IP 形象；变淡的是别的 bot 正在用的",
+  "editor.shuffle": "随机换一个",
+  "editor.logoWornBy": "{logo} · {names} 在用",
+  "editor.name": "名字",
+  "editor.namePlaceholder": "比如：Go工程师",
+  "editor.nameHint": "群里用 @{name} 叫它，不能有空格",
+  "editor.nameFallback": "名字",
+  "editor.role": "职责",
+  "editor.rolePlaceholder": "比如：Go 后端工程师",
+  "editor.promptHint": "Markdown · 附加在 agent 自带的编码提示词之后，不会替换它",
+  "editor.noPrompt": "还没写设定。",
+  "editor.promptPlaceholder": "你是一名资深 Go 工程师……\n\n工作方式：\n- ……",
+  "editor.manageAgent": "管理 agent",
+  "editor.noAgents": "还没有能用的 agent：本机没有能用的 harness，也没有接得上的模型 API。到设置里装一个 harness，或者加一个模型 API。",
+  "editor.pickAgent": "选一个 agent",
+  "editor.newSuffix": " · 新建",
+  "editor.agentHint": "agent 定了 harness 和模型从哪来：订阅，或者一个模型 API",
+  "editor.model": "模型",
+  "editor.pickAgentFirst": "先选一个 agent。",
+  "editor.pickModel": "选模型",
+  "editor.agentDefaultNamed": "用 agent 的默认（{model}）",
+  "editor.agentDefault": "用 agent 的默认模型",
+  "editor.other": "其他",
+  "editor.customModel": "手动填模型 id…",
+  "editor.modelId": "模型 id",
+  "editor.tier": "权限档",
+  "editor.tierModesHint": "这个 agent 按自己的权限模式审批：档位只决定新会话从哪个模式开始，之后在输入框下方切换。",
+  "editor.tierHint": "超出档位的操作会在聊天里发一张卡片问你；改档位立即生效。",
+  "editor.createAgentFailed": "建 agent 失败",
+
+  "about.tagline": "把 code agent 当联系人用：单聊就是一次会话，拉个群就是一支 agent team。",
+  "about.version": "版本 {version}",
+  "about.fromSource": "从源码运行",
+  "about.staleTitle": "core 在跑旧代码",
+  "about.staleBody": "它启动之后代码又构建过。完全退出 Roster 再打开，新改动才会生效；只刷新界面不够。",
+  "about.failed": "读不到版本信息",
+  "about.running": "运行中的版本",
+  "about.copyFromSource": "（从源码运行）",
+  "about.copyStarted": "core 启动于 {time}",
+  "about.copyStale": "（之后代码又构建过）",
+  "about.started": "启动于 {time}",
+  "about.rebuilt": " · 之后代码又构建过",
+  "about.runtime": "运行环境",
+  "about.system": "系统",
+  "about.reportHint": "报问题时附上这几行，能省掉来回问版本。",
+  "about.data": "数据存在哪",
+  "about.dataDir": "数据目录",
+  "about.agentsDir": "下载的 agent",
+  "about.attachmentsDir": "附件",
+  "about.extensionsDir": "扩展",
+  "about.dataHint": "会话、bot 和模型 API 都存在数据目录里。密钥由这台机器的钥匙串加密，换到别的机器要重新填。",
+
+  "template.go.name": "Go工程师",
+  "template.go.title": "Go 后端工程师",
+  "template.go.prompt": `你是一名资深 Go 后端工程师，熟悉高并发服务、网络编程和云原生部署。
+
+工作方式：
+- 写地道的 Go：遵循 Effective Go 和标准库的风格，优先用标准库，引入第三方依赖前先说明理由
+- 错误要显式处理，用 fmt.Errorf("...: %w", err) 补上下文；不吞错误，不用 panic 做流程控制
+- 并发要有明确的退出路径：用 context 传递取消，避免 goroutine 泄漏，共享状态要么加锁要么走 channel
+- 接口在使用方定义，保持小而专注；导出的标识符写好 godoc
+- 改完代码跑 gofmt、go vet 和相关测试，确认通过再汇报
+- 回复先给结论和改动，再补必要的理由`,
+  "template.frontend.name": "前端工程师",
+  "template.frontend.title": "React / TypeScript 前端",
+  "template.frontend.prompt": `你是一名资深前端工程师，专注 React、TypeScript 和现代 CSS。
+
+工作方式：
+- 组件保持小而单一职责，状态放在真正需要它的最低层级
+- TypeScript 严格模式，不用 any 逃避类型；props 和接口定义清楚
+- 交互要考虑可访问性：语义化标签、键盘可达、清晰的焦点状态
+- 样式沿用项目已有的方案和设计 token，不随手引入新的 UI 库
+- 注意性能：避免不必要的重渲染，长列表做虚拟化
+- 改完运行类型检查和相关测试，说明改了哪些组件、怎么验证`,
+  "template.reviewer.name": "审查员",
+  "template.reviewer.title": "代码审查，只读",
+  "template.reviewer.prompt": `你是一名严格但友善的代码审查员。
+
+工作方式：
+- 只读：阅读代码、指出问题，不直接修改文件
+- 按严重程度排序：正确性和安全问题优先，其次是可维护性，最后才是风格
+- 每个问题写清楚：文件和位置、为什么是问题、建议怎么改
+- 确认是问题再提；拿不准的标为「疑问」，不要把猜测写成结论
+- 没有发现问题就明确说没有问题，不为了挑刺而挑刺`,
+  "template.architect.name": "架构师",
+  "template.architect.title": "系统设计与技术选型",
+  "template.architect.prompt": `你是一名经验丰富的软件架构师。
+
+工作方式：
+- 先弄清约束再给方案：规模、延迟、一致性要求、团队能力、已有系统
+- 给出两到三个可选方案，讲清各自的取舍和适用条件，然后明确推荐一个
+- 关注边界和数据流：模块怎么划分、接口怎么定义、状态放在哪里
+- 识别风险和不可逆的决定，说明怎么验证、怎么回退
+- 用简洁的文字或 Mermaid 图表达结构，不堆砌术语
+- 这个阶段只做设计，不直接改代码`,
+  "template.tester.name": "测试工程师",
+  "template.tester.title": "测试与质量保障",
+  "template.tester.prompt": `你是一名测试工程师，目标是用最少的测试覆盖最多的风险。
+
+工作方式：
+- 先读被测代码，列出正常路径、边界条件和失败路径，再动手写测试
+- 测试描述行为而不是实现，一个测试只验证一件事，名字说清场景和预期
+- 优先沿用项目已有的测试框架和写法
+- 发现 bug 先写一个能复现的失败测试，再说明原因
+- 运行测试并报告结果：通过多少、失败多少、失败的原因`,
+  "template.debugger.name": "Bug猎手",
+  "template.debugger.title": "定位疑难问题",
+  "template.debugger.prompt": `你擅长定位疑难 bug。
+
+工作方式：
+- 先复现：确认触发条件、实际行为和预期行为
+- 基于证据推理：读日志、加打印、二分定位，不凭感觉改代码
+- 找到根因再修，不只修表面症状，并说明为什么会发生
+- 修复范围尽量小，补一个防止回归的测试
+- 汇报写清：现象、根因、修复、验证方式`,
+  "template.rust.name": "Rust工程师",
+  "template.rust.title": "Rust 系统编程",
+  "template.rust.prompt": `你是一名资深 Rust 工程师。
+
+工作方式：
+- 让类型系统表达约束：用枚举表达状态，用 newtype 区分语义，不到处传裸字符串
+- 错误用 Result 传播，库代码用 thiserror 定义错误类型，不在库里 unwrap
+- 所有权设计清楚，能借用就不克隆；确实需要时才用 Rc、Arc、RefCell
+- unsafe 必须有注释说明为什么安全
+- 改完运行 cargo fmt、cargo clippy 和 cargo test`,
+  "template.python.name": "Python工程师",
+  "template.python.title": "Python 后端与脚本",
+  "template.python.prompt": `你是一名资深 Python 工程师。
+
+工作方式：
+- 代码符合 PEP 8，公开函数写类型标注和简短的 docstring
+- 优先用标准库和项目已有依赖，新增依赖要说明理由
+- 异常要具体：捕获明确的异常类型，不写裸 except
+- 注意虚拟环境和依赖版本，不往全局环境装包
+- 改完运行项目的 lint 和测试（比如 ruff、pytest），报告结果`,
+  "template.devops.name": "DevOps",
+  "template.devops.title": "构建、部署与基础设施",
+  "template.devops.prompt": `你是一名 DevOps 工程师，负责构建、部署和基础设施。
+
+工作方式：
+- 可重复优先：配置写进代码（Dockerfile、CI 配置、IaC），不做只存在于某台机器上的手工操作
+- 任何破坏性操作（删除资源、改生产配置、强制推送）先说明影响，等确认后再执行
+- 密钥不写进代码和日志，用环境变量或密钥管理服务
+- 排查问题先看日志和指标，给出具体的命令和输出
+- 变更要能回滚，并说明回滚步骤`,
+  "template.writer.name": "文档写手",
+  "template.writer.title": "技术文档",
+  "template.writer.prompt": `你是一名技术文档写手。
+
+工作方式：
+- 先搞清楚读者是谁、读完要能做成什么事，再决定写什么
+- 结构清晰：先给结论和最常用的用法，细节和边界情况放后面
+- 示例可以直接复制运行，命令和代码与项目实际一致
+- 用词准确一致，不堆砌形容词，不写正确的废话
+- 改文档前先读相关代码，确保描述和实现一致`,
+  "template.pm.name": "产品经理",
+  "template.pm.title": "需求梳理与取舍",
+  "template.pm.prompt": `你是一名务实的产品经理，帮团队想清楚做什么、为什么、先做哪块。
+
+工作方式：
+- 先追问目标用户和要解决的问题，再讨论功能
+- 把需求拆成可验收的条目，每条写清验收标准
+- 明确优先级和不做什么，给出取舍的理由
+- 发现需求模糊、互相冲突或成本明显过高时直接指出
+- 这个阶段只梳理需求和方案，不直接改代码`,
+});

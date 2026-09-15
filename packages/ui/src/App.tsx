@@ -30,11 +30,13 @@ import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, Templat
 import { ContextPanel } from "./context-panel";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
+import { useI18n, type I18n } from "./i18n";
+import { LanguagePanel } from "./language";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
 import { MentionNames } from "./markdown";
-import { MembersPanel, MODES } from "./members-panel";
+import { MembersPanel } from "./members-panel";
 import { leaderOf } from "./mentions";
-import { NAV, NavRail, RAIL, type Nav } from "./nav-rail";
+import { NavRail, RAIL, type Nav } from "./nav-rail";
 import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
@@ -55,25 +57,17 @@ import { cn } from "@/lib/utils";
 const PANEL = "bg-background shadow-panel overflow-hidden rounded-xl";
 
 /** The list wants a glanceable time, not a precise one. */
-function listTime(ts: number): string {
+function listTime({ t, clock, day }: Pick<I18n, "t" | "clock" | "day">, ts: number): string {
   const d = new Date(ts);
   const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  if (sameDay) {
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  }
+  if (d.toDateString() === today.toDateString()) return clock(ts);
   const yesterday = new Date(today.getTime() - 86400000);
-  if (d.toDateString() === yesterday.toDateString()) return "昨天";
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  if (d.toDateString() === yesterday.toDateString()) return t("time.yesterday");
+  return day(ts);
 }
 
 /** Exactly one unread meaning: this one is waiting for you. Running is never unread. */
-const WAITING: Record<string, string> = {
-  waiting_permission: "等你批准",
-  waiting_input: "等你回复",
-  error: "出错了",
-  stalled: "卡住了",
-};
+const isWaiting = (attention: Conversation["attention"]): attention is Exclude<Conversation["attention"], "none"> => attention !== "none";
 
 const repoName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
@@ -104,6 +98,8 @@ function usePanelOpen() {
 }
 
 export default function App() {
+  const i18n = useI18n();
+  const { t, list, sync } = i18n;
   const { theme, setTheme } = useTheme();
   const { typography, setFont, setCustomFont, setSize } = useTypography();
   const [nav, setNav] = useState<Nav>("messages");
@@ -185,7 +181,7 @@ export default function App() {
   const loadAbout = () =>
     void api
       .about()
-      .then((r) => setAbout("version" in r ? r : { error: (r as { error?: string }).error ?? "core 没有回答" }))
+      .then((r) => setAbout("version" in r ? r : { error: (r as { error?: string }).error ?? t("app.coreSilent") }))
       .catch((e: unknown) => setAbout({ error: String(e) }));
 
   const loadStatus = (id: string) =>
@@ -228,8 +224,22 @@ export default function App() {
         setHarnessLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label])));
         setDefaultDir(s.defaultDir ?? "");
         setPresence(Object.fromEntries((s.presence ?? []).map((p) => [p.memberId, p])));
+        if (s.preferences) sync(s.preferences.locale);
         if (!activeRef.current && s.conversations[0]) setActive(s.conversations[0].id);
       });
+    /** Everything core wrote for this window to read, fetched again: after a dropped stream, or once it writes in another language. */
+    const reload = () => {
+      void load();
+      const id = activeRef.current;
+      if (id) {
+        void api.messages(id).then((r) => {
+          if (activeRef.current !== id) return;
+          setMessages(r.messages);
+          setStreams(r.streams ?? {});
+        });
+        void loadStatus(id);
+      }
+    };
     void load();
     return connect((m) => {
       switch (m.kind) {
@@ -261,6 +271,11 @@ export default function App() {
           return;
         case "bots":
           setBots(m.bots);
+          return;
+        case "preferences":
+          sync(m.locale);
+          // notices and logo names come back in the new language; executors and extensions are pushed right after
+          reload();
           return;
         case "session":
           setSessions((s) => ({ ...s, [m.memberId]: m.info }));
@@ -294,18 +309,7 @@ export default function App() {
           return;
         }
       }
-    }, () => {
-      void load();
-      const id = activeRef.current;
-      if (id) {
-        void api.messages(id).then((r) => {
-          if (activeRef.current !== id) return;
-          setMessages(r.messages);
-          setStreams(r.streams ?? {});
-        });
-        void loadStatus(id);
-      }
-    });
+    }, reload);
   }, []);
 
   useEffect(() => {
@@ -423,7 +427,7 @@ export default function App() {
       const r = await startDirect(bot, defaultDir);
       if (!r.conversation) {
         // most likely the remembered directory is gone, and the dialog is where another is picked
-        toast.error("没能直接开始会话", { description: r.error });
+        toast.error(t("app.startFailed"), { description: r.error });
         setStarting({ open: true, botIds: [bot.id] });
         return;
       }
@@ -468,22 +472,22 @@ export default function App() {
     <SourceRefs.Provider value={sourceRefs}>
     <TooltipProvider delayDuration={200}>
       <div className="bg-sidebar text-sidebar-foreground flex h-full">
-        {/* 一、导航栏：一条图标栏，宽度固定 —— 三个入口撑不满一整列，剩下的宽度归列表和正文 */}
+        {/* 1. The rail: a fixed strip of icons. Three entries do not fill a column, so the width goes to the list and the conversation */}
         <NavRail nav={nav} onNav={setNav} waiting={waiting} />
 
         {/* the margins around the panels are chrome too: the window drags by them */}
         <div className="text-foreground flex min-w-0 flex-1 py-2 pr-2" style={DRAG}>
-        {/* 二、列表 */}
+        {/* 2. The list */}
         <section className={cn(PANEL, "flex min-h-0 shrink-0 flex-col")} style={{ width: list_.width, ...NO_DRAG }}>
           <header className="flex h-13 shrink-0 items-center justify-between pr-2.5 pl-4.5" style={DRAG}>
-            <h1 className="text-[15px] font-semibold">{nav === "settings" ? "设置" : NAV.find((n) => n.id === nav)?.label}</h1>
+            <h1 className="text-[15px] font-semibold">{t(`nav.${nav}`)}</h1>
             {nav === "messages" && (
               <div className="flex items-center gap-1" style={NO_DRAG}>
                 <Button
                   variant="ghost"
                   size="icon"
                   className={cn("size-7 rounded-lg", showArchived ? "bg-selected text-primary hover:bg-selected hover:text-primary" : "text-muted-foreground")}
-                  title={showArchived ? "只看进行中" : "显示已归档"}
+                  title={showArchived ? t("app.activeOnly") : t("app.showArchived")}
                   aria-pressed={showArchived}
                   onClick={() => setShowArchived((v) => !v)}
                 >
@@ -493,7 +497,7 @@ export default function App() {
                   variant="ghost"
                   size="icon"
                   className="bg-foreground/[0.05] hover:bg-foreground/10 size-7 rounded-lg"
-                  title="发起会话"
+                  title={t("newConversation.title")}
                   onClick={() => setStarting({ open: true, botIds: [] })}
                 >
                   <Plus className="size-4" />
@@ -506,7 +510,7 @@ export default function App() {
                 size="icon"
                 className="bg-foreground/[0.05] hover:bg-foreground/10 size-7 rounded-lg"
                 style={NO_DRAG}
-                title="新建 Bot"
+                title={t("bot.new")}
                 onClick={() => {
                   setContact(null);
                   setEditing(null);
@@ -542,21 +546,21 @@ export default function App() {
               }}
             />
           ) : nav !== "messages" ? (
-            <Empty label={`${NAV.find((n) => n.id === nav)?.label}：第一版还没做`} />
+            <Empty label={t("app.notBuiltNamed", { name: t(`nav.${nav}`) })} />
           ) : (
             <>
-              <ListSearch value={query} onChange={setQuery} placeholder="搜索会话、bot 或仓库" />
+              <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
               <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.375rem)]">
                 <div className={cn(LIST_BODY, "pt-1.5")}>
                   {convs.length === 0 ? (
-                    <p className="text-muted-foreground px-2.5 py-6 text-sm">还没有会话，点右上角 + 发起。</p>
+                    <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noConversations")}</p>
                   ) : (
                     shownConvs.length === 0 && (
-                      <p className="text-muted-foreground px-2.5 py-6 text-sm">没有和「{query.trim()}」相关的会话。</p>
+                      <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
                     )
                   )}
                   {shownConvs.map((c) => {
-                    const waiting = WAITING[c.attention];
+                    const waiting = isWaiting(c.attention) ? t(`attention.${c.attention}`) : null;
                     const people = activeMembers(c);
                     const face = people[0] ?? c.members[0];
                     return (
@@ -587,14 +591,18 @@ export default function App() {
                             {/* weight is the unread mark: it stays heavy exactly as long as the conversation waits on you */}
                             <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>{c.title}</span>
                             {c.shape === "group" && (
-                              <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">群</span>
+                              <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
+                                {t("conversation.groupBadge")}
+                              </span>
                             )}
                             {c.archived && (
-                              <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-[14px]">已归档</span>
+                              <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-[14px]">
+                                {t("app.archived")}
+                              </span>
                             )}
                             {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
                             <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
-                              {listTime(c.last_activity_at)}
+                              {listTime(i18n, c.last_activity_at)}
                             </span>
                           </div>
                           <div className="mt-0.5 flex items-center gap-2">
@@ -631,27 +639,29 @@ export default function App() {
         </section>
 
         {/* the list starts at the rail and the gap's centre is 4px past its edge, so its width is what is left of x */}
-        <Resizer label="调整列表宽度" onDrag={(x) => list_.set(x - RAIL - 4)} onReset={list_.reset} />
+        <Resizer label={t("app.resizeList")} onDrag={(x) => list_.set(x - RAIL - 4)} onReset={list_.reset} />
 
-        {/* 三、详情 */}
+        {/* 3. The detail */}
         <main className="@container relative flex min-h-0 min-w-0 flex-1 gap-2" style={NO_DRAG}>
           {nav === "settings" ? (
             <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
               <header className="flex h-13 shrink-0 items-center px-5" style={DRAG}>
                 <span className="text-sm font-semibold">
                   {settingsSel?.kind === "appearance"
-                    ? "外观"
-                    : settingsSel?.kind === "about"
-                      ? "关于"
-                      : settingsSel?.kind === "provider"
-                      ? "模型 API"
-                      : settingsSel?.kind === "agent"
-                        ? "Agent"
-                        : settingsSel?.kind === "harness" ||
-                            settingsSel?.kind === "harnesses" ||
-                            (settingsView && settingsView.executors.length === 0)
-                          ? "Harness"
-                          : "设置"}
+                    ? t("settings.appearance")
+                    : settingsSel?.kind === "language"
+                      ? t("settings.language")
+                      : settingsSel?.kind === "about"
+                        ? t("settings.about")
+                        : settingsSel?.kind === "provider"
+                          ? t("source.endpoint")
+                          : settingsSel?.kind === "agent"
+                            ? "Agent"
+                            : settingsSel?.kind === "harness" ||
+                                settingsSel?.kind === "harnesses" ||
+                                (settingsView && settingsView.executors.length === 0)
+                              ? t("settings.harness")
+                              : t("nav.settings")}
                 </span>
               </header>
               {settingsSel?.kind === "appearance" ? (
@@ -663,6 +673,8 @@ export default function App() {
                   onCustomFont={setCustomFont}
                   onSize={setSize}
                 />
+              ) : settingsSel?.kind === "language" ? (
+                <LanguagePanel />
               ) : settingsSel?.kind === "about" ? (
                 <AboutPanel about={about} />
               ) : !settingsView ? (
@@ -717,14 +729,22 @@ export default function App() {
                   onSelect={setSettingsSel}
                 />
               ) : (
-                <Empty label="左边选一项设置" />
+                <Empty label={t("app.pickSetting")} />
               )}
             </div>
           ) : nav === "contacts" ? (
             <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
               <header className="flex h-13 shrink-0 items-center px-5" style={DRAG}>
                 <span className="text-sm font-semibold">
-                  {editing ? (editing.botId ? "编辑资料" : "新建 Bot") : selectedBot ? "资料" : selectedGroup ? "群资料" : "角色"}
+                  {editing
+                    ? editing.botId
+                      ? t("app.editProfile")
+                      : t("bot.new")
+                    : selectedBot
+                      ? t("app.profile")
+                      : selectedGroup
+                        ? t("app.groupProfile")
+                        : t("app.roles")}
                 </span>
               </header>
               {editing ? (
@@ -776,11 +796,11 @@ export default function App() {
                   }}
                 />
               ) : (
-                <TemplateGallery onPick={(t) => setEditing({ botId: null, template: t })} />
+                <TemplateGallery onPick={(template) => setEditing({ botId: null, template })} />
               )}
             </div>
           ) : nav !== "messages" || !conv ? (
-            <Empty label={nav === "messages" ? "选一个会话" : "第一版还没做"} className={PANEL} />
+            <Empty label={nav === "messages" ? t("app.pickConversation") : t("app.notBuilt")} className={PANEL} />
           ) : (
             <>
               <div
@@ -803,7 +823,7 @@ export default function App() {
               >
                 {dropping && (
                   <div className="border-primary/60 bg-background/85 text-primary pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed text-sm font-medium">
-                    松开，添加到这条消息里
+                    {t("app.dropFiles")}
                   </div>
                 )}
                 <header className="flex h-13 shrink-0 items-center gap-3 px-5" style={DRAG}>
@@ -819,7 +839,7 @@ export default function App() {
                       ) : (
                         <span
                           onClick={() => setRenaming(conv.id)}
-                          title="点击重命名"
+                          title={t("conversation.clickToRename")}
                           style={NO_DRAG}
                           className="hover:bg-accent cursor-text truncate rounded px-1.5 py-0.5 text-sm font-semibold"
                         >
@@ -828,7 +848,7 @@ export default function App() {
                       )}
                       {group ? (
                         <Badge variant="secondary" className="px-1 py-0 text-[10px]">
-                          群
+                          {t("conversation.groupBadge")}
                         </Badge>
                       ) : (
                         members[0] && (
@@ -838,8 +858,8 @@ export default function App() {
                     </div>
                     <div className="text-muted-foreground truncate px-1.5 text-[11px]">
                       {group
-                        ? `${members.length + 1} 位成员 · ${MODES.find((x) => x.id === conv.mode)?.label}${
-                            conv.mode === "leader" ? `（群主 ${leaderOf(conv)?.bot.name ?? "-"}）` : ""
+                        ? `${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
+                            conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
                           }`
                         : [members[0]?.bot.name, members[0]?.bot.title].filter(Boolean).join(" · ")}
                       <span className="font-mono"> · {conv.repo_path}</span>
@@ -854,7 +874,7 @@ export default function App() {
                     variant={panelOpen && !contextFor ? "secondary" : "ghost"}
                     size="sm"
                     style={NO_DRAG}
-                    title={panelOpen && !contextFor ? "收起成员" : "成员与模式"}
+                    title={panelOpen && !contextFor ? t("app.hideMembers") : t("app.membersAndMode")}
                     onClick={() => {
                       // the context window is in that slot; the first press brings the members back
                       if (contextFor) return setContextFor(null), setPanel((p) => ({ ...p, [conv.shape]: true }));
@@ -880,14 +900,14 @@ export default function App() {
                           {group ? (
                             <>
                               <GroupAvatar bots={members.map((m) => m.bot)} size="lg" />
-                              <p className="text-sm">群里有 {members.map((m) => m.bot.name).join("、")}</p>
-                              <p className="max-w-sm text-xs">{MODES.find((x) => x.id === conv.mode)?.hint}</p>
+                              <p className="text-sm">{t("app.groupHas", { names: list(members.map((m) => m.bot.name)) })}</p>
+                              <p className="max-w-sm text-xs">{t(`mode.${conv.mode}.hint`)}</p>
                             </>
                           ) : (
                             <>
                               <MessageSquarePlus className="size-7 opacity-40" />
-                              <p className="text-sm">还没有消息</p>
-                              <p className="text-xs">发第一条消息开始。它会成为这个会话的标题。</p>
+                              <p className="text-sm">{t("app.noMessages")}</p>
+                              <p className="text-xs">{t("app.firstMessage")}</p>
                             </>
                           )}
                         </div>

@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { CopyIcon, useCopy } from "./copy";
+import { useI18n } from "./i18n";
 import { segments } from "./mentions";
 
 /** Member names in the current conversation, so @name renders as an address. */
@@ -92,6 +93,7 @@ const COMPONENTS: Components = {
 function CodeBlock({ children }: { children?: React.ReactNode }) {
   const ref = useRef<HTMLPreElement>(null);
   const { copied, copy } = useCopy();
+  const { t } = useI18n();
   return (
     <div className="group/code relative my-2">
       {/* its own scroller: a long line must not widen the bubble */}
@@ -100,7 +102,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
       </pre>
       <button
         onClick={() => void copy(ref.current?.innerText ?? "")}
-        title="复制代码"
+        title={t("markdown.copyCode")}
         className="text-muted-foreground hover:bg-background hover:text-foreground absolute top-2 right-2 rounded p-1 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100"
       >
         <CopyIcon copied={copied} />

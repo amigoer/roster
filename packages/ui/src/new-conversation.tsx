@@ -4,6 +4,7 @@ import { api, type Bot, type Capabilities, type Conversation, type Mode } from "
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { useExecutor } from "./executors";
+import { useI18n } from "./i18n";
 import { ModePicker } from "./members-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,12 +30,8 @@ function lastDir(fallback: string): string {
   }
 }
 
-/** Core renames this from the first message, so it must keep matching its UNTITLED pattern. */
-const directTitle = (bot: Bot) => `与 ${bot.name} 的会话`;
-
-/** A 1:1 has nothing to choose, so it starts without the dialog. */
-export const startDirect = (bot: Bot, defaultDir: string) =>
-  api.createConversation({ title: directTitle(bot), repoPath: lastDir(defaultDir), botIds: [bot.id] });
+/** A 1:1 has nothing to choose, so it starts without the dialog. Core gives it a default title, which the first message replaces. */
+export const startDirect = (bot: Bot, defaultDir: string) => api.createConversation({ repoPath: lastDir(defaultDir), botIds: [bot.id] });
 
 export function NewConversation({
   open,
@@ -56,6 +53,7 @@ export function NewConversation({
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const executor = useExecutor();
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<Mode>("human_led");
@@ -94,14 +92,15 @@ export function NewConversation({
     setBusy(true);
     setError(null);
     const r = await api.createConversation({
-      title: group ? title.trim() || "新群聊" : directTitle(chosen[0]!),
+      // left out, core names it in its own language, and the first message renames it
+      ...(group && title.trim() ? { title: title.trim() } : {}),
       repoPath: dir.trim(),
       botIds: chosen.map((b) => b.id),
       ...(group ? { mode, ...(mode === "leader" && leaderBot ? { leaderBotId: leaderBot.id } : {}) } : {}),
     });
     setBusy(false);
     if (r.error || !r.conversation) {
-      setError(r.error ?? "创建失败");
+      setError(r.error ?? t("common.createFailed"));
       return;
     }
     try {
@@ -117,16 +116,20 @@ export function NewConversation({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>发起会话</DialogTitle>
-          <DialogDescription>选一个 bot 单聊，选几个就是拉群。群里每个 bot 都是独立的会话。</DialogDescription>
+          <DialogTitle>{t("newConversation.title")}</DialogTitle>
+          <DialogDescription>{t("newConversation.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-1">
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
-              <Label>成员</Label>
+              <Label>{t("members.title")}</Label>
               <span className="text-muted-foreground text-xs">
-                {chosen.length === 0 ? "还没选" : group ? `${chosen.length} 个 bot · 群聊` : "单聊"}
+                {chosen.length === 0
+                  ? t("newConversation.none")
+                  : group
+                    ? t("newConversation.group", { count: chosen.length })
+                    : t("newConversation.direct")}
               </span>
             </div>
             <div className="relative">
@@ -134,14 +137,14 @@ export function NewConversation({
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索名字或职责"
+                placeholder={t("newConversation.search")}
                 className="h-9 pl-8"
               />
             </div>
             <div className="max-h-56 overflow-y-auto rounded-md border p-1">
               {shown.length === 0 && (
                 <p className="text-muted-foreground px-2 py-6 text-center text-sm">
-                  {bots.length === 0 ? "通讯录还是空的，先去通讯录建一个 bot" : "没有匹配的 bot"}
+                  {bots.length === 0 ? t("newConversation.noContacts") : t("newConversation.noMatches")}
                 </p>
               )}
               {shown.map((b) => {
@@ -180,20 +183,20 @@ export function NewConversation({
           {group && (
             <>
               <div className="grid gap-2">
-                <Label htmlFor="group-title">群名</Label>
+                <Label htmlFor="group-title">{t("newConversation.groupName")}</Label>
                 <Input
                   id="group-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="不填就用你发的第一条消息"
+                  placeholder={t("newConversation.groupNamePlaceholder")}
                 />
               </div>
               <div className="grid gap-2">
-                <Label>谁来接话</Label>
+                <Label>{t("members.whoAnswers")}</Label>
                 <ModePicker value={mode} onChange={setMode} compact />
                 {mode === "leader" && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-muted-foreground mr-1 text-xs">群主</span>
+                    <span className="text-muted-foreground mr-1 text-xs">{t("members.leader")}</span>
                     {chosen.map((b) => (
                       <button
                         key={b.id}
@@ -216,7 +219,7 @@ export function NewConversation({
           )}
 
           <div className="grid gap-2">
-            <Label htmlFor="dir">工作目录</Label>
+            <Label htmlFor="dir">{t("conversation.directory")}</Label>
             <Input
               id="dir"
               value={dir}
@@ -240,10 +243,10 @@ export function NewConversation({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void create()} disabled={busy || chosen.length === 0 || !dir.trim()}>
-            {group ? "创建群聊" : "开始会话"}
+            {group ? t("newConversation.createGroup") : t("newConversation.start")}
           </Button>
         </DialogFooter>
       </DialogContent>

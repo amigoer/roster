@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { api, type Conversation } from "./api";
+import { useI18n } from "./i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,7 @@ export function ConversationMenu({
   onGone: (id: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const { t } = useI18n();
 
   const archive = async () => {
     await api.archive(conv.id, !conv.archived);
@@ -60,25 +62,25 @@ export function ConversationMenu({
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenuItem onSelect={onRename}>
             <Pencil className="size-3.5" />
-            重命名
+            {t("common.rename")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void archive()}>
             {conv.archived ? (
               <>
                 <ArchiveRestore className="size-3.5" />
-                取消归档
+                {t("common.unarchive")}
               </>
             ) : (
               <>
                 <Archive className="size-3.5" />
-                归档
+                {t("common.archive")}
               </>
             )}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
             <Trash2 className="size-3.5" />
-            删除
+            {t("common.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -99,17 +101,16 @@ export function DeleteConversation({
   onOpenChange: (open: boolean) => void;
   onDeleted: (id: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
         <AlertDialogHeader>
-          <AlertDialogTitle>删除「{conv.title}」？</AlertDialogTitle>
-          <AlertDialogDescription>
-            整段对话记录会被永久删除，无法撤销。只是想从列表里收起来的话，用「归档」。
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("conversation.deleteTitle", { title: conv.title })}</AlertDialogTitle>
+          <AlertDialogDescription>{t("conversation.deleteBody")}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
             onClick={() => {
@@ -117,7 +118,7 @@ export function DeleteConversation({
               onDeleted(conv.id);
             }}
           >
-            删除
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

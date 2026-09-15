@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { ContextUse, Quota, QuotaWindow } from "./api";
 import { ContextBar, tokens } from "./context-panel";
+import { useI18n } from "./i18n";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +83,7 @@ export function UsagePanel({
   onDetail: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
   const windows = (quota?.windows ?? []).map(current);
   if (!context && windows.length === 0) return null;
   const tightest = windows.reduce<QuotaWindow | undefined>((a, b) => (!a || b.usedPercent > a.usedPercent ? b : a), undefined);
@@ -101,7 +103,7 @@ export function UsagePanel({
       >
         <PopoverTrigger
           className="hover:bg-accent data-[state=open]:bg-accent focus-visible:ring-ring/50 inline-flex size-7 items-center justify-center rounded-lg outline-none focus-visible:ring-2"
-          aria-label={context ? `上下文已用 ${context.percent}%` : "套餐用量"}
+          aria-label={context ? t("usage.contextUsed", { percent: context.percent }) : t("usage.plan")}
         >
           <Ring percent={context ? context.percent : (tightest?.usedPercent ?? 0)} />
         </PopoverTrigger>
@@ -113,16 +115,16 @@ export function UsagePanel({
                 onClick={onDetail ? showDetail : undefined}
                 className="text-muted-foreground hover:text-foreground flex w-full items-center justify-between gap-2"
               >
-                <span>上下文</span>
+                <span>{t("context.title")}</span>
                 <span className="flex items-center gap-1 tabular-nums">
-                  {tokens(context.used)} / {tokens(context.max)}（{context.percent}%）
+                  {t("usage.tokens", { used: tokens(context.used), max: tokens(context.max), percent: context.percent })}
                   {onDetail && <ChevronRight className="size-4" />}
                 </span>
               </button>
               <ContextBar context={context} />
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate">
-                  {context.autoCompactAt ? `到 ${context.autoCompactAt}% 自动压缩` : "不会自动压缩"}
+                  {context.autoCompactAt ? t("usage.autoCompact", { percent: context.autoCompactAt }) : t("usage.noAutoCompact")}
                 </span>
                 {onCompact && (
                   <button
@@ -134,7 +136,7 @@ export function UsagePanel({
                     }}
                     className="shrink-0 text-blue-600 underline decoration-blue-600/30 underline-offset-4 hover:decoration-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-blue-400"
                   >
-                    压缩会话
+                    {t("usage.compact")}
                   </button>
                 )}
               </div>
@@ -169,7 +171,7 @@ export function UsagePanel({
           )}
           {context && onDetail && (
             <button type="button" onClick={showDetail} className="hover:bg-accent w-full rounded-b-xl border-t px-4 py-3 text-left">
-              查看明细
+              {t("usage.detail")}
             </button>
           )}
         </PopoverContent>

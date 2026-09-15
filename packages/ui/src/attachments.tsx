@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CircleAlert, File, FileArchive, FileCode, FileImage, FileText, X } from "lucide-react";
 import { attachmentUrl, type AttachmentRef } from "./api";
+import { useI18n } from "./i18n";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +85,7 @@ export interface Pending {
 
 /** What goes out with the message. A picture shows itself; anything else says what it is. */
 export function PendingTray({ items, onRemove }: { items: Pending[]; onRemove: (key: string) => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap gap-2 px-3 pt-3">
       {items.map((p) => {
@@ -122,7 +124,7 @@ export function PendingTray({ items, onRemove }: { items: Pending[]; onRemove: (
             )}
             <button
               type="button"
-              aria-label={`移除 ${p.name}`}
+              aria-label={t("attachments.remove", { name: p.name })}
               onClick={() => onRemove(p.key)}
               className={cn(
                 "bg-foreground text-background absolute -top-1.5 -right-1.5 size-5 items-center justify-center rounded-full shadow-sm outline-none",

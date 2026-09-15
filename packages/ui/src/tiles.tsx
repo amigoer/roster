@@ -1,5 +1,6 @@
 import { Cpu, KeyRound, Puzzle } from "lucide-react";
 import { CUSTOM_PRESET, type ProviderPreset, type ProviderRecord, type SourceRef } from "./api";
+import type { Translate } from "./i18n";
 import { ProviderIcon, type Provider } from "./provider-icon";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -19,13 +20,13 @@ export const API_BRAND: Record<string, Provider> = {
   "mistral-conversations": "mistral",
 };
 
-export const API_LABEL: Record<string, string> = {
-  "openai-completions": "OpenAI 兼容（Chat Completions）",
-  "openai-responses": "OpenAI Responses",
-  "anthropic-messages": "Anthropic 兼容（Messages）",
-  "google-generative-ai": "Google Gemini",
-  "mistral-conversations": "Mistral",
-};
+/** Protocols a hand-entered endpoint can speak; what each is called is in the catalog. */
+export const API_IDS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai", "mistral-conversations"] as const;
+
+const isApi = (api: string): api is (typeof API_IDS)[number] => (API_IDS as readonly string[]).includes(api);
+
+/** A protocol in words; one this build does not know goes by its id. */
+export const apiLabel = (t: Translate, api: string | null | undefined): string => (api && isApi(api) ? t(`api.${api}`) : (api ?? ""));
 
 /**
  * A preset or a saved endpoint only ever carries free text (its preset id, its
@@ -128,7 +129,7 @@ export function PresetTile({ preset, size }: { preset: Pick<ProviderPreset, "id"
 }
 
 /** A protocol's name without the wire detail, where a line has no room for it. */
-export const apiShort = (api: string | null | undefined): string => (API_LABEL[api ?? ""] ?? api ?? "").replace(/（.*）$/, "");
+export const apiShort = (t: Translate, api: string | null | undefined): string => apiLabel(t, api).replace(/\s*[（(].*[）)]$/, "");
 
 export function HarnessTile({ type, brand, size }: { type: string; brand?: string; size?: keyof typeof SIZE }) {
   return <Mark brand={brandOfType(type, brand)} fallback={<Puzzle />} size={size} />;
@@ -140,8 +141,8 @@ export function SettingTile({ children }: { children: React.ReactNode }) {
 }
 
 /** The endpoint's protocol in words, or its preset's name when it has one. */
-export function providerKind(p: Pick<ProviderRecord, "preset" | "api">, presets: readonly ProviderPreset[]): string {
-  if (p.preset === CUSTOM_PRESET) return API_LABEL[p.api ?? ""] ?? p.api ?? "自定义";
+export function providerKind(t: Translate, p: Pick<ProviderRecord, "preset" | "api">, presets: readonly ProviderPreset[]): string {
+  if (p.preset === CUSTOM_PRESET) return p.api ? apiLabel(t, p.api) : t("provider.customKind");
   return presets.find((x) => x.id === p.preset)?.label ?? p.preset;
 }
 

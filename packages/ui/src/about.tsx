@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Copy, TriangleAlert } from "lucide-react";
 import type { About } from "./api";
 import { LogoImage, useLogos } from "./bot-avatar";
+import { useI18n } from "./i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,6 @@ export const coreOutdated = (about: AboutState): boolean =>
 
 const OS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
 
-const when = (ms: number) =>
-  new Date(ms).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-
 const runtimeLine = (r: About["runtime"]) =>
   [r.electron && `Electron ${r.electron}`, `Node ${r.node}`, r.chrome && `Chromium ${r.chrome}`].filter(Boolean).join(" · ");
 
@@ -32,13 +30,14 @@ const tilde = (path: string, home: string) => (home && (path === home || path.st
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
+  const { t } = useI18n();
   return (
     <Button
       variant="ghost"
       size={label ? "sm" : "icon-sm"}
       className="text-muted-foreground shrink-0"
-      title="复制"
-      aria-label={label ?? "复制"}
+      title={t("common.copy")}
+      aria-label={label ?? t("common.copy")}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -47,7 +46,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       }}
     >
       {copied ? <Check className="text-emerald-600" /> : <Copy />}
-      {label && (copied ? "已复制" : label)}
+      {label && (copied ? t("common.copied") : label)}
     </Button>
   );
 }
@@ -72,6 +71,12 @@ function Placeholder({ rows }: { rows: number }) {
   );
 }
 
+/** Chinese keeps the 24-hour month/day line it had; English writes the month out. */
+const STARTED: Record<string, Intl.DateTimeFormatOptions> = {
+  en: { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  "zh-CN": { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false },
+};
+
 /**
  * What this is, which build of it is running and where it keeps its data.
  * Credits for what it is built on live in CREDITS.md, not here. The
@@ -80,10 +85,12 @@ function Placeholder({ rows }: { rows: number }) {
  */
 export function AboutPanel({ about }: { about: AboutState }) {
   const logos = useLogos();
+  const { t, locale } = useI18n();
   // spread across the set, so the row shows a mix rather than five neighbours
   const faces = logos.length > 0 ? [0, 7, 14, 21, 28].map((i) => logos[i % logos.length]!) : [];
   const info = about && "version" in about ? about : null;
   const failed = about && "error" in about ? about.error : null;
+  const version = info?.version || t("common.unknown");
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -96,16 +103,16 @@ export function AboutPanel({ about }: { about: AboutState }) {
           </div>
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Roster</h2>
-            <p className="text-muted-foreground mt-1 text-sm">把 code agent 当联系人用：单聊就是一次会话，拉个群就是一支 agent team。</p>
+            <p className="text-muted-foreground mt-1 text-sm">{t("about.tagline")}</p>
           </div>
           {info && (
             <div className="flex flex-wrap gap-1.5">
               <Badge variant="outline" className="font-normal">
-                版本 {info.version || "未知"}
+                {t("about.version", { version })}
               </Badge>
               {info.fromSource && (
                 <Badge variant="outline" className="font-normal">
-                  从源码运行
+                  {t("about.fromSource")}
                 </Badge>
               )}
             </div>
@@ -115,13 +122,13 @@ export function AboutPanel({ about }: { about: AboutState }) {
         {coreOutdated(about) && (
           <Alert>
             <TriangleAlert />
-            <AlertTitle>core 在跑旧代码</AlertTitle>
-            <AlertDescription>它启动之后代码又构建过。完全退出 Roster 再打开，新改动才会生效；只刷新界面不够。</AlertDescription>
+            <AlertTitle>{t("about.staleTitle")}</AlertTitle>
+            <AlertDescription>{t("about.staleBody")}</AlertDescription>
           </Alert>
         )}
         {failed && failed !== "not found" && (
           <Alert variant="destructive">
-            <AlertTitle>读不到版本信息</AlertTitle>
+            <AlertTitle>{t("about.failed")}</AlertTitle>
             <AlertDescription>{failed}</AlertDescription>
           </Alert>
         )}
@@ -131,13 +138,13 @@ export function AboutPanel({ about }: { about: AboutState }) {
           <>
             <Field>
               <div className="flex items-center justify-between gap-3">
-                <FieldLabel>运行中的版本</FieldLabel>
+                <FieldLabel>{t("about.running")}</FieldLabel>
                 {info && (
                   <CopyButton
-                    label="复制"
+                    label={t("common.copy")}
                     text={[
-                      `Roster ${info.version}${info.fromSource ? "（从源码运行）" : ""}`,
-                      `core 启动于 ${new Date(info.startedAt).toLocaleString("zh-CN", { hour12: false })}${info.stale ? "（之后代码又构建过）" : ""}`,
+                      `Roster ${info.version}${info.fromSource ? t("about.copyFromSource") : ""}`,
+                      `${t("about.copyStarted", { time: new Date(info.startedAt).toLocaleString(locale, locale === "zh-CN" ? { hour12: false } : {}) })}${info.stale ? t("about.copyStale") : ""}`,
                       runtimeLine(info.runtime),
                       systemLine(info.runtime),
                     ].join("\n")}
@@ -147,32 +154,32 @@ export function AboutPanel({ about }: { about: AboutState }) {
               {info ? (
                 <dl className="divide-y rounded-xl border text-sm">
                   <Row label="Roster">
-                    {info.version || "未知"}
-                    {info.fromSource && <span className="text-muted-foreground"> · 从源码运行</span>}
+                    {version}
+                    {info.fromSource && <span className="text-muted-foreground"> · {t("about.fromSource")}</span>}
                   </Row>
                   <Row label="core">
-                    启动于 {when(info.startedAt)}
-                    {info.stale && <span className="text-amber-600 dark:text-amber-400"> · 之后代码又构建过</span>}
+                    {t("about.started", { time: new Date(info.startedAt).toLocaleString(locale, STARTED[locale]) })}
+                    {info.stale && <span className="text-amber-600 dark:text-amber-400">{t("about.rebuilt")}</span>}
                   </Row>
-                  <Row label="运行环境">{runtimeLine(info.runtime)}</Row>
-                  <Row label="系统">{systemLine(info.runtime)}</Row>
+                  <Row label={t("about.runtime")}>{runtimeLine(info.runtime)}</Row>
+                  <Row label={t("about.system")}>{systemLine(info.runtime)}</Row>
                 </dl>
               ) : (
                 <Placeholder rows={4} />
               )}
-              <FieldDescription>报问题时附上这几行，能省掉来回问版本。</FieldDescription>
+              <FieldDescription>{t("about.reportHint")}</FieldDescription>
             </Field>
 
             <Field>
-              <FieldLabel>数据存在哪</FieldLabel>
+              <FieldLabel>{t("about.data")}</FieldLabel>
               {info ? (
                 <dl className="divide-y rounded-xl border text-sm">
                   {(
                     [
-                      ["数据目录", info.paths.data],
-                      ["下载的 agent", info.paths.agents],
-                      ["附件", info.paths.attachments],
-                      ["扩展", info.paths.extensions],
+                      [t("about.dataDir"), info.paths.data],
+                      [t("about.agentsDir"), info.paths.agents],
+                      [t("about.attachmentsDir"), info.paths.attachments],
+                      [t("about.extensionsDir"), info.paths.extensions],
                     ] as const
                   ).map(([label, path]) => (
                     <Row key={label} label={label} action={<CopyButton text={path} />}>
@@ -185,7 +192,7 @@ export function AboutPanel({ about }: { about: AboutState }) {
               ) : (
                 <Placeholder rows={3} />
               )}
-              <FieldDescription>会话、bot 和模型 API 都存在数据目录里。密钥由这台机器的钥匙串加密，换到别的机器要重新填。</FieldDescription>
+              <FieldDescription>{t("about.dataHint")}</FieldDescription>
             </Field>
           </>
         )}

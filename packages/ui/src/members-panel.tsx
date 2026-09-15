@@ -11,8 +11,9 @@ import {
   X,
 } from "lucide-react";
 import { activeMembers, api, type Bot, type Conversation, type Member, type Mode, type Presence } from "./api";
-import { BotAvatar, busyOf, HumanAvatar, TIER_LABEL } from "./bot-avatar";
+import { BotAvatar, busyOf, HumanAvatar } from "./bot-avatar";
 import { useExecutor } from "./executors";
+import { useI18n } from "./i18n";
 import { leaderOf } from "./mentions";
 import { presenceLabel } from "./presence";
 import { Button } from "@/components/ui/button";
@@ -28,11 +29,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-/** A mode answers exactly one question: who speaks next. */
-export const MODES: Array<{ id: Mode; label: string; hint: string; icon: typeof Hand }> = [
-  { id: "human_led", label: "人主导", hint: "你 @ 谁谁回复；不 @ 就接着和上一个回复你的成员聊", icon: Hand },
-  { id: "leader", label: "群主分发", hint: "你只跟群主说；群主拆任务 @ 成员分派，收齐结果再回复你", icon: Crown },
-  { id: "discussion", label: "讨论", hint: "每条消息所有成员各说一次，只读不改文件，由你拍板", icon: MessagesSquare },
+/** A mode answers exactly one question: who speaks next. What each is called is in the catalog, under mode.<id>. */
+export const MODES: Array<{ id: Mode; icon: typeof Hand }> = [
+  { id: "human_led", icon: Hand },
+  { id: "leader", icon: Crown },
+  { id: "discussion", icon: MessagesSquare },
 ];
 
 export function ModePicker({
@@ -44,6 +45,7 @@ export function ModePicker({
   onChange: (m: Mode) => void;
   compact?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className={cn("grid gap-1.5", compact && "grid-cols-3")}>
       {MODES.map((m) => (
@@ -59,8 +61,8 @@ export function ModePicker({
         >
           <m.icon className={cn("mt-0.5 size-4 shrink-0", value !== m.id && "text-muted-foreground")} />
           <span className="min-w-0">
-            <span className="block text-sm font-medium">{m.label}</span>
-            <span className="text-muted-foreground block text-xs leading-snug">{m.hint}</span>
+            <span className="block text-sm font-medium">{t(`mode.${m.id}`)}</span>
+            <span className="text-muted-foreground block text-xs leading-snug">{t(`mode.${m.id}.hint`)}</span>
           </span>
         </button>
       ))}
@@ -82,13 +84,14 @@ export function MembersPanel({
   onOpenBot: (botId: string) => void;
 }) {
   const group = conv.shape === "group";
+  const { t } = useI18n();
   return (
     // a column when there is room; over the chat when a column would crush it
     <aside className="bg-background ring-border absolute inset-y-0 right-0 z-20 flex w-72 shrink-0 flex-col overflow-hidden rounded-xl shadow-xl ring-1 @3xl:static @3xl:shadow-panel @3xl:ring-0">
       <header className="flex h-13 shrink-0 items-center justify-between px-4">
         {/* you are in the room as much as they are, so every head count includes you */}
-        <span className="text-sm font-semibold">{group ? `群成员 · ${activeMembers(conv).length + 1}` : "成员"}</span>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} title="收起">
+        <span className="text-sm font-semibold">{group ? t("members.groupTitle", { count: activeMembers(conv).length + 1 }) : t("members.title")}</span>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.collapse")}>
           <X className="size-4" />
         </Button>
       </header>
@@ -115,6 +118,7 @@ export function MemberSections({
   className?: string;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const { t } = useI18n();
   const members = activeMembers(conv);
   const group = conv.shape === "group";
   const leader = conv.mode === "leader" ? leaderOf(conv) : undefined;
@@ -129,27 +133,27 @@ export function MemberSections({
     <div className={cn("space-y-5", className)}>
       {group && (
         <section className="space-y-2">
-          <h3 className="text-muted-foreground text-xs font-medium">谁来接话</h3>
+          <h3 className="text-muted-foreground text-xs font-medium">{t("members.whoAnswers")}</h3>
           <ModePicker value={conv.mode} onChange={(m) => void run(api.setMode(conv.id, m))} />
         </section>
       )}
 
       <section className="space-y-1">
         <div className="flex items-center justify-between pb-1">
-          <h3 className="text-muted-foreground text-xs font-medium">成员</h3>
+          <h3 className="text-muted-foreground text-xs font-medium">{t("members.title")}</h3>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="xs" className="text-muted-foreground">
                 <UserPlus />
-                {group ? "拉人" : "拉人建群"}
+                {group ? t("members.add") : t("members.addToGroup")}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
-                从通讯录添加
+                {t("members.fromContacts")}
               </DropdownMenuLabel>
               {outsiders.length === 0 && (
-                <DropdownMenuItem disabled>通讯录里的 bot 都在这了</DropdownMenuItem>
+                <DropdownMenuItem disabled>{t("members.allHere")}</DropdownMenuItem>
               )}
               {outsiders.map((b) => (
                 <DropdownMenuItem key={b.id} onSelect={() => void run(api.addMember(conv.id, b.id))}>
@@ -164,7 +168,7 @@ export function MemberSections({
 
         <div className="-mx-2 flex items-center gap-2.5 px-2 py-2">
           <HumanAvatar />
-          <span className="text-sm font-medium">你</span>
+          <span className="text-sm font-medium">{t("members.you")}</span>
         </div>
 
         {members.map((m) => (
@@ -209,33 +213,34 @@ function MemberRow({
   onRemove: () => void;
 }) {
   const { bot } = member;
+  const { t } = useI18n();
   // what this member's session runs on, which can lag behind the bot until it is synced
   const executor = useExecutor()(member.executor_id);
   const model = member.model ?? executor.model;
   return (
     <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2">
-      <button onClick={onOpen} title="查看资料" className="mt-0.5">
+      <button onClick={onOpen} title={t("members.viewProfile")} className="mt-0.5">
         <BotAvatar bot={bot} busy={busyOf(presence?.state)} />
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate text-sm font-medium">{bot.name}</span>
-          {isLeader && <Crown className="size-3.5 shrink-0 text-amber-500" aria-label="群主" />}
+          {isLeader && <Crown className="size-3.5 shrink-0 text-amber-500" aria-label={t("members.leader")} />}
         </div>
         <div className="text-muted-foreground truncate text-xs">
-          {presence ? presenceLabel(presence) : (bot.title ?? `${executor.label}${model ? ` · ${model}` : ""}`)}
+          {presence ? presenceLabel(t, presence) : (bot.title ?? `${executor.label}${model ? ` · ${model}` : ""}`)}
         </div>
         <div className="text-muted-foreground/70 truncate text-[11px]">
-          {executor.label} · {model ?? "默认模型"} · {TIER_LABEL[bot.permission_tier]?.label}
+          {executor.label} · {model ?? t("common.defaultModel")} · {t(`tier.${bot.permission_tier}`)}
         </div>
         {member.stale && (
           <button
             onClick={onSync}
             className="mt-1 inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
-            title="它还在用加入时的设定；同步后会开一个新会话，并把群聊记录重新交给它"
+            title={t("members.syncHint")}
           >
             <RefreshCw className="size-3" />
-            设定有更新，点此同步
+            {t("members.syncButton")}
           </button>
         )}
       </div>
@@ -252,18 +257,18 @@ function MemberRow({
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={onOpen}>
             <UserRound className="size-3.5" />
-            查看资料
+            {t("members.viewProfile")}
           </DropdownMenuItem>
           {canLead && (
             <DropdownMenuItem onSelect={onLead}>
               <Crown className="size-3.5" />
-              设为群主
+              {t("members.makeLeader")}
             </DropdownMenuItem>
           )}
           {member.stale && (
             <DropdownMenuItem onSelect={onSync}>
               <RefreshCw className="size-3.5" />
-              同步最新设定
+              {t("members.sync")}
             </DropdownMenuItem>
           )}
           {canRemove && (
@@ -271,7 +276,7 @@ function MemberRow({
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={onRemove}>
                 <UserMinus className="size-3.5" />
-                移出群聊
+                {t("members.remove")}
               </DropdownMenuItem>
             </>
           )}

@@ -1,4 +1,5 @@
 import { activeMembers, type Conversation, type Member, type Message } from "./api";
+import type { I18n } from "./i18n";
 
 /** Kept in step with core/src/mentions.ts, which is what actually routes. */
 export const ALL_ALIASES = ["所有人", "全体成员", "all", "everyone"];
@@ -53,14 +54,14 @@ export function leaderOf(conv: Conversation): Member | undefined {
  * Who will answer if this draft is sent now. Mirrors core's routing, so the
  * composer can say it before you press Enter rather than after.
  */
-export function recipientLabel(conv: Conversation, draft: string, messages: Message[]): string {
+export function recipientLabel({ t, list }: Pick<I18n, "t" | "list">, conv: Conversation, draft: string, messages: Message[]): string {
   const members = activeMembers(conv);
-  if (members.length === 0) return "群里还没有成员";
+  if (members.length === 0) return t("recipient.none");
   const hit = mentioned(draft, members);
-  if (hit.all) return "所有成员";
-  if (hit.members.length > 0) return hit.members.map((m) => m.bot.name).join("、");
-  if (conv.mode === "leader") return `群主 ${leaderOf(conv)?.bot.name ?? ""}`;
-  if (conv.mode === "discussion") return "所有成员，各说一次";
+  if (hit.all) return t("recipient.all");
+  if (hit.members.length > 0) return list(hit.members.map((m) => m.bot.name));
+  if (conv.mode === "leader") return t("recipient.leader", { name: leaderOf(conv)?.bot.name ?? "" });
+  if (conv.mode === "discussion") return t("recipient.discussion");
   const last = [...messages]
     .reverse()
     .find((m) => m.author_kind === "bot" && m.card_kind === "text" && members.some((x) => x.id === m.author_member_id));

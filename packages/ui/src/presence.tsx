@@ -1,20 +1,21 @@
 import { activeMembers, type Conversation, type Presence } from "./api";
 import { BotAvatar, busyOf } from "./bot-avatar";
+import { useI18n, type Translate } from "./i18n";
 
-export function presenceLabel(p: Presence): string {
+export function presenceLabel(t: Translate, p: Presence): string {
   switch (p.state) {
     case "starting":
-      return "正在启动";
+      return t("presence.starting");
     case "thinking":
-      return "正在思考";
+      return t("presence.thinking");
     case "tool":
-      return p.detail ? `正在执行 ${p.detail}` : "正在执行工具";
+      return p.detail ? t("presence.toolNamed", { tool: p.detail }) : t("presence.tool");
     case "waiting_permission":
-      return p.detail ? `等你批准 ${p.detail}` : "等你批准";
+      return p.detail ? t("presence.permissionNamed", { tool: p.detail }) : t("presence.permission");
     case "waiting_lock":
-      return p.detail ? `等 ${p.detail} 改完文件` : "排队等着改文件";
+      return p.detail ? t("presence.lockNamed", { name: p.detail }) : t("presence.lock");
     case "compacting":
-      return "正在压缩上下文";
+      return t("presence.compacting");
   }
 }
 
@@ -40,6 +41,7 @@ export function PresenceStrip({
   conv: Conversation;
   presence: Record<string, Presence>;
 }) {
+  const { t } = useI18n();
   const rows = activeMembers(conv).flatMap((m) => {
     const p = presence[m.id];
     return p ? [{ m, p }] : [];
@@ -52,7 +54,7 @@ export function PresenceStrip({
           <BotAvatar bot={m.bot} size="xs" busy={busyOf(p.state)} />
           {conv.shape === "group" && <span className="text-foreground font-medium">{m.bot.name}</span>}
           <span className={p.state === "waiting_permission" ? "text-amber-600 dark:text-amber-400" : undefined}>
-            {presenceLabel(p)}
+            {presenceLabel(t, p)}
           </span>
           {(p.state === "thinking" || p.state === "starting" || p.state === "compacting") && <Dots />}
         </span>

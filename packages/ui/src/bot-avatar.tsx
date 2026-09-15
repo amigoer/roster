@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import { User } from "lucide-react";
 import type { Bot, Logo, PresenceState } from "./api";
+import { useI18n } from "./i18n";
 import { cn } from "@/lib/utils";
 
 /** The bundled logo set, as core ships it in /api/state. */
@@ -75,6 +76,7 @@ export function HumanAvatar({ size = "md", className }: { size?: keyof typeof SI
 }
 
 function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
+  const { t } = useI18n();
   if (!busy) return null;
   return (
     <span
@@ -83,7 +85,7 @@ function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
         DOTS[size],
         busy === "needs_you" ? "bg-amber-500" : "animate-pulse bg-emerald-500",
       )}
-      title={busy === "needs_you" ? "在等你" : "正在干活"}
+      title={busy === "needs_you" ? t("busy.waiting") : t("busy.working")}
     />
   );
 }
@@ -154,9 +156,3 @@ export function GroupAvatar({
     </span>
   );
 }
-
-export const TIER_LABEL: Record<string, { label: string; hint: string }> = {
-  read: { label: "只读", hint: "只能读文件、搜索；写文件和执行命令都要问你" },
-  write: { label: "可写", hint: "可以改工作目录里的文件；执行命令要问你" },
-  execute: { label: "可执行", hint: "可以改文件、执行命令，不再询问" },
-};

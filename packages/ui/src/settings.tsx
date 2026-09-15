@@ -6,6 +6,7 @@ import {
   Download,
   Info,
   KeyRound,
+  Languages,
   Loader,
   Lock,
   LockOpen,
@@ -42,14 +43,15 @@ import {
 import { coreOutdated, type AboutState } from "./about";
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
-import { OWN_SOURCE_LABEL } from "./executors";
+import { LOCALES, useI18n, type I18n, type Translate } from "./i18n";
 import { LIST_BODY, ROW, rowState, SectionLabel } from "./list";
 import { ProviderIcon } from "./provider-icon";
-import { THEME_LABELS, type Theme } from "./theme";
+import type { Theme } from "./theme";
 import { fontLabel, sizeLabel, type Typography } from "./typography";
 import {
   API_BRAND,
-  API_LABEL,
+  API_IDS,
+  apiLabel,
   apiShort,
   brandFromText,
   ExecutorTile,
@@ -95,6 +97,7 @@ import { cn } from "@/lib/utils";
  */
 export type SettingsSelection =
   | { kind: "appearance" }
+  | { kind: "language" }
   | { kind: "about" }
   /** every harness Roster knows, to fetch more; an id scrolls to that harness's card */
   | { kind: "harnesses"; id?: string }
@@ -105,16 +108,13 @@ export type SettingsSelection =
   | null;
 
 /** Protocols a hand-entered endpoint can speak; the rest need cloud setup a key alone does not cover. */
-const CUSTOM_APIS = Object.keys(API_LABEL);
+const CUSTOM_APIS = API_IDS;
 
-const KEYSTORE: Record<string, string> = {
-  keychain: "系统钥匙串",
-  dpapi: "Windows 凭据保护",
-  gnome_libsecret: "GNOME 密钥环",
-  kwallet: "KWallet",
-  kwallet5: "KWallet",
-  kwallet6: "KWallet",
-};
+/** Where the operating system keeps the key that opens stored keys, as a person knows it. */
+function keystoreName(t: Translate, keystore: string): string {
+  if (keystore === "keychain" || keystore === "dpapi" || keystore === "gnome_libsecret") return t(`vault.${keystore}`);
+  return keystore.startsWith("kwallet") ? "KWallet" : t("vault.system");
+}
 
 /** Every preset any type offers, once each. */
 function presetsOf(view: ExecutorSettings): ProviderPreset[] {
@@ -131,9 +131,9 @@ function fits(type: HarnessTypeInfo, provider: ProviderRecord, view: ExecutorSet
   return (view.presets[type.type] ?? []).some((p) => p.id === provider.preset);
 }
 
-function keyLine(p: ProviderRecord): string {
-  if (p.key.source === "env") return p.key.set ? `读环境变量 ${p.key_env}` : `环境变量 ${p.key_env} 没设置`;
-  return p.key.set ? `密钥 ${p.key.hint}` : "没有密钥";
+function keyLine(t: Translate, p: ProviderRecord): string {
+  if (p.key.source === "env") return p.key.set ? t("provider.keyFromEnv", { name: p.key_env ?? "" }) : t("provider.envUnset", { name: p.key_env ?? "" });
+  return p.key.set ? t("provider.keyHint", { hint: p.key.hint ?? "" }) : t("common.noKey");
 }
 
 function SectionHead({ label, onAdd, addLabel }: { label: string; onAdd: () => void; addLabel: string }) {
@@ -151,10 +151,10 @@ function SectionHead({ label, onAdd, addLabel }: { label: string; onAdd: () => v
  * One badge says where a harness stands: its version once it runs, since where
  * the program came from is nobody's concern, or what keeps it from running.
  */
-function harnessStatus(h: HarnessView): { tone: "ok" | "warn" | "bad"; text: string } | null {
-  if (h.adapter === "error") return { tone: "bad", text: "适配器出错" };
-  if (h.adapter === "missing") return { tone: "warn", text: "没装适配器" };
-  if (!h.state.usable) return { tone: "warn", text: "没找到程序" };
+function harnessStatus(t: Translate, h: HarnessView): { tone: "ok" | "warn" | "bad"; text: string } | null {
+  if (h.adapter === "error") return { tone: "bad", text: t("harness.status.adapterError") };
+  if (h.adapter === "missing") return { tone: "warn", text: t("harness.status.noAdapter") };
+  if (!h.state.usable) return { tone: "warn", text: t("harness.status.noProgram") };
   return h.state.version ? { tone: "ok", text: h.state.version } : null;
 }
 
@@ -175,12 +175,14 @@ export function SettingsList({
   selected: SettingsSelection;
   onSelect: (s: SettingsSelection) => void;
 }) {
+  const { t, locale, preference } = useI18n();
   const outdated = coreOutdated(about);
+  const localeName = LOCALES.find((l) => l.id === locale)?.name ?? locale;
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className={LIST_BODY}>
         {/* Roster's own preferences come first and never wait on core */}
-        <SectionLabel>通用</SectionLabel>
+        <SectionLabel>{t("settings.general")}</SectionLabel>
         <button
           type="button"
           onClick={() => onSelect({ kind: "appearance" })}
@@ -190,10 +192,25 @@ export function SettingsList({
             <SunMoon />
           </SettingTile>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">外观</div>
+            <div className="truncate text-sm font-medium">{t("settings.appearance")}</div>
             {/* the theme always; font and size only once they differ from the default */}
             <div className="text-muted-foreground truncate text-xs">
-              {[THEME_LABELS[theme], fontLabel(typography), sizeLabel(typography)].filter(Boolean).join(" · ")}
+              {[t(`theme.${theme}`), fontLabel(t, typography), sizeLabel(t, typography)].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "language" })}
+          className={cn(ROW, rowState(selected?.kind === "language"))}
+        >
+          <SettingTile>
+            <Languages />
+          </SettingTile>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{t("settings.language")}</div>
+            <div className="text-muted-foreground truncate text-xs">
+              {preference === "system" ? t("language.systemRow", { language: localeName }) : localeName}
             </div>
           </div>
         </button>
@@ -206,10 +223,14 @@ export function SettingsList({
             <Info />
           </SettingTile>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">关于 Roster</div>
+            <div className="truncate text-sm font-medium">{t("settings.aboutRoster")}</div>
             {/* a stale core is easy to miss, so the row says so without the page being opened */}
             <div className={cn("truncate text-xs", outdated ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
-              {outdated ? "core 在跑旧代码，要重启" : about && "version" in about ? `版本 ${about.version}` : "版本和数据目录"}
+              {outdated
+                ? t("settings.aboutStale")
+                : about && "version" in about
+                  ? t("about.version", { version: about.version })
+                  : t("settings.aboutHint")}
             </div>
           </div>
         </button>
@@ -245,6 +266,7 @@ function CoreSettings({
   selected: SettingsSelection;
   onSelect: (s: SettingsSelection) => void;
 }) {
+  const { t } = useI18n();
   const presets = presetsOf(view);
   const is = (kind: "harness" | "agent" | "provider", id: string) =>
     selected !== null && selected.kind === kind && "id" in selected && selected.id === id;
@@ -253,14 +275,18 @@ function CoreSettings({
   const harnessOf = (type: string) => harnesses.find((h) => h.id === type);
   return (
     <>
-      <SectionHead label={`Harness · ${ready.length}`} addLabel="更多 harness" onAdd={() => onSelect({ kind: "harnesses" })} />
+      <SectionHead
+        label={t("settings.harnessesCount", { count: ready.length })}
+        addLabel={t("settings.moreHarnesses")}
+        onAdd={() => onSelect({ kind: "harnesses" })}
+      />
       {ext && ready.length === 0 && (
         <button
           type="button"
           onClick={() => onSelect({ kind: "harnesses" })}
           className={cn(ROW, "text-muted-foreground text-xs leading-relaxed", rowState(selected?.kind === "harnesses"))}
         >
-          本机还没有能用的 harness。点 + 看看能装什么。
+          {t("settings.noHarnesses")}
         </button>
       )}
       {ready.map((h) => {
@@ -277,26 +303,28 @@ function CoreSettings({
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{h.label}</div>
               <div className={cn("text-muted-foreground truncate", picked ? "font-mono text-[11px]" : "text-xs")}>
-                {picked ?? (h.state.version ? `版本 ${h.state.version}` : "版本未知")}
+                {picked ?? (h.state.version ? t("about.version", { version: h.state.version }) : t("settings.versionUnknown"))}
               </div>
             </div>
           </button>
         );
       })}
 
-      <SectionHead label={`Agent · ${view.executors.length}`} addLabel="新建 agent" onAdd={() => onSelect({ kind: "agent", id: null })} />
+      <SectionHead
+        label={t("settings.agentsCount", { count: view.executors.length })}
+        addLabel={t("agent.new")}
+        onAdd={() => onSelect({ kind: "agent", id: null })}
+      />
       {view.executors.length === 0 && (
-        <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">
-          还没有 agent。agent 是一个 harness，加上模型从哪来：订阅，或者一个模型 API。点 + 建一个；到通讯录里建 bot 时也能顺手建。
-        </p>
+        <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">{t("settings.noAgents")}</p>
       )}
       {view.executors.map((e) => {
-        const pairing = `${harnessOf(e.type)?.label ?? e.type} · ${sourceName(view, e)}`;
+        const pairing = `${harnessOf(e.type)?.label ?? e.type} · ${sourceName(t, view, e)}`;
         // a name that already says the pairing leaves the second line to the model
         const line = e.name.startsWith(pairing)
           ? e.model
-            ? `默认模型 ${e.model}`
-            : "默认模型跟着 harness"
+            ? t("settings.defaultModelIs", { model: e.model })
+            : t("settings.defaultModelHarness")
           : `${pairing}${e.model ? ` · ${e.model}` : ""}`;
         return (
           <button
@@ -316,11 +344,13 @@ function CoreSettings({
         );
       })}
 
-      <SectionHead label={`模型 API · ${view.providers.length}`} addLabel="添加模型 API" onAdd={() => onSelect({ kind: "provider", id: null })} />
+      <SectionHead
+        label={t("settings.providersCount", { count: view.providers.length })}
+        addLabel={t("provider.add")}
+        onAdd={() => onSelect({ kind: "provider", id: null })}
+      />
       {view.providers.length === 0 && (
-        <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">
-          还没有模型 API。用订阅的 agent 不需要它；想按量调用 DeepSeek、Kimi、自建网关……，点 + 加一个。
-        </p>
+        <p className="text-muted-foreground px-2.5 py-2 text-xs leading-relaxed">{t("settings.noProviders")}</p>
       )}
       {view.providers.map((p) => (
         <button
@@ -333,7 +363,7 @@ function CoreSettings({
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{p.name}</div>
             <div className="text-muted-foreground truncate text-xs">
-              {providerKind(p, presets)} · {keyLine(p)}
+              {providerKind(t, p, presets)} · {keyLine(t, p)}
             </div>
           </div>
         </button>
@@ -342,20 +372,21 @@ function CoreSettings({
       <div className="text-muted-foreground flex items-start gap-1.5 px-2.5 pt-4 pb-1 text-[11px] leading-relaxed">
         {view.vault.encrypted ? <Lock className="mt-0.5 size-3 shrink-0" /> : <LockOpen className="mt-0.5 size-3 shrink-0 text-amber-600" />}
         {view.vault.encrypted
-          ? `密钥加密保存，解密用的钥匙交给${KEYSTORE[view.vault.keystore] ?? "系统"}保管`
-          : "这台机器上没有可用的系统密钥保管，密钥是明文存在本地数据库里的"}
+          ? t("vault.encrypted", { keystore: keystoreName(t, view.vault.keystore) })
+          : t("vault.plain")}
       </div>
     </>
   );
 }
 
 function CheckResult({ result }: { result: { ok: boolean; items: CheckItem[] } | "running" | null }) {
+  const { t } = useI18n();
   if (!result) return null;
   if (result === "running") {
     return (
       <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
         <Loader className="size-3.5 animate-spin" />
-        测试中…
+        {t("check.running")}
       </p>
     );
   }
@@ -369,8 +400,10 @@ function CheckResult({ result }: { result: { ok: boolean; items: CheckItem[] } |
             <X className="text-destructive mt-0.5 size-3.5 shrink-0" />
           )}
           <span className="min-w-0">
-            <span className="font-medium">{item.label}</span>
-            <span className="text-muted-foreground">：{item.detail}</span>
+            {t.rich("common.labelDetail", {
+              label: <span className="font-medium">{item.label}</span>,
+              detail: <span className="text-muted-foreground">{item.detail}</span>,
+            })}
           </span>
         </li>
       ))}
@@ -402,6 +435,7 @@ function EditorFrame({
   onCancel: () => void;
   onDelete?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ScrollArea className="min-h-0 flex-1">
@@ -420,13 +454,13 @@ function EditorFrame({
         {onDelete && (
           <Button variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={onDelete}>
             <Trash2 />
-            删除
+            {t("common.delete")}
           </Button>
         )}
         {error && <span className="text-destructive mr-auto ml-2 text-xs">{error}</span>}
         <span className={cn(!error && "mr-auto")} />
         <Button variant="outline" onClick={onCancel}>
-          取消
+          {t("common.cancel")}
         </Button>
         <Button onClick={onSave} disabled={busy || !canSave}>
           {saveLabel}
@@ -449,6 +483,7 @@ function ConfirmDelete({
   description: string;
   onConfirm: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -457,9 +492,9 @@ function ConfirmDelete({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction variant="destructive" onClick={onConfirm}>
-            删除
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -496,24 +531,31 @@ export function Choice({
   );
 }
 
-const FOUND: Record<string, string> = { path: "PATH 上", "npm-global": "npm 全局包", "known-path": "常见安装位置" };
-
 /** A re-scan in one line: what changed since the last one, or what is there when nothing did. */
-function detectionSummary(before: DetectedProgram[] | undefined, after: DetectedProgram[], label: (id: string) => string): string {
+function detectionSummary(
+  { t, list }: Pick<I18n, "t" | "list">,
+  before: DetectedProgram[] | undefined,
+  after: DetectedProgram[],
+  label: (id: string) => string,
+): string {
   const named = (p: DetectedProgram) => (p.version ? `${label(p.id)} ${p.version}` : label(p.id));
+  const unknown = t("detect.unknownVersion");
   const news = before
     ? [
         ...after.flatMap((p) => {
           const old = before.find((q) => q.id === p.id);
-          if (!old) return [`新发现 ${named(p)}`];
-          return old.version === p.version ? [] : [`${label(p.id)} ${old.version ?? "未知版本"} → ${p.version ?? "未知版本"}`];
+          if (!old) return [t("detect.new", { program: named(p) })];
+          return old.version === p.version
+            ? []
+            : [t("detect.changed", { program: label(p.id), from: old.version ?? unknown, to: p.version ?? unknown })];
         }),
-        ...before.filter((p) => !after.some((q) => q.id === p.id)).map((p) => `${label(p.id)} 不见了`),
+        ...before.filter((p) => !after.some((q) => q.id === p.id)).map((p) => t("detect.gone", { program: label(p.id) })),
       ]
     : [];
-  if (news.length > 0) return news.join("；");
-  if (after.length === 0) return "没在这台机器上找到已装的 harness";
-  return `${before ? "没有变化，" : ""}找到 ${after.map(named).join("、")}`;
+  if (news.length > 0) return news.join(t("detect.separator"));
+  if (after.length === 0) return t("detect.none");
+  const found = list(after.map(named));
+  return before ? t("detect.unchanged", { programs: found }) : t("detect.found", { programs: found });
 }
 
 function EnvironmentCard({
@@ -527,17 +569,18 @@ function EnvironmentCard({
   onRefresh: () => void;
   harnesses: HarnessView[];
 }) {
+  const { t, list } = useI18n();
   const label = (id: string) => harnesses.find((c) => c.id === id)?.label ?? id;
   return (
     <div className="rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-2">
           <ScanSearch className="text-muted-foreground size-4" />
-          <span className="text-sm font-medium">本机已经有的</span>
+          <span className="text-sm font-medium">{t("detect.title")}</span>
         </div>
         <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onRefresh} disabled={refreshing}>
           <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
-          重新检测
+          {t("detect.again")}
         </Button>
       </div>
       <Separator />
@@ -550,7 +593,7 @@ function EnvironmentCard({
         ) : (
           <>
             {env.programs.length === 0 ? (
-              <p className="text-muted-foreground">没在这台机器上找到已装的 harness。下面挑一个下载就行。</p>
+              <p className="text-muted-foreground">{t("detect.noneHint")}</p>
             ) : (
               <ul className="space-y-1.5">
                 {env.programs.map((p) => (
@@ -560,21 +603,19 @@ function EnvironmentCard({
                     <span className="text-muted-foreground min-w-0 truncate font-mono text-xs" title={p.path}>
                       {p.path}
                     </span>
-                    <span className="text-muted-foreground/70 text-xs">{FOUND[p.found]}</span>
+                    <span className="text-muted-foreground/70 text-xs">{t(`detect.where.${p.found}`)}</span>
                   </li>
                 ))}
               </ul>
             )}
             {env.hints.length > 0 && (
               <p className="text-muted-foreground text-xs leading-relaxed">
-                还发现了密钥线索：
-                {env.hints.map((h) => (h.kind === "env" ? `环境变量 ${h.name}` : `pi 登录过的 ${h.name}`)).join("、")}
-                。添加模型 API 时可以直接用。
+                {t("detect.hints", {
+                  hints: list(env.hints.map((h) => (h.kind === "env" ? t("detect.hintEnv", { name: h.name }) : t("detect.hintPi", { name: h.name })))),
+                })}
               </p>
             )}
-            {!env.shell.ok && (
-              <p className="text-muted-foreground text-xs">登录 shell 没有回答，PATH 和环境变量只看到了这个进程自己的。</p>
-            )}
+            {!env.shell.ok && <p className="text-muted-foreground text-xs">{t("detect.shellSilent")}</p>}
           </>
         )}
       </div>
@@ -583,21 +624,22 @@ function EnvironmentCard({
 }
 
 function JobLine({ job }: { job: InstallJob }) {
+  const { t } = useI18n();
   const last = job.log.at(-1);
   if (job.state === "running") {
     return (
       <div className="space-y-1.5">
         <Progress value={null as unknown as number} className="h-1" />
-        <p className="text-muted-foreground truncate text-xs">{last ?? "正在下载…"}</p>
+        <p className="text-muted-foreground truncate text-xs">{last ?? t("install.downloading")}</p>
       </div>
     );
   }
   if (job.state === "failed") {
     return (
       <Alert variant="destructive">
-        <AlertTitle>安装失败</AlertTitle>
+        <AlertTitle>{t("install.failed")}</AlertTitle>
         <AlertDescription>
-          <pre className="max-h-32 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap">{job.log.join("\n") || "npm 没有留下输出"}</pre>
+          <pre className="max-h-32 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap">{job.log.join("\n") || t("install.noOutput")}</pre>
         </AlertDescription>
       </Alert>
     );
@@ -633,6 +675,8 @@ export function HarnessesPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const i18n = useI18n();
+  const { t } = i18n;
 
   const load = () => api.extensions().then(setExt);
   useEffect(() => {
@@ -661,16 +705,16 @@ export function HarnessesPanel({
     try {
       const r = await api.environment(true);
       if (r.error) {
-        toast.error("检测失败", { description: r.error });
+        toast.error(t("detect.failed"), { description: r.error });
         return;
       }
       await load();
       onChanged();
-      const description = detectionSummary(before, r.programs, label);
-      if (r.shell.ok) toast.success("检测完成", { description });
-      else toast.warning("检测完成，但登录 shell 没有回答", { description: `${description}。PATH 和环境变量只看到了这个进程自己的。` });
+      const description = detectionSummary(i18n, before, r.programs, label);
+      if (r.shell.ok) toast.success(t("detect.done"), { description });
+      else toast.warning(t("detect.doneShellSilent"), { description: t("detect.summaryShellSilent", { summary: description }) });
     } catch (e) {
-      toast.error("检测失败", { description: String(e) });
+      toast.error(t("detect.failed"), { description: String(e) });
     } finally {
       setRefreshing(false);
     }
@@ -686,12 +730,8 @@ export function HarnessesPanel({
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto max-w-2xl space-y-6 px-8 py-8">
         <div>
-          <h2 className="text-lg font-semibold">{intro ? "先有一个能用的 harness" : "Harness"}</h2>
-          <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
-            {intro
-              ? "harness 是 Claude Code、Codex 这样跑 agent 循环的程序。本机装了的直接能用，没有的在这里下载。之后建 agent（harness 加上订阅或模型 API），再到通讯录里建 bot 选它。"
-              : "有版本号的直接能用；显示「没找到程序」的点「下载安装」，装完就能用。"}
-          </p>
+          <h2 className="text-lg font-semibold">{intro ? t("harnesses.introTitle") : t("settings.harness")}</h2>
+          <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{intro ? t("harnesses.intro") : t("harnesses.hint")}</p>
         </div>
 
         <EnvironmentCard env={env} refreshing={refreshing} onRefresh={() => void refresh()} harnesses={harnesses} />
@@ -714,7 +754,7 @@ export function HarnessesPanel({
               </div>
             ))}
           {harnesses.map((h) => {
-            const status = harnessStatus(h);
+            const status = harnessStatus(t, h);
             const job = jobOf(h.id);
             const running = job?.state === "running" || busy === h.id;
             const needsProgram = h.state.needed && !h.state.usable && h.adapter !== "missing" && h.adapter !== "error";
@@ -738,7 +778,7 @@ export function HarnessesPanel({
                   {h.adapterError && <p className="text-destructive text-xs">{h.adapterError}</p>}
                   {needsProgram && h.program && (
                     <p className="text-muted-foreground text-xs">
-                      本机没找到 <span className="font-mono">{h.program.bin}</span>，下载会装到 Roster 自己的目录，不动系统。
+                      {t.rich("harnesses.programMissing", { bin: <span className="font-mono">{h.program.bin}</span> })}
                     </p>
                   )}
                   {job && <JobLine job={job} />}
@@ -747,16 +787,16 @@ export function HarnessesPanel({
                   {needsAdapter ? (
                     <Button size="sm" disabled={running || !h.extension} onClick={() => void run(h.id, () => api.installExtension(h.id))}>
                       {running ? <Loader className="animate-spin" /> : <Download />}
-                      装适配器
+                      {t("harness.installAdapter")}
                     </Button>
                   ) : needsProgram ? (
                     <Button size="sm" disabled={running} onClick={() => void run(h.id, () => api.installExtension(h.id))}>
                       {running ? <Loader className="animate-spin" /> : <Download />}
-                      下载安装
+                      {t("harness.download")}
                     </Button>
                   ) : (
                     <Button size="sm" variant="outline" onClick={() => onSelect({ kind: "harness", id: h.id })}>
-                      设置
+                      {t("harnesses.setUp")}
                       <ChevronRight />
                     </Button>
                   )}
@@ -769,10 +809,8 @@ export function HarnessesPanel({
         {orphans.length > 0 && (
           <div className="space-y-2">
             <div>
-              <h3 className="text-sm font-medium">harness 不在了的 agent</h3>
-              <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                这些 agent 的 harness 现在不在 Roster 里，用它们的 bot 启动不了。harness 装回来就能接着用；不要了就点进去删掉。
-              </p>
+              <h3 className="text-sm font-medium">{t("harnesses.orphansTitle")}</h3>
+              <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{t("harnesses.orphansHint")}</p>
             </div>
             <div className="rounded-xl border p-1">
               {orphans.map((e) => (
@@ -797,11 +835,12 @@ export function HarnessesPanel({
   );
 }
 
-/** The harness's own sign-in on this machine: it belongs to the program, so every agent on 订阅 shares it. */
+/** The harness's own sign-in on this machine: it belongs to the program, so every agent on the subscription shares it. */
 function LoginCard({ type }: { type: string }) {
   const [login, setLogin] = useState<LoginState | "loading" | null>("loading");
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { t } = useI18n();
 
   const read = (fresh: boolean) => {
     setLogin("loading");
@@ -815,16 +854,22 @@ function LoginCard({ type }: { type: string }) {
     <div className="rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">订阅登录</span>
+          <span className="text-sm font-medium">{t("login.title")}</span>
           {state && (
             <StatusBadge tone={tone}>
-              {state.state === "ok" ? `已登录${state.account ? ` · ${state.account}` : ""}` : state.state === "none" ? "没有登录" : "没问到"}
+              {state.state === "ok"
+                ? state.account
+                  ? t("login.signedInAs", { account: state.account })
+                  : t("login.signedIn")
+                : state.state === "none"
+                  ? t("common.notSignedIn")
+                  : t("login.unknown")}
             </StatusBadge>
           )}
         </div>
         <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => read(true)} disabled={login === "loading"}>
           <RefreshCw className={cn("size-3.5", login === "loading" && "animate-spin")} />
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
       <Separator />
@@ -837,7 +882,7 @@ function LoginCard({ type }: { type: string }) {
         ) : (
           <>
             {state?.detail && <p className="text-muted-foreground text-xs">{state.detail}</p>}
-            {state?.state === "ok" && <p className="text-muted-foreground text-xs">凭据由程序自己保管，Roster 不碰它。这个 harness 上用订阅的 agent 都用这个账号。</p>}
+            {state?.state === "ok" && <p className="text-muted-foreground text-xs">{t("login.credentials")}</p>}
             {state?.methods.map((m) => (
               <div key={m.id} className="space-y-1">
                 <div className="text-xs font-medium">{m.label}</div>
@@ -850,7 +895,7 @@ function LoginCard({ type }: { type: string }) {
                     <Button
                       variant="outline"
                       size="icon-sm"
-                      title="复制命令"
+                      title={t("login.copyCommand")}
                       onClick={() => {
                         void navigator.clipboard.writeText([m.terminal!.command, ...m.terminal!.args].join(" ")).then(() => {
                           setCopied(true);
@@ -875,12 +920,12 @@ function LoginCard({ type }: { type: string }) {
                     }}
                   >
                     {busy === m.id ? <Loader className="animate-spin" /> : <KeyRound />}
-                    登录
+                    {t("login.signIn")}
                   </Button>
                 )}
               </div>
             ))}
-            {state?.methods.some((m) => m.terminal) && <p className="text-muted-foreground text-xs">在终端里跑完，回来点刷新。</p>}
+            {state?.methods.some((m) => m.terminal) && <p className="text-muted-foreground text-xs">{t("login.terminalHint")}</p>}
           </>
         )}
       </div>
@@ -889,14 +934,15 @@ function LoginCard({ type }: { type: string }) {
 }
 
 function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
+  const { t } = useI18n();
   const own = type.capabilities.own;
   const endpoint = type.capabilities.endpoint;
   if (own && endpoint) {
     return (
       <Tabs defaultValue="own">
         <TabsList>
-          <TabsTrigger value="own">用订阅时</TabsTrigger>
-          <TabsTrigger value="endpoint">接模型 API 时</TabsTrigger>
+          <TabsTrigger value="own">{t("harness.onSubscription")}</TabsTrigger>
+          <TabsTrigger value="endpoint">{t("harness.onModelApi")}</TabsTrigger>
         </TabsList>
         <TabsContent value="own" className="rounded-lg border px-3 py-2.5">
           <CapabilityNotes caps={own} />
@@ -917,8 +963,8 @@ function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
 }
 
 /** What a person calls an agent's source. */
-function sourceName(view: ExecutorSettings, e: Pick<ExecutorRecord, "source_kind" | "provider_id">): string {
-  return e.source_kind === "own" ? OWN_SOURCE_LABEL : (view.providers.find((p) => p.id === e.provider_id)?.name ?? "已删除的模型 API");
+function sourceName(t: Translate, view: ExecutorSettings, e: Pick<ExecutorRecord, "source_kind" | "provider_id">): string {
+  return e.source_kind === "own" ? t("source.own") : (view.providers.find((p) => p.id === e.provider_id)?.name ?? t("source.deleted"));
 }
 
 /**
@@ -944,8 +990,9 @@ export function HarnessPanel({
   onCancel: () => void;
   onSelect: (s: SettingsSelection) => void;
 }) {
+  const { t, list } = useI18n();
   const harness = ext?.harnesses.find((h) => h.id === id);
-  const info = view.types.find((t) => t.type === id);
+  const info = view.types.find((type) => type.type === id);
   const label = harness?.label ?? info?.label ?? id;
   const saved = view.programs[id] ?? "";
   const [program, setProgram] = useState(saved);
@@ -964,7 +1011,8 @@ export function HarnessPanel({
   const fetched = Boolean(harness?.state.installed && !harness.state.detected);
   const found = ext?.environment?.programs.find((p) => p.id === id);
   const agents = view.executors.filter((e) => e.type === id);
-  const status = harness ? harnessStatus(harness) : null;
+  const status = harness ? harnessStatus(t, harness) : null;
+  const versionSuffix = (version: string | null | undefined) => (version ? t("harness.versionSuffix", { version }) : "");
 
   const save = async () => {
     setBusy(true);
@@ -985,7 +1033,7 @@ export function HarnessPanel({
   };
 
   return (
-    <EditorFrame error={error} busy={busy} canSave={program.trim() !== saved} saveLabel="保存" onSave={() => void save()} onCancel={onCancel}>
+    <EditorFrame error={error} busy={busy} canSave={program.trim() !== saved} saveLabel={t("common.save")} onSave={() => void save()} onCancel={onCancel}>
       <div className="space-y-4">
         <div className="flex items-start gap-4">
           <HarnessTile type={id} brand={harness?.brand} size="lg" />
@@ -1001,9 +1049,15 @@ export function HarnessPanel({
         {(needsAdapter || needsProgram) && (
           <Alert>
             <Download />
-            <AlertTitle>{needsAdapter ? "适配器没有装上，现在用不了" : `本机没找到 ${harness?.program?.bin ?? "它的程序"}`}</AlertTitle>
+            <AlertTitle>
+              {needsAdapter
+                ? t("harness.adapterMissingTitle")
+                : harness?.program?.bin
+                  ? t("harness.programMissingTitle", { bin: harness.program.bin })
+                  : t("harness.programMissingTitleUnnamed")}
+            </AlertTitle>
             <AlertDescription>
-              <p>{needsAdapter ? "装上适配器之后才能用。" : "下载会装到 Roster 自己的目录，不动系统；下载完，这个 harness 上的 agent 就能启动。"}</p>
+              <p>{needsAdapter ? t("harness.adapterMissingBody") : t("harness.programMissingBody")}</p>
               <Button
                 size="sm"
                 className="mt-2"
@@ -1011,7 +1065,7 @@ export function HarnessPanel({
                 onClick={() => void run(() => api.installExtension(id))}
               >
                 {acting ? <Loader className="animate-spin" /> : <Download />}
-                {needsAdapter ? "装适配器" : "下载安装"}
+                {needsAdapter ? t("harness.installAdapter") : t("harness.download")}
               </Button>
             </AlertDescription>
           </Alert>
@@ -1021,19 +1075,25 @@ export function HarnessPanel({
 
       {harness?.state.needed && (
         <Field>
-          <FieldLabel htmlFor="harness-program">程序</FieldLabel>
+          <FieldLabel htmlFor="harness-program">{t("harness.program")}</FieldLabel>
           <Input
             id="harness-program"
             value={program}
             onChange={(e) => setProgram(e.target.value)}
-            placeholder={harness.state.path ? `留空就用 ${harness.state.path}` : `${harness.program?.bin ?? "程序"} 的完整路径`}
+            placeholder={
+              harness.state.path
+                ? t("harness.programEmptyUses", { path: harness.state.path })
+                : t("harness.programFullPath", { bin: harness.program?.bin ?? t("harness.program") })
+            }
             spellCheck={false}
             className="font-mono text-xs"
           />
           <FieldDescription>
             {harness.state.path
-              ? `留空用${found ? "本机检测到" : "Roster 装"}的${found?.version ? `（${found.version}）` : ""}；想换一份程序时再填。这个 harness 上的 agent 都跑这一份，订阅登录也是。`
-              : "本机没找到它：下载一份，或者直接填程序的完整路径。"}
+              ? found
+                ? t("harness.programHintFound", { version: versionSuffix(found.version) })
+                : t("harness.programHintInstalled")
+              : t("harness.programHintMissing")}
           </FieldDescription>
         </Field>
       )}
@@ -1041,11 +1101,11 @@ export function HarnessPanel({
       {fetched && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground mr-auto text-xs">
-            程序是 Roster 下载的{harness?.state.installed?.version ? `（${harness.state.installed.version}）` : ""}
+            {t("harness.fetched", { version: versionSuffix(harness?.state.installed?.version) })}
           </span>
           <Button size="sm" variant="outline" disabled={acting} onClick={() => void run(() => api.updateExtension(id))}>
             {acting ? <Loader className="animate-spin" /> : <RefreshCw />}
-            重新下载
+            {t("harness.downloadAgain")}
           </Button>
           <Button
             size="sm"
@@ -1055,7 +1115,7 @@ export function HarnessPanel({
             onClick={() => setRemoving(true)}
           >
             <Trash2 />
-            卸载
+            {t("harness.uninstall")}
           </Button>
         </div>
       )}
@@ -1064,17 +1124,17 @@ export function HarnessPanel({
 
       {info && (
         <Field>
-          <FieldLabel>能做什么</FieldLabel>
+          <FieldLabel>{t("harness.capabilities")}</FieldLabel>
           <CapabilitiesOf type={info} />
           {info.sources.apis.length > 0 && (
-            <FieldDescription>能接的协议：{info.sources.apis.map((a) => API_LABEL[a] ?? a).join("、")}</FieldDescription>
+            <FieldDescription>{t("harness.protocols", { protocols: list(info.sources.apis.map((a) => apiLabel(t, a))) })}</FieldDescription>
           )}
         </Field>
       )}
 
       <Field>
         <div className="flex items-center justify-between gap-3">
-          <FieldLabel>这个 harness 上的 agent</FieldLabel>
+          <FieldLabel>{t("harness.agents")}</FieldLabel>
           <Button
             variant="ghost"
             size="sm"
@@ -1083,7 +1143,7 @@ export function HarnessPanel({
             onClick={() => onSelect({ kind: "agent", id: null, type: id })}
           >
             <Plus />
-            新建 agent
+            {t("agent.new")}
           </Button>
         </div>
         {agents.length > 0 ? (
@@ -1091,28 +1151,24 @@ export function HarnessPanel({
             {agents.map((e) => (
               <button key={e.id} type="button" onClick={() => onSelect({ kind: "agent", id: e.id })} className={cn(ROW, "hover:bg-accent")}>
                 <span className="min-w-0 flex-1 truncate text-sm">{e.name}</span>
-                <span className="text-muted-foreground shrink-0 text-xs">{sourceName(view, e)}</span>
+                <span className="text-muted-foreground shrink-0 text-xs">{sourceName(t, view, e)}</span>
                 <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
               </button>
             ))}
           </div>
         ) : (
-          <p className="text-muted-foreground text-sm">
-            还没有。{info?.sources.own ? "建一个用订阅的，或者接一个模型 API 的；" : "接一个模型 API 建一个；"}到通讯录里建 bot 时也能顺手建。
-          </p>
+          <p className="text-muted-foreground text-sm">{info?.sources.own ? t("harness.noAgentsOwn") : t("harness.noAgents")}</p>
         )}
       </Field>
 
       <AlertDialog open={removing} onOpenChange={setRemoving}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>卸载「{label}」？</AlertDialogTitle>
-            <AlertDialogDescription>
-              Roster 下载的这份程序会被删掉；这个 harness 上的 agent 还留着，只是启动不了，再下载就能继续用。
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("harness.uninstallTitle", { name: label })}</AlertDialogTitle>
+            <AlertDialogDescription>{t("harness.uninstallBody")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
@@ -1120,7 +1176,7 @@ export function HarnessPanel({
                 void run(() => api.removeExtension(id));
               }}
             >
-              卸载
+              {t("harness.uninstall")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1159,17 +1215,18 @@ export function AgentEditor({
   onDeleted: () => void;
   onSelect: (s: SettingsSelection) => void;
 }) {
+  const { t } = useI18n();
   const creating = executor === null;
   /** where a new agent on this harness starts: its own sign-in while nobody has it, else the first model API that fits */
-  const startFor = (t: string): { kind: SourceKind; providerId: string | null } => {
-    const ti = view.types.find((x) => x.type === t);
-    const ownFree = Boolean(ti?.sources.own) && !view.executors.some((e) => e.type === t && e.source_kind === "own");
+  const startFor = (harnessType: string): { kind: SourceKind; providerId: string | null } => {
+    const ti = view.types.find((x) => x.type === harnessType);
+    const ownFree = Boolean(ti?.sources.own) && !view.executors.some((e) => e.type === harnessType && e.source_kind === "own");
     const first = ti ? view.providers.find((p) => fits(ti, p, view)) : undefined;
     return ownFree ? { kind: "own", providerId: null } : { kind: "endpoint", providerId: first?.id ?? null };
   };
   const [type, setType] = useState(executor?.type ?? preset ?? view.types[0]?.type ?? "");
   // an old agent on a sign-in its harness does not have opens on a model API, so saving is the fix
-  const stray = executor?.source_kind === "own" && view.types.find((t) => t.type === executor.type)?.sources.own === false;
+  const stray = executor?.source_kind === "own" && view.types.find((x) => x.type === executor.type)?.sources.own === false;
   const [source, setSource] = useState<{ kind: SourceKind; providerId: string | null }>(() =>
     executor && !stray ? { kind: executor.source_kind, providerId: executor.provider_id } : startFor(executor?.type ?? preset ?? view.types[0]?.type ?? ""),
   );
@@ -1181,13 +1238,13 @@ export function AgentEditor({
   const [check, setCheck] = useState<{ ok: boolean; items: CheckItem[] } | "running" | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  const info = view.types.find((t) => t.type === type);
+  const info = view.types.find((x) => x.type === type);
   const harness = ext?.harnesses.find((h) => h.id === type);
   const label = info?.label ?? harness?.label ?? type;
   const fitting = info ? view.providers.filter((p) => fits(info, p, view)) : [];
   const ownTaken = view.executors.find((e) => e.type === type && e.source_kind === "own" && e.id !== executor?.id);
   const providerId = source.kind === "endpoint" ? source.providerId : null;
-  const sourceLabel = source.kind === "own" ? OWN_SOURCE_LABEL : (view.providers.find((p) => p.id === providerId)?.name ?? "模型 API");
+  const sourceLabel = source.kind === "own" ? t("source.own") : (view.providers.find((p) => p.id === providerId)?.name ?? t("source.endpoint"));
   const caps = info?.capabilities[source.kind];
   const users = executor ? bots.filter((b) => !b.archived_at && b.executor_id === executor.id) : [];
   const canSave = Boolean(info) && (source.kind === "own" ? Boolean(info?.sources.own) && !ownTaken : Boolean(providerId));
@@ -1210,9 +1267,9 @@ export function AgentEditor({
     };
   }, [sourceKey]);
 
-  const chooseHarness = (t: string) => {
-    setType(t);
-    setSource(startFor(t));
+  const chooseHarness = (harnessType: string) => {
+    setType(harnessType);
+    setSource(startFor(harnessType));
     setModel("");
   };
 
@@ -1233,7 +1290,7 @@ export function AgentEditor({
     };
     const r = creating ? await api.createExecutor(body) : await api.updateExecutor(executor.id, body);
     setBusy(false);
-    if (r.error || !r.executor) return setError(r.error ?? "保存失败");
+    if (r.error || !r.executor) return setError(r.error ?? t("common.saveFailed"));
     setCheck(null);
     // core may have named it after its new source
     setName(r.executor.name);
@@ -1244,17 +1301,17 @@ export function AgentEditor({
     if (!executor) return;
     setCheck("running");
     const r = await api.checkExecutor(executor.id).catch((e: unknown) => ({ ok: false, items: [], error: String(e) }));
-    setCheck(r.error ? { ok: false, items: [{ label: "测试", ok: false, detail: r.error }] } : r);
+    setCheck(r.error ? { ok: false, items: [{ label: t("check.label"), ok: false, detail: r.error }] } : r);
   };
 
   return (
     <EditorFrame
-      title={creating ? "新建 agent" : undefined}
-      description={creating ? "agent 是一个 harness，加上模型从哪来：harness 自带的订阅登录，或者一个模型 API。" : undefined}
+      title={creating ? t("agent.new") : undefined}
+      description={creating ? t("agent.newDescription") : undefined}
       error={error}
       busy={busy}
       canSave={canSave}
-      saveLabel={creating ? "创建" : "保存"}
+      saveLabel={creating ? t("common.create") : t("common.save")}
       onSave={() => void save()}
       onCancel={onCancel}
       {...(creating ? {} : { onDelete: () => setConfirming(true) })}
@@ -1265,7 +1322,7 @@ export function AgentEditor({
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg leading-snug font-semibold">{executor.name}</h2>
             <p className="text-muted-foreground truncate text-sm">
-              {label} · {sourceName(view, executor)}
+              {label} · {sourceName(t, view, executor)}
             </p>
           </div>
         </div>
@@ -1273,12 +1330,12 @@ export function AgentEditor({
 
       {executor?.problem && (
         <Alert>
-          <AlertTitle>现在用不了</AlertTitle>
+          <AlertTitle>{t("agent.unusable")}</AlertTitle>
           <AlertDescription>
             {executor.problem}
             {!info && (
               <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "harnesses", id: executor.type })}>
-                去装 harness
+                {t("agent.installHarness")}
               </Button>
             )}
           </AlertDescription>
@@ -1287,23 +1344,23 @@ export function AgentEditor({
 
       {creating && (
         <Field>
-          <FieldLabel>Harness</FieldLabel>
+          <FieldLabel>{t("settings.harness")}</FieldLabel>
           {view.types.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              还没有能用的 harness。
+              {t("agent.noHarnesses")}
               <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "harnesses" })}>
-                去装一个
+                {t("agent.installOne")}
               </Button>
             </p>
           ) : (
             <RadioGroup value={type} onValueChange={chooseHarness} className="grid gap-2 sm:grid-cols-2">
-              {view.types.map((t) => {
-                const h = ext?.harnesses.find((x) => x.id === t.type);
-                const st = h ? harnessStatus(h) : null;
+              {view.types.map((option) => {
+                const h = ext?.harnesses.find((x) => x.id === option.type);
+                const st = h ? harnessStatus(t, h) : null;
                 return (
-                  <Choice key={t.type} value={t.type} selected={type === t.type}>
-                    <HarnessTile type={t.type} brand={h?.brand} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.label}</span>
+                  <Choice key={option.type} value={option.type} selected={type === option.type}>
+                    <HarnessTile type={option.type} brand={h?.brand} size="sm" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{option.label}</span>
                     {st && <StatusBadge tone={st.tone}>{st.text}</StatusBadge>}
                   </Choice>
                 );
@@ -1315,43 +1372,45 @@ export function AgentEditor({
 
       {info && (
         <Field>
-          <FieldLabel>模型从哪来</FieldLabel>
+          <FieldLabel>{t("agent.source")}</FieldLabel>
           {info.sources.own && info.sources.apis.length > 0 ? (
             <RadioGroup value={source.kind} onValueChange={(v) => chooseKind(v as SourceKind)} className="grid gap-2 sm:grid-cols-2">
               <Choice value="own" selected={source.kind === "own"} disabled={Boolean(ownTaken)}>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">订阅</span>
+                  <span className="block text-sm font-medium">{t("source.own")}</span>
                   <span className="text-muted-foreground block text-xs">
-                    {ownTaken ? `已经有了：${ownTaken.name}` : `用 ${label} 自己登录的账号`}
+                    {ownTaken ? t("agent.ownTaken", { name: ownTaken.name }) : t("agent.ownAccount", { harness: label })}
                   </span>
                 </span>
               </Choice>
               <Choice value="endpoint" selected={source.kind === "endpoint"}>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">模型 API</span>
-                  <span className="text-muted-foreground block text-xs">按量调用，用你添加的密钥</span>
+                  <span className="block text-sm font-medium">{t("source.endpoint")}</span>
+                  <span className="text-muted-foreground block text-xs">{t("agent.endpointHint")}</span>
                 </span>
               </Choice>
             </RadioGroup>
           ) : (
             <p className="text-muted-foreground text-sm">
               {info.sources.own
-                ? `用 ${label} 自己登录的账号${ownTaken ? `，已经有 agent 了：${ownTaken.name}` : ""}；它不接模型 API。`
-                : `${label} 没有自带登录，接一个模型 API。`}
+                ? ownTaken
+                  ? t("agent.ownOnlyTaken", { harness: label, name: ownTaken.name })
+                  : t("agent.ownOnly", { harness: label })
+                : t("agent.endpointOnly", { harness: label })}
             </p>
           )}
           {source.kind === "endpoint" &&
             (fitting.length === 0 ? (
               <p className="text-muted-foreground text-xs">
-                还没有接得上 {label} 的模型 API。
+                {t("agent.noFitting", { harness: label })}
                 <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onSelect({ kind: "provider", id: null })}>
-                  添加模型 API
+                  {t("provider.add")}
                 </Button>
               </p>
             ) : (
               <Select value={providerId ?? undefined} onValueChange={(id) => setSource({ kind: "endpoint", providerId: id })}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选一个模型 API" />
+                  <SelectValue placeholder={t("agent.pickProvider")} />
                 </SelectTrigger>
                 <SelectContent>
                   {fitting.map((p) => (
@@ -1362,13 +1421,13 @@ export function AgentEditor({
                 </SelectContent>
               </Select>
             ))}
-          {!creating && <FieldDescription>换了之后，已经在会话里的成员会提示「设定有更新」，同步后才用新的。</FieldDescription>}
+          {!creating && <FieldDescription>{t("agent.sourceChangeHint")}</FieldDescription>}
         </Field>
       )}
 
       {info && (
         <Field>
-          <FieldLabel htmlFor="agent-model">默认模型</FieldLabel>
+          <FieldLabel htmlFor="agent-model">{t("common.defaultModel")}</FieldLabel>
           {models === "loading" ? (
             <Skeleton className="h-9 w-full" />
           ) : models && models.length > 0 ? (
@@ -1377,12 +1436,17 @@ export function AgentEditor({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={HARNESS_DEFAULT}>不指定，用 {label} 自己的默认</SelectItem>
+                <SelectItem value={HARNESS_DEFAULT}>{t("agent.harnessDefault", { harness: label })}</SelectItem>
                 {model && !models.some((m) => m.id === model) && <SelectItem value={model}>{model}</SelectItem>}
                 {models.map((m) => (
                   <SelectItem key={m.id} value={m.id} disabled={!m.available}>
                     {m.label ?? m.id}
-                    {!m.available && <span className="text-muted-foreground"> · {source.kind === "own" ? "没有登录" : "没有密钥"}</span>}
+                    {!m.available && (
+                      <span className="text-muted-foreground">
+                        {" · "}
+                        {source.kind === "own" ? t("common.notSignedIn") : t("common.noKey")}
+                      </span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1392,36 +1456,34 @@ export function AgentEditor({
               id="agent-model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="留空用它自己的默认"
+              placeholder={t("agent.modelPlaceholder")}
               spellCheck={false}
               className="font-mono text-xs"
             />
           )}
-          <FieldDescription>bot 没有自己选模型时用这个。</FieldDescription>
+          <FieldDescription>{t("agent.modelHint")}</FieldDescription>
         </Field>
       )}
 
       <Field>
-        <FieldLabel htmlFor="agent-name">名字</FieldLabel>
+        <FieldLabel htmlFor="agent-name">{t("editor.name")}</FieldLabel>
         <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${label} · ${sourceLabel}`} />
-        <FieldDescription>建 bot 选 agent 时看到的就是它；留空自动起名。</FieldDescription>
+        <FieldDescription>{t("agent.nameHint")}</FieldDescription>
       </Field>
 
       {executor && (
         <div className="space-y-2">
           <Button variant="outline" size="sm" onClick={() => void test()} disabled={check === "running"}>
-            测试连接
+            {t("check.test")}
           </Button>
-          <p className="text-muted-foreground text-xs">
-            测的是保存过的设置：{executor.source_kind === "own" ? "订阅登录在不在" : "模型 API 的密钥能不能用"}、程序能不能启动。不会发起对话，不花钱。
-          </p>
+          <p className="text-muted-foreground text-xs">{executor.source_kind === "own" ? t("agent.testHintOwn") : t("agent.testHintEndpoint")}</p>
           <CheckResult result={check} />
         </div>
       )}
 
       {caps && (
         <Field>
-          <FieldLabel>能做什么</FieldLabel>
+          <FieldLabel>{t("harness.capabilities")}</FieldLabel>
           <div className="rounded-lg border px-3 py-2.5">
             <CapabilityNotes caps={caps} />
           </div>
@@ -1430,7 +1492,7 @@ export function AgentEditor({
 
       {executor && (
         <Field>
-          <FieldLabel>在用的 bot</FieldLabel>
+          <FieldLabel>{t("agent.bots")}</FieldLabel>
           {users.length > 0 ? (
             <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-xl border px-4 py-2.5 text-sm">
               {users.map((b) => (
@@ -1441,7 +1503,7 @@ export function AgentEditor({
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">还没有。到通讯录里建 bot 时选它。</p>
+            <p className="text-muted-foreground text-sm">{t("agent.noBots")}</p>
           )}
         </Field>
       )}
@@ -1450,8 +1512,8 @@ export function AgentEditor({
         <ConfirmDelete
           open={confirming}
           onOpenChange={setConfirming}
-          title={`删除「${executor.name}」？`}
-          description="还有 bot 在用它，或者会话里还有成员跑在它上面的话，会删不掉。"
+          title={t("common.deleteTitle", { name: executor.name })}
+          description={t("agent.deleteBody")}
           onConfirm={() => {
             void api.deleteExecutor(executor.id).then((r) => (r.error ? setError(r.error) : onDeleted()));
           }}
@@ -1496,13 +1558,14 @@ function PresetPicker({
   onPick: (preset: string, keyEnv?: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const { t } = useI18n();
   const q = query.trim().toLowerCase();
   const shown = q ? presets.filter((p) => `${p.id} ${p.label}`.toLowerCase().includes(q)) : presets;
   return (
     <>
       {suggestions.length > 0 && (
         <Field>
-          <FieldLabel>本机找到的密钥</FieldLabel>
+          <FieldLabel>{t("preset.foundKeys")}</FieldLabel>
           <div className="divide-y rounded-xl border">
             {suggestions.map((h) => {
               const p = presets.find((x) => x.id === h.preset);
@@ -1513,11 +1576,11 @@ function PresetPicker({
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{p.label}</div>
                     <div className="text-muted-foreground truncate text-xs">
-                      读环境变量 <span className="font-mono">{h.name}</span>，Roster 不保存密钥
+                      {t.rich("preset.readsEnv", { name: <span className="font-mono">{h.name}</span> })}
                     </div>
                   </div>
                   <Button size="sm" onClick={() => onPick(p.id, h.name)}>
-                    用它添加
+                    {t("preset.addWithIt")}
                   </Button>
                 </div>
               );
@@ -1527,7 +1590,7 @@ function PresetPicker({
       )}
 
       <Field>
-        <FieldLabel htmlFor="preset-search">从哪调</FieldLabel>
+        <FieldLabel htmlFor="preset-search">{t("preset.where")}</FieldLabel>
         <div className="flex gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
@@ -1535,7 +1598,7 @@ function PresetPicker({
               id="preset-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`搜索 ${presets.length} 个预设`}
+              placeholder={t("preset.search", { count: presets.length })}
               autoComplete="off"
               spellCheck={false}
               className="pl-8"
@@ -1543,13 +1606,11 @@ function PresetPicker({
           </div>
           <Button variant="outline" onClick={() => onPick(CUSTOM_PRESET)}>
             <KeyRound />
-            自定义 API
+            {t("provider.custom")}
           </Button>
         </div>
         {shown.length === 0 ? (
-          <p className="text-muted-foreground py-6 text-center text-sm">
-            没有叫「{query.trim()}」的预设。不在列表里的，用自定义 API 自己填地址。
-          </p>
+          <p className="text-muted-foreground py-6 text-center text-sm">{t("preset.noMatches", { query: query.trim() })}</p>
         ) : (
           <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-3">
             {shown.map((p) => (
@@ -1564,8 +1625,8 @@ function PresetPicker({
                   {/* wraps instead of truncating: regional variants differ only in their last word */}
                   <span className="block text-sm leading-snug font-medium break-words">{p.label}</span>
                   <span className="text-muted-foreground block truncate text-xs">
-                    {apiShort(p.api)}
-                    {added.has(p.id) && " · 已添加"}
+                    {apiShort(t, p.api)}
+                    {added.has(p.id) && t("preset.added")}
                   </span>
                 </span>
               </button>
@@ -1589,6 +1650,7 @@ function ConnectionLine({
   dirty: boolean;
   onTest: () => void;
 }) {
+  const { t } = useI18n();
   const running = state === "running";
   const result = dirty || running ? null : state;
   return (
@@ -1605,16 +1667,18 @@ function ConnectionLine({
       </span>
       <span className={cn("min-w-0 flex-1 py-1.5 text-sm", !result ? "text-muted-foreground" : !result.ok && "text-destructive")}>
         {running
-          ? `正在连${host ? ` ${host}` : ""}…`
+          ? host
+            ? t("connection.connectingTo", { host })
+            : t("connection.connecting")
           : dirty
-            ? "有改动还没保存，保存后会自动再测一次。"
+            ? t("connection.unsaved")
             : result
               ? result.detail
-              : "还没测过。测试只拉一次模型列表，不花钱。"}
+              : t("connection.untested")}
       </span>
       <Button variant="outline" size="sm" onClick={onTest} disabled={running || dirty}>
         <RefreshCw />
-        测试连接
+        {t("check.test")}
       </Button>
     </div>
   );
@@ -1622,28 +1686,29 @@ function ConnectionLine({
 
 /** Which harnesses can take their models from here, and which agents already do. */
 function UsedBy({ types, executors }: { types: readonly HarnessTypeInfo[]; executors: readonly ExecutorRecord[] | null }) {
+  const { t } = useI18n();
   return (
     <Field>
-      <FieldLabel>谁能用</FieldLabel>
+      <FieldLabel>{t("provider.usedBy")}</FieldLabel>
       <dl className="divide-y rounded-xl border text-sm">
         <div className="flex items-center gap-3 px-4 py-2.5">
-          <dt className="text-muted-foreground w-24 shrink-0 text-xs">能接的 harness</dt>
+          <dt className="text-muted-foreground w-24 shrink-0 text-xs">{t("provider.harnesses")}</dt>
           <dd className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1.5">
             {types.length > 0 ? (
-              types.map((t) => (
-                <span key={t.type} className="inline-flex items-center gap-1.5">
-                  <ExecutorTile type={t.type} size="xs" />
-                  {t.label}
+              types.map((type) => (
+                <span key={type.type} className="inline-flex items-center gap-1.5">
+                  <ExecutorTile type={type.type} size="xs" />
+                  {type.label}
                 </span>
               ))
             ) : (
-              <span className="text-muted-foreground">没有，协议跟现有的 harness 都对不上</span>
+              <span className="text-muted-foreground">{t("provider.noHarnesses")}</span>
             )}
           </dd>
         </div>
         {executors && (
           <div className="flex items-center gap-3 px-4 py-2.5">
-            <dt className="text-muted-foreground w-24 shrink-0 text-xs">在用的 agent</dt>
+            <dt className="text-muted-foreground w-24 shrink-0 text-xs">{t("provider.agents")}</dt>
             <dd className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1.5">
               {executors.length > 0 ? (
                 executors.map((e) => (
@@ -1653,7 +1718,7 @@ function UsedBy({ types, executors }: { types: readonly HarnessTypeInfo[]; execu
                   </span>
                 ))
               ) : (
-                <span className="text-muted-foreground">还没有。建 agent 时选它当模型 API。</span>
+                <span className="text-muted-foreground">{t("provider.noAgents")}</span>
               )}
             </dd>
           </div>
@@ -1669,21 +1734,22 @@ function UsedBy({ types, executors }: { types: readonly HarnessTypeInfo[]; execu
  */
 function ListedModels({ models, connection }: { models: readonly string[] | null; connection: Connection }) {
   const [query, setQuery] = useState("");
+  const { t } = useI18n();
   const q = query.trim().toLowerCase();
   const shown = (models ?? []).filter((m) => !q || m.toLowerCase().includes(q));
   const settled = connection !== null && connection !== "running" ? connection : null;
   return (
     <Field>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>模型</FieldLabel>
+        <FieldLabel>{t("editor.model")}</FieldLabel>
         {models && models.length > 8 && (
           <div className="relative w-48">
             <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`搜索 ${models.length} 个模型`}
-              aria-label="搜索模型"
+              placeholder={t("models.search", { count: models.length })}
+              aria-label={t("models.searchLabel")}
               autoComplete="off"
               spellCheck={false}
               className="h-8 pl-8 text-xs"
@@ -1692,11 +1758,11 @@ function ListedModels({ models, connection }: { models: readonly string[] | null
         )}
       </div>
       {models === null ? (
-        <p className="text-muted-foreground text-sm">添加后会向 API 要一次模型列表，列出什么就是什么。</p>
+        <p className="text-muted-foreground text-sm">{t("models.beforeAdd")}</p>
       ) : models.length > 0 ? (
         <div className="max-h-96 overflow-y-auto rounded-xl border">
           {shown.length === 0 ? (
-            <p className="text-muted-foreground px-4 py-6 text-center text-sm">没有匹配「{query.trim()}」的模型</p>
+            <p className="text-muted-foreground px-4 py-6 text-center text-sm">{t("models.noMatches", { query: query.trim() })}</p>
           ) : (
             <ul className="divide-y">
               {shown.map((m) => (
@@ -1714,14 +1780,10 @@ function ListedModels({ models, connection }: { models: readonly string[] | null
         </div>
       ) : (
         <p className="text-muted-foreground text-sm">
-          {!settled.ok
-            ? "连接通过后，这里列出 API 返回的模型。"
-            : settled.models
-              ? "API 没有列出任何模型。"
-              : "这个 API 不提供模型列表。给 agent 或 bot 选模型时手填 id。"}
+          {!settled.ok ? t("models.afterConnect") : settled.models ? t("models.emptyList") : t("models.noList")}
         </p>
       )}
-      {models && models.length > 0 && <FieldDescription>以 API 返回的为准，测试连接时会重新拉取。</FieldDescription>}
+      {models && models.length > 0 && <FieldDescription>{t("models.hint")}</FieldDescription>}
     </Field>
   );
 }
@@ -1741,6 +1803,7 @@ export function ProviderEditor({
   onCancel: () => void;
   onDeleted: () => void;
 }) {
+  const { t } = useI18n();
   const creating = provider === null;
   const presets = useMemo(() => presetsOf(view), [view]);
   // what was last saved; the settings list it comes from reloads a moment after a save
@@ -1769,8 +1832,8 @@ export function ProviderEditor({
     .map((m) => m.trim())
     .filter(Boolean);
   // which agents could use it, as the form stands
-  const usable = view.types.filter((t) =>
-    custom ? t.sources.apis.includes(apiId) : (view.presets[t.type] ?? []).some((p) => p.id === preset),
+  const usable = view.types.filter((type) =>
+    custom ? type.sources.apis.includes(apiId) : (view.presets[type.type] ?? []).some((p) => p.id === preset),
   );
   const envHints = (env?.hints ?? []).filter((h) => h.kind === "env");
   // a vendor already added is no suggestion, whatever its key
@@ -1816,7 +1879,7 @@ export function ProviderEditor({
     setBusy(true);
     setError(null);
     const body = {
-      name: name.trim() || chosen?.label || "自定义 API",
+      name: name.trim() || chosen?.label || t("provider.custom"),
       preset,
       ...(custom ? { api: apiId, base_url: baseUrl.trim(), models: modelList } : {}),
       key_env: keySource === "env" ? keyEnv.trim() : null,
@@ -1825,7 +1888,7 @@ export function ProviderEditor({
     };
     const r = creating ? await api.createProvider(body) : await api.updateProvider(provider.id, body);
     setBusy(false);
-    if (r.error || !r.provider) return setError(r.error ?? "保存失败");
+    if (r.error || !r.provider) return setError(r.error ?? t("common.saveFailed"));
     setKey("");
     setName(r.provider.name);
     setRecord(r.provider);
@@ -1849,12 +1912,12 @@ export function ProviderEditor({
   if (creating && !preset) {
     return (
       <EditorFrame
-        title="添加模型 API"
-        description="先选从哪调，再填密钥。"
+        title={t("provider.add")}
+        description={t("provider.addDescription")}
         error={error}
         busy={busy}
         canSave={false}
-        saveLabel="添加"
+        saveLabel={t("common.add")}
         onSave={() => {}}
         onCancel={onCancel}
       >
@@ -1879,17 +1942,22 @@ export function ProviderEditor({
   }
 
   const host = hostOf(custom ? baseUrl.trim() : chosen?.baseUrl);
-  const title = record?.name ?? (custom ? name.trim() || "自定义 API" : (chosen?.label ?? preset));
+  const customName = t("provider.custom");
+  const title = record?.name ?? (custom ? name.trim() || customName : (chosen?.label ?? preset));
   const subtitle = custom
-    ? title === "自定义 API"
+    ? title === customName
       ? null
-      : "自定义 API"
+      : customName
     : !chosen
-      ? "这个预设现在没有 harness 提供"
+      ? t("provider.presetGone")
       : chosen.label === title
         ? null
         : chosen.label;
-  const facts = [apiShort(custom ? apiId : chosen?.api), custom && modelList.length > 0 ? `${modelList.length} 个模型` : "", host].filter(Boolean);
+  const facts = [
+    apiShort(t, custom ? apiId : chosen?.api),
+    custom && modelList.length > 0 ? t("provider.modelCount", { count: modelList.length }) : "",
+    host,
+  ].filter(Boolean);
   const Heading = creating ? "h3" : "h2";
   const users = record ? view.executors.filter((e) => e.provider_id === record.id) : null;
   // what the last check listed, else what was saved from an earlier one, which the settings reload after a check carries
@@ -1897,11 +1965,11 @@ export function ProviderEditor({
 
   return (
     <EditorFrame
-      title={creating ? "添加模型 API" : undefined}
+      title={creating ? t("provider.add") : undefined}
       error={error}
       busy={busy}
       canSave={custom ? baseUrl.trim() !== "" && modelList.length > 0 : Boolean(chosen) && Boolean(hasKey)}
-      saveLabel={creating ? "添加" : "保存"}
+      saveLabel={creating ? t("common.add") : t("common.save")}
       onSave={() => void save()}
       onCancel={onCancel}
       {...(record ? { onDelete: () => setConfirming(true) } : {})}
@@ -1930,7 +1998,7 @@ export function ProviderEditor({
           </div>
           {creating && (
             <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setPreset("")}>
-              换一个
+              {t("provider.change")}
             </Button>
           )}
         </div>
@@ -1942,7 +2010,7 @@ export function ProviderEditor({
       {custom && (
         <>
           <Field>
-            <FieldLabel>协议</FieldLabel>
+            <FieldLabel>{t("provider.protocol")}</FieldLabel>
             <ToggleGroup type="single" value={apiId} onValueChange={(v) => v && setApiId(v)} className="flex-wrap justify-start gap-1.5">
               {CUSTOM_APIS.map((id) => (
                 <ToggleGroupItem
@@ -1953,13 +2021,13 @@ export function ProviderEditor({
                   className="data-[state=on]:border-foreground/40 gap-1.5 rounded-lg px-2.5 first:rounded-lg last:rounded-lg"
                 >
                   <ProviderIcon provider={API_BRAND[id] ?? "unknown"} className="size-3.5" />
-                  {API_LABEL[id]}
+                  {apiLabel(t, id)}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
           </Field>
           <Field>
-            <FieldLabel htmlFor="provider-url">地址</FieldLabel>
+            <FieldLabel htmlFor="provider-url">{t("provider.address")}</FieldLabel>
             <Input
               id="provider-url"
               value={baseUrl}
@@ -1969,7 +2037,7 @@ export function ProviderEditor({
               className="font-mono text-xs"
             />
             <FieldDescription>
-              {apiId === "anthropic-messages" ? "不带 /v1，比如 https://api.example.com/anthropic" : "一般带 /v1，比如 https://api.example.com/v1"}
+              {apiId === "anthropic-messages" ? t("provider.addressAnthropic") : t("provider.addressOpenAI")}
             </FieldDescription>
           </Field>
         </>
@@ -1977,7 +2045,7 @@ export function ProviderEditor({
 
       <Field>
         <div className="flex items-center justify-between gap-3">
-          <FieldLabel htmlFor="provider-key">密钥</FieldLabel>
+          <FieldLabel htmlFor="provider-key">{t("provider.key")}</FieldLabel>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -1986,10 +2054,10 @@ export function ProviderEditor({
             onValueChange={(v) => v && setKeySource(v as "stored" | "env")}
           >
             <ToggleGroupItem value="stored" className="px-2.5 text-xs">
-              保存在 Roster
+              {t("provider.keyStored")}
             </ToggleGroupItem>
             <ToggleGroupItem value="env" className="px-2.5 text-xs">
-              从环境变量读
+              {t("provider.keyEnv")}
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
@@ -2001,7 +2069,7 @@ export function ProviderEditor({
             onChange={(e) => setKey(e.target.value)}
             autoComplete="off"
             spellCheck={false}
-            placeholder={storedKey ? `已保存 ${record?.key.hint}，留空不改` : (chosen?.keyLabel ?? "API key")}
+            placeholder={storedKey ? t("provider.keySaved", { hint: record?.key.hint ?? "" }) : (chosen?.keyLabel ?? "API key")}
             className="font-mono text-xs"
           />
         ) : (
@@ -2010,7 +2078,8 @@ export function ProviderEditor({
             value={keyEnv}
             onChange={(e) => setKeyEnv(e.target.value)}
             placeholder={
-              presetHint?.name ?? `比如 ${custom ? "MY_GATEWAY_KEY" : `${preset.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`}`
+              presetHint?.name ??
+              t("common.example", { example: custom ? "MY_GATEWAY_KEY" : `${preset.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY` })
             }
             spellCheck={false}
             className="font-mono text-xs"
@@ -2019,7 +2088,7 @@ export function ProviderEditor({
         {presetHint && !(keySource === "env" && keyEnv.trim() === presetHint.name) && (
           <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
             <ScanSearch className="size-3.5" />
-            本机有 <span className="text-foreground font-mono">{presetHint.name}</span>
+            {t.rich("provider.envFound", { name: <span className="text-foreground font-mono">{presetHint.name}</span> })}
             <Button
               type="button"
               variant="link"
@@ -2030,23 +2099,23 @@ export function ProviderEditor({
                 setKeyEnv(presetHint.name);
               }}
             >
-              改成读它
+              {t("provider.useEnv")}
             </Button>
           </div>
         )}
         <FieldDescription>
           {keySource === "stored"
             ? view.vault.encrypted
-              ? "加密后存在本地，界面上只显示首尾几位。"
-              : "这台机器上没有系统密钥保管，会以明文存在本地数据库里。"
-            : "Roster 不保存密钥，用的时候读这个变量。登录 shell（.zshrc、.bashrc）里设的也读得到。"}
+              ? t("provider.keyStoredEncrypted")
+              : t("provider.keyStoredPlain")
+            : t("provider.keyEnvHint")}
         </FieldDescription>
       </Field>
 
       {custom && (
         <Field>
           <div className="flex items-center justify-between">
-            <FieldLabel htmlFor="provider-models">模型</FieldLabel>
+            <FieldLabel htmlFor="provider-models">{t("editor.model")}</FieldLabel>
             <Button
               type="button"
               variant="ghost"
@@ -2056,7 +2125,7 @@ export function ProviderEditor({
               disabled={probe === "running" || baseUrl.trim() === ""}
             >
               {probe === "running" ? <Loader className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-              从接口拉取
+              {t("provider.fetchModels")}
             </Button>
           </div>
           {probe && probe !== "running" && (
@@ -2070,13 +2139,13 @@ export function ProviderEditor({
             spellCheck={false}
             className="min-h-24 font-mono text-xs"
           />
-          <FieldDescription>一行一个模型 id，第一个会作为默认。</FieldDescription>
+          <FieldDescription>{t("provider.modelsHint")}</FieldDescription>
         </Field>
       )}
 
       <Field>
-        <FieldLabel htmlFor="provider-name">名字</FieldLabel>
-        <Input id="provider-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen?.label ?? "比如：公司网关"} />
+        <FieldLabel htmlFor="provider-name">{t("editor.name")}</FieldLabel>
+        <Input id="provider-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen?.label ?? t("provider.namePlaceholder")} />
       </Field>
 
       <UsedBy types={usable} executors={users} />
@@ -2085,8 +2154,8 @@ export function ProviderEditor({
         <ConfirmDelete
           open={confirming}
           onOpenChange={setConfirming}
-          title={`删除「${record.name}」？`}
-          description="保存的密钥会一起删掉。还有 agent 接着它的话会删不掉，先给它们换一个模型 API。"
+          title={t("common.deleteTitle", { name: record.name })}
+          description={t("provider.deleteBody")}
           onConfirm={() => {
             void api.deleteProvider(record.id).then((r) => (r.error ? setError(r.error) : onDeleted()));
           }}

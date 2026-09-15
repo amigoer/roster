@@ -1,6 +1,7 @@
 import { Check, Minus } from "lucide-react";
 import type { Capabilities } from "./api";
 import { useExecutor } from "./executors";
+import { useI18n } from "./i18n";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -13,36 +14,30 @@ import {
  * than silently hiding the feature -- a missing button is indistinguishable
  * from a broken one.
  */
-const ROWS = [
-  { key: "interceptToolCall", label: "执行前拦截工具" },
-  { key: "mutateToolInput", label: "放行时可改参数" },
-  { key: "costLimit", label: "成本上限" },
-  { key: "mcp", label: "MCP" },
-  { key: "branch", label: "分支与恢复" },
-] as const;
+const ROWS = ["interceptToolCall", "mutateToolInput", "costLimit", "mcp", "branch"] as const;
 
 export function CapabilityNotes({ caps }: { caps: Capabilities }) {
-  const missing = ROWS.filter((r) => !caps[r.key]);
+  const { t } = useI18n();
+  const missing = ROWS.filter((key) => !caps[key]);
   return (
     <div className="space-y-1.5">
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        {ROWS.map((r) => (
-          <div key={r.key} className="flex items-center gap-1.5 text-xs">
-            {caps[r.key] ? (
+        {ROWS.map((key) => (
+          <div key={key} className="flex items-center gap-1.5 text-xs">
+            {caps[key] ? (
               <Check className="text-muted-foreground size-3 shrink-0" />
             ) : (
               <Minus className="text-muted-foreground/40 size-3 shrink-0" />
             )}
-            <span className={caps[r.key] ? "" : "text-muted-foreground/60 line-through"}>
-              {r.label}
+            <span className={caps[key] ? "" : "text-muted-foreground/60 line-through"}>
+              {t(`capability.${key}`)}
             </span>
           </div>
         ))}
       </div>
       <p className="text-muted-foreground text-xs">
-        中途插话：
-        {caps.midRunInject.includes("steer") ? "可打断并纠正" : "只能排到下一轮"}
-        {missing.length > 0 && ` · 划掉的 ${missing.length} 项这个 agent 不支持`}
+        {caps.midRunInject.includes("steer") ? t("capability.midRun.steer") : t("capability.midRun.queue")}
+        {missing.length > 0 && t("capability.missing", { count: missing.length })}
       </p>
     </div>
   );

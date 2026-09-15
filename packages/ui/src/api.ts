@@ -1,3 +1,5 @@
+import { translate, type LocalePreference, type LocaleState } from "./i18n";
+
 export type Tier = "read" | "write" | "execute";
 export type Mode = "human_led" | "leader" | "discussion";
 
@@ -418,7 +420,13 @@ export type ServerMsg =
   | { kind: "quota"; executor: string; quota: Quota | null }
   | { kind: "executors"; executors: Executor[]; capabilities: Record<string, Capabilities> }
   | { kind: "extensions" }
+  | ({ kind: "preferences" } & Preferences)
   | ({ kind: "presence" } & Omit<Presence, "state"> & { state: PresenceState | "idle" });
+
+/** What a person set for Roster as a whole, kept by core since core writes text in its language. */
+export interface Preferences {
+  locale: LocaleState;
+}
 
 const j = async <T,>(url: string, init?: RequestInit): Promise<T> => {
   const r = await fetch(url, {
@@ -446,8 +454,11 @@ export const api = {
       sources: SourceRef[];
       presence: Presence[];
       logos: Logo[];
+      preferences?: Preferences;
       defaultDir: string;
     }>(`/api/state${archived ? "?archived=1" : ""}`),
+  setLocale: (locale: LocalePreference) =>
+    j<Preferences & { error?: string }>("/api/preferences", body("PATCH", { locale })),
   /** by agent id */
   models: () => j<{ models: Record<string, ModelOption[]> }>("/api/models"),
 
@@ -538,10 +549,10 @@ export const api = {
         try {
           resolve(JSON.parse(xhr.responseText) as { attachment?: AttachmentRef; error?: string });
         } catch {
-          resolve({ error: `上传失败（${xhr.status}）` });
+          resolve({ error: translate("upload.failedStatus", { status: xhr.status }) });
         }
       };
-      xhr.onerror = () => resolve({ error: "上传失败，连不上 Roster" });
+      xhr.onerror = () => resolve({ error: translate("upload.unreachable") });
       xhr.send(file);
     }),
   removeAttachment: (conversationId: string, id: string) =>

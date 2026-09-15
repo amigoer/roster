@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import type { Translate } from "./i18n";
 
-/** A font the picker offers: the name people know it by, and the CSS families it goes by, first installed wins. */
-export type FontOption = { id: string; label: string; families: string[] };
+/** A font the picker offers, and the CSS families it goes by, first installed wins. What people call it is in the catalog. */
+export type FontOption = { id: "hiragino" | "heiti" | "yuanti" | "songti" | "kaiti" | "lxgw" | "sourcehan" | "misans" | "harmony"; families: string[] };
 
 export const SYSTEM_FONT = "system";
 export const CUSTOM_FONT = "custom";
@@ -11,23 +12,23 @@ export const CUSTOM_FONT = "custom";
  * install themselves. A card only shows for a font this machine has.
  */
 export const FONT_OPTIONS: FontOption[] = [
-  { id: "hiragino", label: "冬青黑体", families: ["Hiragino Sans GB"] },
-  { id: "heiti", label: "黑体", families: ["Heiti SC", "SimHei"] },
-  { id: "yuanti", label: "圆体", families: ["Yuanti SC"] },
-  { id: "songti", label: "宋体", families: ["Songti SC", "SimSun"] },
-  { id: "kaiti", label: "楷体", families: ["Kaiti SC", "KaiTi", "STKaiti"] },
-  { id: "lxgw", label: "霞鹜文楷", families: ["LXGW WenKai", "LXGW WenKai Screen"] },
-  { id: "sourcehan", label: "思源黑体", families: ["Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC"] },
-  { id: "misans", label: "MiSans", families: ["MiSans"] },
-  { id: "harmony", label: "HarmonyOS Sans", families: ["HarmonyOS Sans SC"] },
+  { id: "hiragino", families: ["Hiragino Sans GB"] },
+  { id: "heiti", families: ["Heiti SC", "SimHei"] },
+  { id: "yuanti", families: ["Yuanti SC"] },
+  { id: "songti", families: ["Songti SC", "SimSun"] },
+  { id: "kaiti", families: ["Kaiti SC", "KaiTi", "STKaiti"] },
+  { id: "lxgw", families: ["LXGW WenKai", "LXGW WenKai Screen"] },
+  { id: "sourcehan", families: ["Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC"] },
+  { id: "misans", families: ["MiSans"] },
+  { id: "harmony", families: ["HarmonyOS Sans SC"] },
 ];
 
 export type TextSize = "small" | "normal" | "large" | "xlarge";
-export const TEXT_SIZES: { id: TextSize; label: string; px: number }[] = [
-  { id: "small", label: "小", px: 13 },
-  { id: "normal", label: "标准", px: 14 },
-  { id: "large", label: "大", px: 16 },
-  { id: "xlarge", label: "特大", px: 18 },
+export const TEXT_SIZES: { id: TextSize; px: number }[] = [
+  { id: "small", px: 13 },
+  { id: "normal", px: 14 },
+  { id: "large", px: 16 },
+  { id: "xlarge", px: 18 },
 ];
 
 export type Typography = { font: string; customFont: string; size: TextSize };
@@ -79,13 +80,14 @@ export function chosenFamily(t: Typography): string | null {
 }
 
 /** What the settings row says about the font: nothing while it is the default. */
-export function fontLabel(t: Typography): string | null {
-  if (t.font === CUSTOM_FONT) return cleanFamily(t.customFont) || "其他字体";
-  return FONT_OPTIONS.find((o) => o.id === t.font)?.label ?? null;
+export function fontLabel(t: Translate, typography: Typography): string | null {
+  if (typography.font === CUSTOM_FONT) return cleanFamily(typography.customFont) || t("appearance.otherFont");
+  const option = FONT_OPTIONS.find((o) => o.id === typography.font);
+  return option ? t(`font.${option.id}`) : null;
 }
 
-export function sizeLabel(t: Typography): string | null {
-  return t.size === "normal" ? null : `${TEXT_SIZES.find((s) => s.id === t.size)?.label ?? ""}字号`;
+export function sizeLabel(t: Translate, typography: Typography): string | null {
+  return typography.size === "normal" ? null : t(`size.${typography.size}.row`);
 }
 
 const KEYS = { font: "roster.font", custom: "roster.fontCustom", size: "roster.textSize" };

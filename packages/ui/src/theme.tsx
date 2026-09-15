@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 export type Theme = "light" | "dark" | "system";
 const KEY = "roster.theme";
 export const THEMES: Theme[] = ["system", "light", "dark"];
-export const THEME_LABELS: Record<Theme, string> = { system: "跟随系统", light: "浅色", dark: "深色" };
 
 function apply(theme: Theme): void {
   const dark =
