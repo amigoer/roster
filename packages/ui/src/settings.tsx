@@ -937,7 +937,8 @@ function CapabilitiesOf({ type }: { type: HarnessTypeInfo }) {
   const { t } = useI18n();
   const own = type.capabilities.own;
   const endpoint = type.capabilities.endpoint;
-  if (own && endpoint) {
+  // two tabs saying the same thing would suggest a difference that is not there
+  if (own && endpoint && JSON.stringify(own) !== JSON.stringify(endpoint)) {
     return (
       <Tabs defaultValue="own">
         <TabsList>

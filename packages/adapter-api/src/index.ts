@@ -166,12 +166,21 @@ export interface ContextUse {
   autoCompactAt?: number;
   /** what occupies it, largest first */
   parts?: Array<{ name: string; tokens: number }>;
+  /** the end of the window held back so compaction has room to run: inside max, never in used */
+  reserved?: { name: string; tokens: number };
+  /** what waits outside the window until it is needed, such as tool schemas loaded on demand */
+  deferred?: Array<{ name: string; tokens: number }>;
 }
 
 /** Everything the context holds, read on request: heavier than what rides along with every turn. */
 export interface ContextDetail extends ContextUse {
   model: string;
-  sections: Array<{ title: string; rows: Array<{ name: string; tokens: number }> }>;
+  sections: Array<{
+    title: string;
+    /** what the rows add up to, when they are all of what the section holds */
+    tokens?: number;
+    rows: Array<{ name: string; tokens: number }>;
+  }>;
 }
 
 /** What a person picked for one session; anything left out falls back to the bot's spec or the backend's default. */
@@ -381,8 +390,12 @@ export interface HarnessType {
   presets?(): Promise<ProviderPreset[]>;
   /** Throws when the source is one this type cannot run on. */
   create(instance: InstanceConfig): BotRuntimeFactory;
-  /** Whether the agent's own sign-in is there on this machine, and how to get one. It belongs to the program, not to an executor. */
-  login?(program?: string): Promise<LoginState>;
+  /**
+   * Whether the agent's own sign-in is there on this machine, and how to get one.
+   * It belongs to the program, not to an executor. Method labels are in locale,
+   * as InstanceConfig describes it.
+   */
+  login?(program?: string, locale?: string): Promise<LoginState>;
   /** Runs a sign-in method the agent can complete on its own, without a terminal. */
   authenticate?(methodId: string, program?: string): Promise<void>;
 }
@@ -440,8 +453,8 @@ export interface AcpManifest {
   login?: { terminal?: readonly string[] };
   /**
    * Where the program path goes. Into this environment variable when the
-   * command is an adapter that wraps the real program (Claude Code behind
-   * claude-agent-acp); in place of the program itself otherwise.
+   * command is an adapter that wraps the real program; in place of the
+   * program itself otherwise.
    */
   executable?: { env: string };
 }

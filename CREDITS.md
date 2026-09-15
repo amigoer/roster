@@ -9,8 +9,7 @@ The main projects Roster is built on. Licenses are as each package declares them
 | Project | Used for | License |
 |---|---|---|
 | [pi](https://github.com/earendil-works/pi) | pi-agent itself, a coding agent packaged as a library | MIT |
-| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | Claude Code on a model API | [Anthropic terms](https://code.claude.com/docs/en/legal-and-compliance) |
-| [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp) | Claude Code on a Claude subscription, over ACP | Apache-2.0 |
+| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | Claude Code, on a Claude subscription or a model API | [Anthropic terms](https://code.claude.com/docs/en/legal-and-compliance) |
 | [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | Driving Codex, Gemini CLI and other ACP agents | Apache-2.0 |
 | [npm](https://github.com/npm/cli) | Downloading agents that are missing from your machine | Artistic-2.0 |
 

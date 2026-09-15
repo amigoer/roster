@@ -277,8 +277,7 @@ export const en = {
   "login.signedIn": "Signed in",
   "login.signedInAs": "Signed in · {account}",
   "login.unknown": "Couldn't tell",
-  "login.credentials":
-    "The program keeps its own credentials; Roster doesn't touch them. Every agent on this harness that uses the subscription uses this account.",
+  "login.credentials": "The sign-in belongs to the program. Every agent on this harness that uses the subscription uses this account.",
   "login.copyCommand": "Copy command",
   "login.signIn": "Sign in",
   "login.terminalHint": "Run it in a terminal, then come back and click Refresh.",

@@ -179,7 +179,7 @@ export const zhCN = translation<typeof en>()({
   "error.install.runningWait": "「{id}」正在安装，等它结束",
   "install.npmExit": "npm 退出码 {code}",
 
-  "catalog.claude-code": "Anthropic 的编码 agent。用 Claude 订阅登录（走 ACP），或接 Anthropic 兼容的 API（走 Agent SDK）。",
+  "catalog.claude-code": "Anthropic 的编码 agent，走 Agent SDK。用 Claude 订阅登录，或接 Anthropic 兼容的 API。",
   "catalog.pi-agent": "库形态的编码 agent，随 Roster 内置，跑在你配置的任意模型 API 上；没有自带登录。",
   "catalog.codex": "OpenAI 的编码 agent，走 ACP。用 ChatGPT 账号登录，或接 OpenAI 兼容的 API。",
   "catalog.gemini-cli": "Google 的编码 agent，走 ACP。用 Google 账号登录，或接 Gemini API 密钥。",

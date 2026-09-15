@@ -18,13 +18,14 @@ import type {
   BotRuntimeFactory,
   Capabilities,
   ContextDetail,
-  ContextUse,
   Deliver,
   HarnessType,
   InstanceConfig,
+  LoginState,
+  ModelOption,
   ModelSource,
   NormalizedEvent,
-  ProviderConfig,
+  Quota,
   SessionInfo,
   SessionOptions,
   SessionSettings,
@@ -34,6 +35,9 @@ import type {
   ToolEffect,
   Unsubscribe,
 } from "@roster/adapter-api";
+import { contextOf, detailOf } from "./context.js";
+import { planUsage, planUsageFromCredentials } from "./plan.js";
+import { wordsFor, type Words } from "./words.js";
 
 /** Formats every Claude model reads as an image; anything else stays a path in the text. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -59,11 +63,11 @@ const commandsOf = (list: readonly SdkCommand[]): SlashCommand[] =>
   list.map((c) => ({ name: c.name, ...(c.description ? { description: c.description } : {}), ...(c.argumentHint ? { hint: c.argumentHint } : {}) }));
 
 /**
- * Claude Code on an Anthropic-compatible endpoint, driven through the Claude
- * Agent SDK: this is the channel with the PreToolUse gate, context accounting
- * and effort control. The agent's own sign-in is not handled here -- the
- * extension's manifest routes it over ACP, where the credentials belong to the
- * CLI alone.
+ * Claude Code driven through the Claude Agent SDK, on an Anthropic-compatible
+ * endpoint or on the machine's own sign-in: the channel with the PreToolUse
+ * gate, context accounting, plan limits and effort control. The sign-in stays
+ * the CLI's to use; Roster only reads its token when the CLI is too old to
+ * report plan limits itself.
  */
 
 /** The preset id of an endpoint a person described by hand. */
@@ -108,23 +112,29 @@ function cleanEnv(): Record<string, string> {
 interface Launch {
   env: Record<string, string>;
   executable?: string;
+  /** on the machine's own sign-in rather than an endpoint */
+  own: boolean;
 }
 
 /**
  * Every inherited ANTHROPIC_* goes first: one left over from the host would
- * otherwise quietly win over the endpoint the executor names.
+ * otherwise quietly win over the endpoint the executor names, or over the
+ * sign-in when it names none.
  */
-function launchOf(program: string | undefined, provider: ProviderConfig): Launch {
+function launchOf(program: string | undefined, source: ModelSource): Launch {
   const env = cleanEnv();
   const executable = program?.trim();
   for (const key of Object.keys(env)) if (key.startsWith("ANTHROPIC_")) delete env[key];
-  if (provider.baseUrl) env["ANTHROPIC_BASE_URL"] = provider.baseUrl;
-  // the official API authenticates with x-api-key; gateways and compatible endpoints take a bearer token
-  if (provider.apiKey) env[provider.preset === CUSTOM_PRESET ? "ANTHROPIC_AUTH_TOKEN" : "ANTHROPIC_API_KEY"] = provider.apiKey;
-  // Claude Code reaches for Haiku, Sonnet and Opus by name on its own; another endpoint has none of them
-  const first = provider.models?.[0];
-  if (first) for (const tier of ["HAIKU", "SONNET", "OPUS"]) env[`ANTHROPIC_DEFAULT_${tier}_MODEL`] = first;
-  return { env, ...(executable ? { executable } : {}) };
+  if (source.kind === "endpoint") {
+    const { endpoint } = source;
+    if (endpoint.baseUrl) env["ANTHROPIC_BASE_URL"] = endpoint.baseUrl;
+    // the official API authenticates with x-api-key; gateways and compatible endpoints take a bearer token
+    if (endpoint.apiKey) env[endpoint.preset === CUSTOM_PRESET ? "ANTHROPIC_AUTH_TOKEN" : "ANTHROPIC_API_KEY"] = endpoint.apiKey;
+    // Claude Code reaches for Haiku, Sonnet and Opus by name on its own; another endpoint has none of them
+    const first = endpoint.models?.[0];
+    if (first) for (const tier of ["HAIKU", "SONNET", "OPUS"]) env[`ANTHROPIC_DEFAULT_${tier}_MODEL`] = first;
+  }
+  return { env, ...(executable ? { executable } : {}), own: source.kind === "own" };
 }
 
 const START_MODE: PermissionMode = "default";
@@ -155,93 +165,6 @@ const ULTRACODE = "ultracode";
 const isMode = (v: unknown): v is PermissionMode => MODES.some((m) => m.id === v);
 const isEffort = (v: unknown): v is EffortLevel => typeof v === "string" && Object.hasOwn(EFFORT_LABEL, v);
 const isFastState = (v: unknown): v is "on" | "off" | "cooldown" => v === "on" || v === "off" || v === "cooldown";
-
-/** What this adapter says to a person. The CLI's own names for modes, efforts and categories stay as it spells them in English. */
-const WORDS = {
-  en: {
-    modes: {
-      default: "Asks before editing files or running commands with side effects",
-      acceptEdits: "Edits files without asking; still asks before running commands",
-      plan: "Analyzes read-only and proposes a plan; acts only once you approve",
-      auto: "Claude judges whether each action is safe, and blocks or asks about risky ones",
-      bypassPermissions: "Asks nothing and just does it",
-    } as Record<string, string>,
-    ultracode: "xHigh + multi-agent orchestration; uses the most quota",
-    categories: {} as Record<string, string>,
-    sections: {
-      messages: "Messages",
-      toolCalls: "Tool calls",
-      toolResults: "Tool results",
-      attachments: "Attachments",
-      assistant: "Assistant messages",
-      user: "User messages",
-      memory: "Memory files",
-      mcp: "MCP tools",
-      agents: "Custom agents",
-      skills: "Skills",
-      tools: "System tools",
-    },
-    cantStart: (message: string) => `Claude Code can't start: ${message}`,
-    starts: (via: string) => `Starts fine; authenticates with ${via}`,
-  },
-  "zh-CN": {
-    modes: {
-      default: "改文件、跑有副作用的命令前先问你",
-      acceptEdits: "直接改文件，跑命令前仍会问你",
-      plan: "只读分析、先出方案，你确认后才动手",
-      auto: "由 Claude 判断操作是否安全，有风险的会拦下或问你",
-      bypassPermissions: "什么都不问，直接做",
-    } as Record<string, string>,
-    ultracode: "xHigh + 多 agent 编排，最耗额度",
-    // the CLI's category names, said the way the rest of Roster says things; an unknown one passes through
-    categories: {
-      Messages: "消息",
-      "System prompt": "系统提示词",
-      "System tools": "系统工具",
-      Skills: "技能",
-      "MCP tools": "MCP 工具",
-      "Memory files": "记忆文件",
-      "Custom agents": "自定义 Agent",
-    } as Record<string, string>,
-    sections: {
-      messages: "消息",
-      toolCalls: "工具调用",
-      toolResults: "工具结果",
-      attachments: "附件",
-      assistant: "助手消息",
-      user: "用户消息",
-      memory: "记忆文件",
-      mcp: "MCP 工具",
-      agents: "自定义 Agent",
-      skills: "技能",
-      tools: "系统工具",
-    },
-    cantStart: (message: string) => `Claude Code 启动不了：${message}`,
-    starts: (via: string) => `启动正常，认证走 ${via}`,
-  },
-};
-
-type Words = (typeof WORDS)["en"];
-
-/** Any Chinese the host asks for reads the Simplified text; anything else reads English. */
-const wordsFor = (locale: string | undefined): Words => (locale?.toLowerCase().startsWith("zh") ? WORDS["zh-CN"] : WORDS.en);
-
-function contextOf(c: Awaited<ReturnType<Query["getContextUsage"]>>, words: Words): ContextUse {
-  const max = c.rawMaxTokens || c.maxTokens;
-  return {
-    used: c.totalTokens,
-    max,
-    percent: c.percentage,
-    ...(c.isAutoCompactEnabled && c.autoCompactThreshold && max
-      ? { autoCompactAt: Math.round((c.autoCompactThreshold / max) * 100) }
-      : {}),
-    // free space and the compaction reserve are not in use; deferred tool schemas sit outside the window
-    parts: c.categories
-      .filter((p) => p.kind === "used" && p.tokens > 0)
-      .sort((a, b) => b.tokens - a.tokens)
-      .map((p) => ({ name: words.categories[p.name] ?? p.name, tokens: p.tokens })),
-  };
-}
 
 /** "claude-haiku-4-5-20251001" reads as "Haiku 4.5"; an id of any other shape is shown as it is. */
 function modelLabel(id: string): string {
@@ -380,13 +303,17 @@ class ClaudeRuntime implements BotRuntime {
       cwd: opts.cwd,
       // deltas are what make the reply feel live; the log stores only the final text
       includePartialMessages: true,
-      // Isolation mode. Without this the SDK loads the user's own
+      // On an endpoint, isolation mode. Without it the SDK loads the user's own
       // ~/.claude/settings.json, whose pre-approved tools never reach
       // canUseTool -- a session in Manual would silently run Bash because the
-      // human allowed it in their CLI months ago. Roster's gate and the session's
-      // mode have to be the only authorities. Cost: CLAUDE.md is not loaded
+      // human allowed it in their CLI months ago -- and whose env can point the
+      // CLI somewhere other than the endpoint. Cost: CLAUDE.md is not loaded
       // either (it rides on the 'project' source), which is the deliberate trade.
-      settingSources: [],
+      // On the machine's own sign-in it is the person's Claude Code, so it runs
+      // with their CLAUDE.md, MCP servers and skills, as the CLI itself would;
+      // PreToolUse still sees every call, and only what the gate defers meets
+      // their allow rules.
+      settingSources: this.launch.own ? ["user", "project", "local"] : [],
       permissionMode: mode,
       // only makes Bypass Permissions selectable later, as Claude Code's own picker allows
       allowDangerouslySkipPermissions: true,
@@ -630,33 +557,17 @@ class ClaudeRuntime implements BotRuntime {
     const q = this.#query;
     if (!q || this.#dead) throw new Error("claude: no live session to read");
     const c = await q.getContextUsage({ detail: "full" });
-    const rows = (list: Array<{ name: string; tokens: number }>) =>
-      list.filter((r) => r.tokens > 0).sort((a, b) => b.tokens - a.tokens);
-    const m = c.messageBreakdown;
-    const s = this.words.sections;
-    return {
-      ...contextOf(c, this.words),
-      model: c.model,
-      sections: [
-        {
-          title: s.messages,
-          rows: m
-            ? rows([
-                { name: s.toolCalls, tokens: m.toolCallTokens },
-                { name: s.toolResults, tokens: m.toolResultTokens },
-                { name: s.attachments, tokens: m.attachmentTokens },
-                { name: s.assistant, tokens: m.assistantMessageTokens },
-                { name: s.user, tokens: m.userMessageTokens },
-              ])
-            : [],
-        },
-        { title: s.memory, rows: rows(c.memoryFiles.map((f) => ({ name: f.path, tokens: f.tokens }))) },
-        { title: s.mcp, rows: rows(c.mcpTools.map((t) => ({ name: t.name, tokens: t.tokens }))) },
-        { title: s.agents, rows: rows(c.agents.map((a) => ({ name: a.agentType, tokens: a.tokens }))) },
-        { title: s.skills, rows: rows((c.skills?.skillFrontmatter ?? []).map((k) => ({ name: k.name, tokens: k.tokens }))) },
-        { title: s.tools, rows: rows((c.systemTools ?? []).map((t) => ({ name: t.name, tokens: t.tokens }))) },
-      ].filter((section) => section.rows.length > 0),
-    };
+    const detail = detailOf(c, this.words);
+    // the fresher count is what the ring and the card should show from now on
+    this.#report({ context: contextOf(c, this.words) });
+    return detail;
+  }
+
+  /** The account's plan limits, read through the live session; an endpoint has none. */
+  async quota(): Promise<Quota | null> {
+    const q = this.#query;
+    if (!this.launch.own || !q || this.#dead) return null;
+    return planUsage(q);
   }
 
   /** Claude Code compacts on its own slash command; it runs as an ordinary turn and says nothing back. */
@@ -736,6 +647,8 @@ class ClaudeRuntime implements BotRuntime {
   }
 }
 
+type Account = { email?: string; subscriptionType?: string; tokenSource?: string; apiKeySource?: string };
+
 interface Snapshot {
   catalog: ModelInfo[];
   /** what a session started with no model resolves to */
@@ -743,10 +656,13 @@ interface Snapshot {
   fast: { available: boolean; reason?: string } | undefined;
   /** whether a session on an xhigh model could turn ultracode on */
   ultracode: boolean;
-  /** how the CLI authenticates against the endpoint */
-  account: { subscriptionType?: string; tokenSource?: string; apiKeySource?: string } | null;
+  /** how the CLI authenticates: the endpoint's key, or the machine's sign-in and its plan */
+  account: Account | null;
   commands: SdkCommand[];
 }
+
+/** A CLI with nobody signed in still starts; it just has nothing to say about who is using it. */
+const signedIn = (a: Account | null): boolean => Boolean(a && (a.email || a.subscriptionType || a.tokenSource || a.apiKeySource));
 
 /**
  * Fast mode has two gates: an SDK session must opt in through settings, and the
@@ -795,7 +711,7 @@ function probeCache(launch: Launch): (maxAgeMs: number) => Promise<Snapshot> {
  * spends nothing; a live session is not needed to know the account's limits or
  * what an unconfigured session would run.
  */
-async function probe(launch: Launch): Promise<Snapshot> {
+async function ask<T>(launch: Launch, questions: (q: Query) => Promise<T>): Promise<T> {
   const inbox = new Inbox();
   const q = query({
     prompt: inbox as AsyncIterable<never>,
@@ -811,13 +727,7 @@ async function probe(launch: Launch): Promise<Snapshot> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      (async () => {
-        const init = await q.initializationResult();
-        const [applied, account] = await Promise.all([readApplied(q).catch(() => null), q.accountInfo().catch(() => null)]);
-        const fast = await readFast(q, init.models).catch(() => undefined);
-        const ultracode = await readUltracode(q, init.models).catch(() => false);
-        return { catalog: init.models, applied, fast, ultracode, account, commands: init.commands ?? [] };
-      })(),
+      questions(q),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("claude: the probe did not answer")), PROBE_TIMEOUT_MS);
       }),
@@ -829,14 +739,18 @@ async function probe(launch: Launch): Promise<Snapshot> {
   }
 }
 
-const endpointOf = (source: ModelSource): ProviderConfig => {
-  if (source.kind !== "endpoint") throw new Error("claude: the SDK channel runs on an endpoint; the agent's own sign-in goes over ACP");
-  return source.endpoint;
-};
+const probe = (launch: Launch): Promise<Snapshot> =>
+  ask(launch, async (q) => {
+    const init = await q.initializationResult();
+    const [applied, account] = await Promise.all([readApplied(q).catch(() => null), q.accountInfo().catch(() => null)]);
+    const fast = await readFast(q, init.models).catch(() => undefined);
+    const ultracode = await readUltracode(q, init.models).catch(() => false);
+    return { catalog: init.models, applied, fast, ultracode, account, commands: init.commands ?? [] };
+  });
 
 function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
-  const endpoint = endpointOf(instance.source);
-  const launch = launchOf(instance.program, endpoint);
+  const { source } = instance;
+  const launch = launchOf(instance.program, source);
   const snapshot = probeCache(launch);
   const words = wordsFor(instance.locale);
   return {
@@ -845,14 +759,25 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
     type: "claude-code",
     capabilities: CLAUDE_CAPABILITIES,
     create: () => new ClaudeRuntime(launch, words),
-    // starting the CLI with this program and the endpoint's environment is what can fail here
+    // starting the CLI with this program and this environment is what can fail here
     async check() {
       const probed = await snapshot(0).catch((err: unknown) => err as Error);
       if (probed instanceof Error) return { ok: false, detail: words.cantStart(probed.message) };
       const account = probed.account;
-      const via = account?.apiKeySource ?? account?.tokenSource;
-      return { ok: true, detail: words.starts(via ?? endpoint.name) };
+      if (source.kind === "own" && !signedIn(account)) return { ok: false, detail: words.signedOut };
+      const via = account?.apiKeySource ?? account?.tokenSource ?? account?.subscriptionType;
+      return { ok: true, detail: words.starts(via ?? (source.kind === "endpoint" ? source.endpoint.name : "Claude")) };
     },
+    ...(source.kind === "own"
+      ? {
+          async models(): Promise<ModelOption[]> {
+            const { catalog, account } = await snapshot(CATALOG_REUSE_MS);
+            return catalog.map((m) => ({ id: m.value, label: m.displayName, available: signedIn(account) }));
+          },
+          // the host asks here only while no live session can answer, so this one starts a CLI of its own
+          quota: (): Promise<Quota | null> => ask(launch, planUsage).catch(() => planUsageFromCredentials()),
+        }
+      : {}),
     async sessionInfo({ model, effort, mode, fast }): Promise<SessionInfo> {
       const { catalog, applied, fast: gate, ultracode } = await snapshot(CATALOG_REUSE_MS);
       // an alias such as "opus" resolves through the catalog; no model means the CLI's default
@@ -874,11 +799,22 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
     },
     async sessionOptions(): Promise<SessionOptions> {
       const { catalog, fast, ultracode, commands } = await snapshot(CATALOG_REUSE_MS);
-      // only what the endpoint's API listed; the CLI's own catalog just says which efforts and fast mode an id takes
-      const models = (endpoint.models ?? []).map((id) => {
-        const row = catalog.find((m) => m.resolvedModel === id || m.value === id);
-        return { id, label: id, efforts: row ? effortsOf(row, ultracode) : [], fast: row?.supportsFastMode === true };
-      });
+      const models =
+        source.kind === "endpoint"
+          ? // only what the endpoint's API listed; the CLI's own catalog just says which efforts and fast mode an id takes
+            (source.endpoint.models ?? []).map((id) => {
+              const row = catalog.find((m) => m.resolvedModel === id || m.value === id);
+              return { id, label: id, efforts: row ? effortsOf(row, ultracode) : [], fast: row?.supportsFastMode === true };
+            })
+          : // the sign-in's catalog is the CLI's own, aliases and all
+            catalog.map((m) => ({
+              id: m.value,
+              ...(m.resolvedModel ? { resolved: m.resolvedModel } : {}),
+              label: m.displayName,
+              ...(m.description ? { description: m.description } : {}),
+              efforts: effortsOf(m, ultracode),
+              fast: m.supportsFastMode === true,
+            }));
       return {
         models,
         efforts: [
@@ -895,16 +831,27 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
   };
 }
 
-/** Claude Code on an Anthropic-compatible endpoint. Its own sign-in is the manifest's ACP block, composed in by the host. */
+/** Claude Code on an Anthropic-compatible endpoint, or on the machine's own sign-in. */
 export const claudeHarness: HarnessType = {
   type: "claude-code",
   label: "Claude Code",
-  sources: { own: false, apis: ["anthropic-messages"] },
+  sources: { own: true, apis: ["anthropic-messages"] },
   capabilities: () => CLAUDE_CAPABILITIES,
   presets: async () => [
     { id: ANTHROPIC_PRESET, label: "Anthropic", api: "anthropic-messages", baseUrl: "https://api.anthropic.com", keyLabel: "Anthropic API key" },
   ],
   create: claudeExecutor,
+  // the sign-in is the program's, so it is asked afresh every time rather than cached with any executor
+  async login(program, locale): Promise<LoginState> {
+    const words = wordsFor(locale);
+    // Roster does not drive the sign-in; the person runs it where the program is
+    const methods = [{ id: "terminal", label: words.loginTerminal, terminal: { command: program?.trim() || "claude", args: ["auth", "login"] } }];
+    const account = await ask(launchOf(program, { kind: "own" }), (q) => q.accountInfo()).catch((err: unknown) => err as Error);
+    if (account instanceof Error) return { state: "unknown", detail: words.cantStart(account.message), methods };
+    if (!signedIn(account)) return { state: "none", methods };
+    const who = account.email ?? account.subscriptionType;
+    return { state: "ok", ...(who ? { account: who } : {}), methods };
+  },
 };
 
 export const harness = claudeHarness;

@@ -269,7 +269,7 @@ export const zhCN = translation<typeof en>()({
   "login.signedIn": "已登录",
   "login.signedInAs": "已登录 · {account}",
   "login.unknown": "没问到",
-  "login.credentials": "凭据由程序自己保管，Roster 不碰它。这个 harness 上用订阅的 agent 都用这个账号。",
+  "login.credentials": "登录归程序自己管理。这个 harness 上用订阅的 agent 都用这个账号。",
   "login.copyCommand": "复制命令",
   "login.signIn": "登录",
   "login.terminalHint": "在终端里跑完，回来点刷新。",

@@ -14,32 +14,16 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.269",
-    "@agentclientprotocol/claude-agent-acp": "0.76.0"
+    "@anthropic-ai/claude-agent-sdk": "0.3.269"
   },
   "roster": {
     "api": 2,
     "entry": "./dist/index.js",
-    "label": "Claude Code",
-    "acp": {
-      "command": [
-        "node",
-        "@agentclientprotocol/claude-agent-acp/dist/index.js"
-      ],
-      "executable": {
-        "env": "CLAUDE_CODE_EXECUTABLE"
-      },
-      "login": {
-        "terminal": [
-          "claude",
-          "auth",
-          "login"
-        ]
-      }
-    }
+    "label": "Claude Code"
   },
   "devDependencies": {
     "@roster/adapter-api": "workspace:*"

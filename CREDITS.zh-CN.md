@@ -9,8 +9,7 @@ Roster 主要建立在下面这些项目之上。许可协议以各个包自己�
 | 项目 | 用在哪 | 许可协议 |
 |---|---|---|
 | [pi](https://github.com/earendil-works/pi) | pi-agent 就是它，一个库形态的编码 agent | MIT |
-| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | Claude Code 接模型 API 时走的通道 | [Anthropic 条款](https://code.claude.com/docs/en/legal-and-compliance) |
-| [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp) | Claude Code 用订阅登录时走的 ACP 桥 | Apache-2.0 |
+| [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | 驱动 Claude Code，订阅登录和接模型 API 都走它 | [Anthropic 条款](https://code.claude.com/docs/en/legal-and-compliance) |
 | [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | 驱动 Codex、Gemini CLI 这类 agent 的协议 | Apache-2.0 |
 | [npm](https://github.com/npm/cli) | 下载本机没有的 agent | Artistic-2.0 |
 

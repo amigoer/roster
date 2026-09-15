@@ -190,7 +190,7 @@ export const en = {
   "install.npmExit": "npm exited with code {code}",
 
   "catalog.claude-code":
-    "Anthropic's coding agent. Sign in with a Claude subscription (over ACP), or connect an Anthropic-compatible API (over the Agent SDK).",
+    "Anthropic's coding agent, driven through the Agent SDK. Sign in with a Claude subscription, or connect an Anthropic-compatible API.",
   "catalog.pi-agent": "A coding agent that runs as a library. It ships with Roster and runs on any model API you set up; it has no sign-in of its own.",
   "catalog.codex": "OpenAI's coding agent, over ACP. Sign in with a ChatGPT account, or connect an OpenAI-compatible API.",
   "catalog.gemini-cli": "Google's coding agent, over ACP. Sign in with a Google account, or use a Gemini API key.",

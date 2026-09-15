@@ -1,6 +1,6 @@
 import type { HarnessType, LoginState, ModelOption, ProviderConfig, ProviderPreset, SourceKind } from "@roster/adapter-api";
 import { Rejection } from "./errors.js";
-import { everyLocale, list, t } from "./i18n/index.js";
+import { everyLocale, list, locale, t } from "./i18n/index.js";
 import type { Registry } from "./registry.js";
 import type { Secrets } from "./secrets.js";
 import { CUSTOM_PRESET, envVar, fits, providerConfigOf, Sources } from "./sources.js";
@@ -141,8 +141,8 @@ export interface Candidate {
  */
 export class ExecutorSettings {
   #presets = new Map<string, { at: number; value: Promise<ProviderPreset[]> }>();
-  /** by harness type: the sign-in belongs to the program on this machine */
-  #logins = new Map<string, { at: number; value: Promise<LoginState> }>();
+  /** by harness type: the sign-in belongs to the program on this machine; the answer's wording to the language it was asked in */
+  #logins = new Map<string, { at: number; locale: string; value: Promise<LoginState> }>();
   #sources: Sources;
 
   constructor(
@@ -323,12 +323,13 @@ export class ExecutorSettings {
     const type = this.types().find((t) => t.type === typeId);
     if (!type) return Promise.resolve({ state: "unknown", detail: t("login.unknownType"), methods: [] });
     if (!type.sources.own || !type.login) return Promise.resolve({ state: "none", detail: t("login.noOwn"), methods: [] });
+    const lang = locale();
     const cached = this.#logins.get(typeId);
-    if (!fresh && cached && Date.now() - cached.at < LOGIN_REUSE_MS) return cached.value;
+    if (!fresh && cached && cached.locale === lang && Date.now() - cached.at < LOGIN_REUSE_MS) return cached.value;
     const value = type
-      .login(this.programOf(typeId))
+      .login(this.programOf(typeId), lang)
       .catch((err: unknown): LoginState => ({ state: "unknown", detail: err instanceof Error ? err.message : String(err), methods: [] }));
-    this.#logins.set(typeId, { at: Date.now(), value });
+    this.#logins.set(typeId, { at: Date.now(), locale: lang, value });
     return value;
   }
 
