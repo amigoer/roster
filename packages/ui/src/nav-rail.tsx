@@ -1,5 +1,7 @@
 import { DRAG, NO_DRAG } from "./app-region";
+import { HumanAvatar } from "./bot-avatar";
 import { useI18n } from "./i18n";
+import { useMe } from "./me";
 import { ContactsIcon, MessagesIcon, SettingsIcon, SpaceIcon } from "./rail-icons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -11,8 +13,8 @@ export const NAV = [
   { id: "space", icon: SpaceIcon },
 ] as const;
 
-/** settings has no place in the rail's three entries; it is the gear under them */
-export type Nav = (typeof NAV)[number]["id"] | "settings";
+/** neither has a place in the rail's three entries: your profile is your avatar above them, settings the gear under them */
+export type Nav = (typeof NAV)[number]["id"] | "profile" | "settings";
 
 /**
  * Icons and a word each: three entries never justify a resizable column. It is
@@ -30,10 +32,31 @@ const ICON = "size-[22px]";
 
 export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) => void; waiting: number }) {
   const { t } = useI18n();
+  const { profile } = useMe();
   return (
     <nav className="flex shrink-0 flex-col items-center pb-3" style={{ width: RAIL, ...DRAG }}>
-      {/* the traffic lights sit in the top strip, main.cjs puts them there; the entries start where the panel headers end */}
-      <div className="h-15 shrink-0" />
+      {/* the traffic lights sit in the top strip, main.cjs puts them there; you come right under them, as in any IM */}
+      <div className="h-12 shrink-0" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("nav.profile")}
+            aria-current={nav === "profile" ? "page" : undefined}
+            onClick={() => onNav("profile")}
+            style={NO_DRAG}
+            className={cn(
+              "ring-offset-sidebar mb-4 shrink-0 rounded-[23%] ring-offset-2 transition-shadow duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+              // neutral, like a picked logo: a blue ring fights whatever colour the avatar is
+              nav === "profile" ? "ring-foreground/80 ring-2" : "hover:ring-foreground/15 hover:ring-2",
+            )}
+          >
+            {/* the plain grey tile is the rail's own grey; white lifts it the way an active entry is lifted */}
+            <HumanAvatar className="bg-background" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{profile.name || t("nav.profile")}</TooltipContent>
+      </Tooltip>
       <div className="flex flex-col items-center gap-1.5" style={NO_DRAG}>
         {NAV.map((n) => {
           const on = nav === n.id;

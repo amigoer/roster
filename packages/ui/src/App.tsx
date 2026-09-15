@@ -39,6 +39,7 @@ import { NavRail, RAIL, type Nav } from "./nav-rail";
 import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
+import { ProfilePanel } from "./profile";
 import { Resizer, useColumnWidth } from "./resizable";
 import { AgentEditor, HarnessPanel, HarnessesPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
@@ -473,6 +474,13 @@ export default function App() {
 
         {/* the margins around the panels are chrome too: the window drags by them */}
         <div className="text-foreground flex min-w-0 flex-1 py-2 pr-2" style={DRAG}>
+        {nav === "profile" ? (
+          // one person has nothing to list, so the page takes the list's width too
+          <main className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")} style={NO_DRAG}>
+            <ProfilePanel />
+          </main>
+        ) : (
+        <>
         {/* 2. The list */}
         <section className={cn(PANEL, "flex min-h-0 shrink-0 flex-col")} style={{ width: list_.width, ...NO_DRAG }}>
           <header className="flex h-13 shrink-0 items-center justify-between pr-2.5 pl-4.5" style={DRAG}>
@@ -958,6 +966,8 @@ export default function App() {
             </>
           )}
         </main>
+        </>
+        )}
         </div>
       </div>
 

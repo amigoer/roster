@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { api, type AttachmentRef, type Member, type Message } from "./api";
 import { MessageAttachments } from "./attachments";
-import { BotAvatar } from "./bot-avatar";
+import { BotAvatar, HumanAvatar } from "./bot-avatar";
 import { useI18n, type I18n } from "./i18n";
 import { Markdown, MentionChip, MentionNames } from "./markdown";
 import { segments } from "./mentions";
@@ -144,7 +144,7 @@ function Bubble({
 }) {
   return (
     <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")}>
-      {group && (who === "bot" && author ? <BotAvatar bot={author.bot} /> : <Who kind={who} />)}
+      {group && (who === "human" ? <HumanAvatar /> : author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />)}
       <div className={cn("flex max-w-[min(680px,78%)] min-w-0 flex-col gap-1", who === "human" && "items-end")}>
         {group && who === "bot" && author && <Byline author={author} />}
         {attachments}

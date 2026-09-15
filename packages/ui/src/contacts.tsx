@@ -167,7 +167,7 @@ export function TemplateGallery({ onPick }: { onPick: (t: Template | null) => vo
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-7">
       <h3 className="text-muted-foreground mb-2 text-xs font-medium">{title}</h3>

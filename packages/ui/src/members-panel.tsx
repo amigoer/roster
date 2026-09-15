@@ -14,6 +14,7 @@ import { activeMembers, api, type Bot, type Conversation, type Member, type Mode
 import { BotAvatar, busyOf, HumanAvatar } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
+import { useMe } from "./me";
 import { leaderOf } from "./mentions";
 import { presenceLabel } from "./presence";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,7 @@ export function MemberSections({
 }) {
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
+  const { profile: me } = useMe();
   const members = activeMembers(conv);
   const group = conv.shape === "group";
   const leader = conv.mode === "leader" ? leaderOf(conv) : undefined;
@@ -168,7 +170,17 @@ export function MemberSections({
 
         <div className="-mx-2 flex items-center gap-2.5 px-2 py-2">
           <HumanAvatar />
-          <span className="text-sm font-medium">{t("members.you")}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-medium">{me.name || t("members.you")}</span>
+              {me.name && (
+                <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
+                  {t("members.you")}
+                </span>
+              )}
+            </div>
+            {me.title && <div className="text-muted-foreground truncate text-xs">{me.title}</div>}
+          </div>
         </div>
 
         {members.map((m) => (

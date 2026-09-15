@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import { User } from "lucide-react";
 import type { Bot, Logo, PresenceState } from "./api";
 import { useI18n } from "./i18n";
+import { colorOf, initialOf, useMe, type Profile } from "./me";
 import { cn } from "@/lib/utils";
 
 /** The bundled logo set, as core ships it in /api/state. */
@@ -59,20 +60,40 @@ export function LogoImage({ logo, className }: { logo: Logo | undefined; classNa
 
 const ICONS = { xs: "size-3", sm: "size-3.5", md: "size-4", lg: "size-6", xl: "size-9" } as const;
 
-/** You, wherever a conversation shows the people in it. */
-export function HumanAvatar({ size = "md", className }: { size?: keyof typeof SIZES; className?: string }) {
+const LETTERS = { xs: "text-[9px]", sm: "text-xs", md: "text-[15px]", lg: "text-2xl", xl: "text-[34px]" } as const;
+
+/**
+ * Your photo, or your initial on your colour; the figure stands in until there
+ * is a name. A className background only shows while no colour is picked.
+ */
+function YouTile({ profile, className, letter, icon }: { profile: Profile; className: string; letter: string; icon: string }) {
+  const initial = initialOf(profile.name);
+  const color = !profile.photo && profile.color ? colorOf(profile.color) : undefined;
   return (
     <span
       className={cn(
         "bg-muted text-muted-foreground relative flex shrink-0 items-center justify-center overflow-hidden rounded-[23%]",
         RING,
-        SIZES[size],
         className,
+        color && "text-white",
       )}
+      style={color ? { backgroundColor: color } : undefined}
     >
-      <User className={ICONS[size]} />
+      {profile.photo ? (
+        <img src={profile.photo} alt="" draggable={false} className="size-full object-cover select-none" />
+      ) : initial ? (
+        <span className={cn("leading-none font-semibold", letter)}>{initial}</span>
+      ) : (
+        <User className={icon} />
+      )}
     </span>
   );
+}
+
+/** You, wherever a conversation shows the people in it. The profile editor passes the draft it is changing. */
+export function HumanAvatar({ size = "md", profile, className }: { size?: keyof typeof SIZES; profile?: Profile; className?: string }) {
+  const me = useMe().profile;
+  return <YouTile profile={profile ?? me} className={cn(SIZES[size], className)} letter={LETTERS[size]} icon={ICONS[size]} />;
 }
 
 function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
@@ -112,9 +133,9 @@ export function BotAvatar({
 
 /** Two cells plus the gap must fit the box's inner width, or the tiles wrap one per row. */
 const GROUP_SIZES = {
-  md: { box: "size-9 gap-px p-[2px]", tile: "size-[15px]", you: "size-2.5" },
-  lg: { box: "size-14 gap-0.5 p-[3px]", tile: "size-6", you: "size-3.5" },
-  xl: { box: "size-20 gap-[3px] p-1", tile: "size-[34px]", you: "size-5" },
+  md: { box: "size-9 gap-px p-[2px]", tile: "size-[15px]", you: "size-2.5", letter: "text-[8px]" },
+  lg: { box: "size-14 gap-0.5 p-[3px]", tile: "size-6", you: "size-3.5", letter: "text-[11px]" },
+  xl: { box: "size-20 gap-[3px] p-1", tile: "size-[34px]", you: "size-5", letter: "text-[15px]" },
 } as const;
 
 /** A group's face is its members' logos tiled together, like any IM -- and you are one of the people in it. */
@@ -128,7 +149,8 @@ export function GroupAvatar({
   busy?: Busy;
 }) {
   const logos = useLogos();
-  const { box, tile, you } = GROUP_SIZES[size];
+  const me = useMe().profile;
+  const { box, tile, you, letter } = GROUP_SIZES[size];
   return (
     <span className="relative inline-flex shrink-0">
       <span
@@ -142,15 +164,7 @@ export function GroupAvatar({
         {bots.slice(0, 3).map((b) => (
           <LogoImage key={b.id} logo={logoOf(b, logos)} className={tile} />
         ))}
-        <span
-          className={cn(
-            "bg-background text-muted-foreground relative flex shrink-0 items-center justify-center overflow-hidden rounded-[23%]",
-            RING,
-            tile,
-          )}
-        >
-          <User className={you} />
-        </span>
+        <YouTile profile={me} className={cn("bg-background", tile)} letter={letter} icon={you} />
       </span>
       <Dot busy={busy} size={size} />
     </span>
