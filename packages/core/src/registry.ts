@@ -1,4 +1,5 @@
 import type { BotRuntimeFactory, HarnessType, InstanceConfig } from "@roster/adapter-api";
+import { t } from "./i18n/index.js";
 import type { ExecutorRow } from "./store.js";
 
 export interface RegistryEntry {
@@ -48,7 +49,7 @@ export class Registry {
     for (const row of executors) {
       const type = types.find((t) => t.type === row.type);
       if (!type) {
-        problems[row.id] = `这个版本不认识「${row.type}」，装上对应的适配器才能用`;
+        problems[row.id] = t("error.registry.unknownType", { type: row.type });
         continue;
       }
       try {

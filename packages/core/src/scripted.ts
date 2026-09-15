@@ -19,6 +19,7 @@ import type {
   ToolEffect,
   Unsubscribe,
 } from "@roster/adapter-api";
+import { list, t } from "./i18n/index.js";
 
 /**
  * A backend that answers from a script instead of a model. It drives every
@@ -47,17 +48,17 @@ const TOOLS: Record<string, { name: string; effect: ToolEffect }> = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const COMMANDS: SlashCommand[] = [
-  { name: "review", description: "审查当前分支的改动" },
-  { name: "init", description: "生成项目说明文件" },
-  { name: "explain", description: "解释一段代码", hint: "<文件或符号>" },
-  { name: "compact", description: "压缩对话历史" },
+const commands = (): SlashCommand[] => [
+  { name: "review", description: t("scripted.command.review") },
+  { name: "init", description: t("scripted.command.init") },
+  { name: "explain", description: t("scripted.command.explain"), hint: t("scripted.command.explainHint") },
+  { name: "compact", description: t("scripted.command.compact") },
 ];
 
-const OPTIONS: SessionOptions = {
+const options = (): SessionOptions => ({
   models: [
-    { id: "scripted", resolved: "scripted", label: "脚本回复", description: "不调用模型", efforts: ["low", "high"], fast: true },
-    { id: "scripted-plain", resolved: "scripted-plain", label: "脚本回复 · 无思考", efforts: [] },
+    { id: "scripted", resolved: "scripted", label: t("scripted.name"), description: t("scripted.modelDescription"), efforts: ["low", "high"], fast: true },
+    { id: "scripted-plain", resolved: "scripted-plain", label: t("scripted.modelPlain"), efforts: [] },
   ],
   efforts: [
     { id: "low", label: "Low" },
@@ -69,23 +70,25 @@ const OPTIONS: SessionOptions = {
   ],
   fast: { available: true },
   compact: true,
-  commands: COMMANDS,
-};
+  commands: commands(),
+});
 
 const infoOf = ({ model, effort, mode, fast }: SessionSettings): SessionInfo => ({
   model: model ?? "scripted",
-  modelLabel: OPTIONS.models.find((m) => m.id === (model ?? "scripted"))?.label ?? model,
+  modelLabel: options().models.find((m) => m.id === (model ?? "scripted"))?.label ?? model,
   mode: mode ?? "default",
   effort: model === "scripted-plain" ? null : (effort ?? "high"),
   fast: fast ? "on" : "off",
 });
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** The window fills a little every turn and empties on compaction, so the context meter has something to show. */
 const contextOf = (turns: number): ContextUse => {
   const parts = [
-    { name: "系统工具", tokens: 9_000 },
-    { name: "系统提示词", tokens: 3_000 },
-    { name: "消息", tokens: turns * 3_000 },
+    { name: t("scripted.part.tools"), tokens: 9_000 },
+    { name: t("scripted.part.prompt"), tokens: 3_000 },
+    { name: t("scripted.part.messages"), tokens: turns * 3_000 },
   ].filter((p) => p.tokens > 0);
   const used = parts.reduce((n, p) => n + p.tokens, 0);
   return { used, max: 200_000, percent: Math.round((used / 200_000) * 100), autoCompactAt: 84, parts };
@@ -130,7 +133,7 @@ class ScriptedRuntime implements BotRuntime {
     this.#emit({
       type: "session.info",
       display: "status",
-      info: { ...infoOf(this.#settings), context: contextOf(this.#turns), commands: COMMANDS },
+      info: { ...infoOf(this.#settings), context: contextOf(this.#turns), commands: commands() },
     });
   }
 
@@ -151,7 +154,7 @@ class ScriptedRuntime implements BotRuntime {
     return {
       ...contextOf(this.#turns),
       model: this.#settings.model ?? "scripted",
-      sections: [{ title: "消息", rows: [{ name: "用户消息", tokens: this.#turns * 1_000 }] }],
+      sections: [{ title: t("scripted.part.messages"), rows: [{ name: t("scripted.row.user"), tokens: this.#turns * 1_000 }] }],
     };
   }
 
@@ -175,12 +178,14 @@ class ScriptedRuntime implements BotRuntime {
   async #play(text: string, attachments: readonly Attachment[]): Promise<void> {
     let reason: "done" | "aborted" | "error" = "done";
     // only the newest thing the human said; a backlog replays older tags
-    const said = [...text.matchAll(/<message from="用户"[^>]*>\n([\s\S]*?)\n<\/message>/g)].at(-1)?.[1] ?? text;
+    const human = new RegExp(`<message from="${escapeRegExp(t("delivery.user"))}"[^>]*>\\n([\\s\\S]*?)\\n<\\/message>`, "g");
+    const said = [...text.matchAll(human)].at(-1)?.[1] ?? text;
     try {
       for (const [tag, tool] of Object.entries(TOOLS)) {
         if (said.includes(tag) && !this.#aborting) await this.#tool(tool);
       }
-      const files = attachments.length > 0 ? `\n\n附件：${attachments.map((a) => `${a.name}（${a.mime}）`).join("、")}` : "";
+      const named = attachments.map((a) => t("scripted.attachment", { name: a.name, mime: a.mime }));
+      const files = attachments.length > 0 ? `\n\n${t("scripted.attachments", { files: list(named) })}` : "";
       const reply = this.#reply(text, said) + files;
       for (let i = 0; i < reply.length && !this.#aborting; i += 4) {
         this.#emit({ type: "assistant.text", display: "message", delta: reply.slice(i, i + 4) });
@@ -210,27 +215,29 @@ class ScriptedRuntime implements BotRuntime {
   }
 
   #reply(text: string, said: string): string {
-    const roster = [...text.matchAll(/^- ([^（：\n]+)(（[^）]*）)?/gm)]
-      .map((m) => ({ name: m[1]!.trim(), self: (m[2] ?? "").includes("你") }))
-      .filter((m) => m.name !== "用户");
-    const self = roster.find((m) => m.self)?.name ?? "我";
+    // member lines read "- name (tags): title", in whichever brackets and colon the language uses
+    const members = /<members>\n([\s\S]*?)\n<\/members>/.exec(text)?.[1] ?? "";
+    const roster = [...members.matchAll(/^- ([^\s（(：:]+)(?:（([^）]*)）| \(([^)]*)\))?/gm)]
+      .map((m) => ({ name: m[1]!, self: (m[2] ?? m[3] ?? "").includes(t("delivery.tag.self")) }))
+      .filter((m) => m.name !== t("delivery.user"));
+    const self = roster.find((m) => m.self)?.name ?? t("scripted.self");
     const others = roster.filter((m) => !m.self).map((m) => m.name);
 
-    if (text.includes("你是这个群的群主")) {
-      if (others.length === 0) return "群里只有我，这件事我直接来做。";
-      return `我来拆一下：\n\n${others.map((n, i) => `@${n} 负责第 ${i + 1} 部分，做完交回结果。`).join("\n\n")}`;
+    if (text.includes(t("delivery.ask.lead"))) {
+      if (others.length === 0) return t("scripted.alone");
+      return [t("scripted.split"), ...others.map((name, i) => t("scripted.assign", { name, n: i + 1 }))].join("\n\n");
     }
-    if (text.includes("你分派的成员已经回复")) return "汇总：分派出去的部分都交回了，这件事完成了。";
-    if (text.includes("群主给你分派了任务")) return `${self} 已经完成分到的部分。`;
-    if (text.includes("现在是讨论模式")) return `${self} 的看法：先把边界情况列清楚，再决定怎么改。`;
-    const command = COMMANDS.find((c) => new RegExp(`^/${c.name}(\\s|$)`).test(said));
+    if (text.includes(t("delivery.ask.reports"))) return t("scripted.summary");
+    if (text.includes(t("delivery.ask.dispatch"))) return t("scripted.done", { name: self });
+    if (text.includes(t("delivery.ask.discuss"))) return t("scripted.view", { name: self });
+    const command = commands().find((c) => new RegExp(`^/${c.name}(\\s|$)`).test(said));
     if (command) {
-      const arg = said.slice(command.name.length + 1).split("\n")[0]!.trim();
-      return `执行了 /${command.name}${arg ? `，参数：${arg}` : ""}`;
+      const args = said.slice(command.name.length + 1).split("\n")[0]!.trim();
+      return args ? t("scripted.ranWith", { command: command.name, args }) : t("scripted.ran", { command: command.name });
     }
     // attachments are spelled out after what was typed; the echo keeps to the typed part
     const typed = said.replace(/<attachment[\s\S]*$/, "").replace(/\s+/g, " ").trim();
-    return typed ? `收到：${typed.slice(0, 60)}` : "收到了你发的文件";
+    return typed ? t("scripted.echo", { text: typed.slice(0, 60) }) : t("scripted.files");
   }
 
   async abort(): Promise<void> {
@@ -246,16 +253,16 @@ class ScriptedRuntime implements BotRuntime {
 }
 
 /** An executor that stands in for the one with this id, so bots saved against it run on scripts. */
-export function scriptedFactory(id: string, delayMs = 40, label = `脚本回复（${id}）`): BotRuntimeFactory {
+export function scriptedFactory(id: string, delayMs = 40, label = t("scripted.label", { id })): BotRuntimeFactory {
   return {
     id,
     type: "scripted",
     label,
     capabilities: CAPABILITIES,
     create: () => new ScriptedRuntime(delayMs),
-    models: async () => OPTIONS.models.map((m) => ({ id: m.id, label: m.label, available: true })),
+    models: async () => options().models.map((m) => ({ id: m.id, label: m.label, available: true })),
     sessionInfo: async (settings) => infoOf(settings),
-    sessionOptions: async () => OPTIONS,
+    sessionOptions: async () => options(),
     modeForTier: () => "default",
     // only claude has plan limits to stand in for
     ...(id === "claude" ? { quota: async () => quotaOf() } : {}),

@@ -356,6 +356,13 @@ export interface InstanceConfig {
   source: ModelSource;
   /** the agent program the host settled on: the person's pick, else the one found on the machine, else Roster's own install */
   program?: string;
+  /**
+   * The language Roster is in, as a BCP 47 tag such as "en" or "zh-CN". Text an
+   * adapter writes for a person -- descriptions, check results, errors -- is in
+   * it; the backend's own names stay as the backend spells them. The host makes
+   * executors again when it changes.
+   */
+  locale?: string;
 }
 
 /**

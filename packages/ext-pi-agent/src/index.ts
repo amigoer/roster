@@ -183,10 +183,36 @@ async function resolveModel(runtime: ModelRuntime, id: string | undefined, endpo
   return (await runtime.getAvailable()).find((m) => m.provider === piIdOf(endpoint) && m.id === bare);
 }
 
+/** What this adapter says to a person. */
+const WORDS = {
+  en: {
+    noKey: (name: string) => `pi: “${name}” has no key to use`,
+    noModels: (name: string) => `pi: “${name}” lists no models through its API; pick a model for the agent or bot`,
+    noOwn: "pi-agent has no sign-in of its own; connect it to a model API",
+    models: (count: number) => (count === 1 ? "1 model to pick from" : `${count} models to pick from`),
+    unlisted: "The API lists no models; pick one for the agent or bot",
+  },
+  "zh-CN": {
+    noKey: (name: string) => `pi: 「${name}」没有可用的密钥`,
+    noModels: (name: string) => `pi: 「${name}」的 API 没有列出模型，给 agent 或 bot 指定一个模型`,
+    noOwn: "pi-agent 没有自带登录，要接一个模型 API",
+    models: (count: number) => `${count} 个模型可选`,
+    unlisted: "API 没有列出模型，要给 agent 或 bot 指定一个",
+  },
+};
+
+type Words = (typeof WORDS)["en"];
+
+/** Any Chinese the host asks for reads the Simplified text; anything else reads English. */
+const wordsFor = (locale: string | undefined): Words => (locale?.toLowerCase().startsWith("zh") ? WORDS["zh-CN"] : WORDS.en);
+
 class PiRuntime implements BotRuntime {
   readonly capabilities = PI_CAPABILITIES;
 
-  constructor(private endpoint: ProviderConfig) {}
+  constructor(
+    private endpoint: ProviderConfig,
+    private words: Words,
+  ) {}
 
   #session: Session | undefined;
   #unsubscribe: (() => void) | undefined;
@@ -213,9 +239,7 @@ class PiRuntime implements BotRuntime {
     if (!model) {
       // an id asked for or listed is registered, so only the key can be missing
       throw new Error(
-        opts.model || this.endpoint.models?.length
-          ? `pi: 「${this.endpoint.name}」没有可用的密钥`
-          : `pi: 「${this.endpoint.name}」的 API 没有列出模型，给 agent 或 bot 指定一个模型`,
+        opts.model || this.endpoint.models?.length ? this.words.noKey(this.endpoint.name) : this.words.noModels(this.endpoint.name),
       );
     }
 
@@ -443,20 +467,21 @@ function stringify(v: unknown): string {
   }
 }
 
-const endpointOf = (source: ModelSource): ProviderConfig => {
-  if (source.kind !== "endpoint") throw new Error("pi-agent 没有自带登录，要接一个模型 API");
+const endpointOf = (source: ModelSource, words: Words): ProviderConfig => {
+  if (source.kind !== "endpoint") throw new Error(words.noOwn);
   return source.endpoint;
 };
 
 function piExecutor(instance: InstanceConfig): BotRuntimeFactory {
-  const endpoint = endpointOf(instance.source);
+  const words = wordsFor(instance.locale);
+  const endpoint = endpointOf(instance.source, words);
   const listed = endpoint.models ?? [];
   return {
     id: instance.id,
     label: instance.label,
     type: "pi-agent",
     capabilities: PI_CAPABILITIES,
-    create: () => new PiRuntime(endpoint),
+    create: () => new PiRuntime(endpoint, words),
     async sessionInfo({ model }): Promise<SessionInfo> {
       const hit = await resolveModel(await modelRuntime(endpoint, model), model, endpoint);
       return hit ? { model: `${hit.provider}/${hit.id}`, modelLabel: hit.id, effort: null } : {};
@@ -472,7 +497,7 @@ function piExecutor(instance: InstanceConfig): BotRuntimeFactory {
     // whether the key works is the endpoint's to say; this only proves pi can be set up on it
     async check() {
       await modelRuntime(endpoint);
-      return { ok: true, detail: listed.length > 0 ? `${listed.length} 个模型可选` : "API 没有列出模型，要给 agent 或 bot 指定一个" };
+      return { ok: true, detail: listed.length > 0 ? words.models(listed.length) : words.unlisted };
     },
   };
 }

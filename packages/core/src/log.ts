@@ -1,5 +1,12 @@
 import type { NormalizedEvent } from "@roster/adapter-api";
 import type { AttachmentRef } from "./attachments.js";
+import type { ParamValue } from "./i18n/translate.js";
+
+/** A notice as a message key, so it reads in the language of whoever reads it; text is how it read when written. */
+export interface Notice {
+  key: string;
+  params?: Record<string, ParamValue>;
+}
 
 /**
  * Backend events plus the two kinds core writes itself. Human lines and
@@ -9,7 +16,7 @@ import type { AttachmentRef } from "./attachments.js";
 export type CoreEvent =
   | NormalizedEvent
   | { type: "human.text"; display: "message"; text: string; mentions: string[]; attachments?: AttachmentRef[] }
-  | { type: "system.notice"; display: "message"; text: string };
+  | { type: "system.notice"; display: "message"; text: string; notice?: Notice };
 
 /**
  * Two independent questions per event, answered here rather than at read time:

@@ -10,6 +10,29 @@ const uiDir = path.resolve(__dirname, "../ui/dist");
 
 let core = null;
 let win = null;
+/** Core's language, from its handshake and then its stream; the shell's own words follow it. */
+let locale = "en";
+
+const WORDS = {
+  en: {
+    cut: "Cut",
+    copy: "Copy",
+    paste: "Paste",
+    selectAll: "Select All",
+    copyLink: "Copy Link",
+    waiting: (n) => (n === 1 ? "1 conversation is waiting for you" : `${n} conversations are waiting for you`),
+  },
+  "zh-CN": {
+    cut: "剪切",
+    copy: "复制",
+    paste: "粘贴",
+    selectAll: "全选",
+    copyLink: "复制链接",
+    waiting: (n) => `${n} 个会话在等你`,
+  },
+};
+
+const words = () => WORDS[locale] ?? WORDS.en;
 
 /**
  * The key core seals provider secrets with. It lives next to the database,
@@ -50,7 +73,8 @@ function startCore() {
   const secrets = vaultKey();
   return new Promise((resolve, reject) => {
     core = spawn(process.execPath, [coreEntry], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ROSTER_UI_DIR: uiDir },
+      // started from the dock, core has no LANG and its Intl says en-US whatever the system is set to
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ROSTER_UI_DIR: uiDir, ROSTER_SYSTEM_LOCALES: app.getPreferredSystemLanguages().join(",") },
       stdio: ["pipe", "pipe", "pipe"],
     });
     // over stdin, not the environment: every agent process core starts inherits its environment
@@ -62,7 +86,10 @@ function startCore() {
         if (!line.trim()) continue;
         try {
           const msg = JSON.parse(line);
-          if (msg.roster === "ready") return resolve(msg.url);
+          if (msg.roster === "ready") {
+            if (msg.locale) locale = msg.locale;
+            return resolve(msg.url);
+          }
         } catch {
           /* core also logs plain text */
         }
@@ -100,20 +127,21 @@ app.whenReady().then(async () => {
   });
   // a right click that does nothing at all is the giveaway that this is a web page
   win.webContents.on("context-menu", (_e, params) => {
+    const w = words();
     const items = params.isEditable
       ? [
-          { role: "cut", label: "剪切", enabled: params.editFlags.canCut },
-          { role: "copy", label: "复制", enabled: params.editFlags.canCopy },
-          { role: "paste", label: "粘贴", enabled: params.editFlags.canPaste },
+          { role: "cut", label: w.cut, enabled: params.editFlags.canCut },
+          { role: "copy", label: w.copy, enabled: params.editFlags.canCopy },
+          { role: "paste", label: w.paste, enabled: params.editFlags.canPaste },
           { type: "separator" },
-          { role: "selectAll", label: "全选" },
+          { role: "selectAll", label: w.selectAll },
         ]
       : params.selectionText
-        ? [{ role: "copy", label: "复制" }]
+        ? [{ role: "copy", label: w.copy }]
         : [];
     if (params.linkURL) {
       if (items.length > 0) items.push({ type: "separator" });
-      items.push({ label: "复制链接", click: () => clipboard.writeText(params.linkURL) });
+      items.push({ label: w.copyLink, click: () => clipboard.writeText(params.linkURL) });
     }
     if (items.length > 0) Menu.buildFromTemplate(items).popup({ window: win });
   });
@@ -135,11 +163,12 @@ function watchAttention(url) {
         if (!line.startsWith("data: ")) continue;
         try {
           const msg = JSON.parse(line.slice(6));
+          if (msg.kind === "preferences" && msg.locale?.resolved) locale = msg.locale.resolved;
           if (msg.kind !== "conversations") continue;
           const waiting = msg.conversations.filter((c) => c.attention !== "none").length;
           if (process.platform === "darwin") app.dock.setBadge(waiting ? String(waiting) : "");
           if (waiting > lastWaiting && Notification.isSupported()) {
-            new Notification({ title: "Roster", body: `${waiting} 个会话在等你` }).show();
+            new Notification({ title: "Roster", body: words().waiting(waiting) }).show();
           }
           lastWaiting = waiting;
         } catch {

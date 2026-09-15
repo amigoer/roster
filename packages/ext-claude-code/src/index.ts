@@ -134,12 +134,12 @@ const START_MODE: PermissionMode = "default";
  * dontAsk is left out: it only ever denies. A tier names the mode that grants
  * the same, so a bot's tier still picks where a new session starts.
  */
-const MODES: Array<{ id: PermissionMode; label: string; description: string; tier?: ToolEffect }> = [
-  { id: "default", label: "Manual", description: "改文件、跑有副作用的命令前先问你", tier: "read" },
-  { id: "acceptEdits", label: "Accept edits", description: "直接改文件，跑命令前仍会问你", tier: "write" },
-  { id: "plan", label: "Plan", description: "只读分析、先出方案，你确认后才动手" },
-  { id: "auto", label: "Auto", description: "由 Claude 判断操作是否安全，有风险的会拦下或问你" },
-  { id: "bypassPermissions", label: "Bypass Permissions", description: "什么都不问，直接做", tier: "execute" },
+const MODES: Array<{ id: PermissionMode; label: string; tier?: ToolEffect }> = [
+  { id: "default", label: "Manual", tier: "read" },
+  { id: "acceptEdits", label: "Accept edits", tier: "write" },
+  { id: "plan", label: "Plan" },
+  { id: "auto", label: "Auto" },
+  { id: "bypassPermissions", label: "Bypass Permissions", tier: "execute" },
 ];
 
 /** As Claude Code's model picker spells them. */
@@ -151,24 +151,82 @@ const EFFORT_LABEL: Record<EffortLevel, string> = { low: "Low", medium: "Medium"
  * exists where the account has dynamic workflows and the model takes xhigh.
  */
 const ULTRACODE = "ultracode";
-const ULTRACODE_OPTION = { id: ULTRACODE, label: "Ultracode", description: "xHigh + 多 agent 编排，最耗额度" };
 
 const isMode = (v: unknown): v is PermissionMode => MODES.some((m) => m.id === v);
 const isEffort = (v: unknown): v is EffortLevel => typeof v === "string" && Object.hasOwn(EFFORT_LABEL, v);
 const isFastState = (v: unknown): v is "on" | "off" | "cooldown" => v === "on" || v === "off" || v === "cooldown";
 
-/** The CLI's own category names, said the way the rest of Roster says things. An unknown one passes through. */
-const CATEGORY_LABEL: Record<string, string> = {
-  Messages: "消息",
-  "System prompt": "系统提示词",
-  "System tools": "系统工具",
-  Skills: "技能",
-  "MCP tools": "MCP 工具",
-  "Memory files": "记忆文件",
-  "Custom agents": "自定义 Agent",
+/** What this adapter says to a person. The CLI's own names for modes, efforts and categories stay as it spells them in English. */
+const WORDS = {
+  en: {
+    modes: {
+      default: "Asks before editing files or running commands with side effects",
+      acceptEdits: "Edits files without asking; still asks before running commands",
+      plan: "Analyzes read-only and proposes a plan; acts only once you approve",
+      auto: "Claude judges whether each action is safe, and blocks or asks about risky ones",
+      bypassPermissions: "Asks nothing and just does it",
+    } as Record<string, string>,
+    ultracode: "xHigh + multi-agent orchestration; uses the most quota",
+    categories: {} as Record<string, string>,
+    sections: {
+      messages: "Messages",
+      toolCalls: "Tool calls",
+      toolResults: "Tool results",
+      attachments: "Attachments",
+      assistant: "Assistant messages",
+      user: "User messages",
+      memory: "Memory files",
+      mcp: "MCP tools",
+      agents: "Custom agents",
+      skills: "Skills",
+      tools: "System tools",
+    },
+    cantStart: (message: string) => `Claude Code can't start: ${message}`,
+    starts: (via: string) => `Starts fine; authenticates with ${via}`,
+  },
+  "zh-CN": {
+    modes: {
+      default: "改文件、跑有副作用的命令前先问你",
+      acceptEdits: "直接改文件，跑命令前仍会问你",
+      plan: "只读分析、先出方案，你确认后才动手",
+      auto: "由 Claude 判断操作是否安全，有风险的会拦下或问你",
+      bypassPermissions: "什么都不问，直接做",
+    } as Record<string, string>,
+    ultracode: "xHigh + 多 agent 编排，最耗额度",
+    // the CLI's category names, said the way the rest of Roster says things; an unknown one passes through
+    categories: {
+      Messages: "消息",
+      "System prompt": "系统提示词",
+      "System tools": "系统工具",
+      Skills: "技能",
+      "MCP tools": "MCP 工具",
+      "Memory files": "记忆文件",
+      "Custom agents": "自定义 Agent",
+    } as Record<string, string>,
+    sections: {
+      messages: "消息",
+      toolCalls: "工具调用",
+      toolResults: "工具结果",
+      attachments: "附件",
+      assistant: "助手消息",
+      user: "用户消息",
+      memory: "记忆文件",
+      mcp: "MCP 工具",
+      agents: "自定义 Agent",
+      skills: "技能",
+      tools: "系统工具",
+    },
+    cantStart: (message: string) => `Claude Code 启动不了：${message}`,
+    starts: (via: string) => `启动正常，认证走 ${via}`,
+  },
 };
 
-function contextOf(c: Awaited<ReturnType<Query["getContextUsage"]>>): ContextUse {
+type Words = (typeof WORDS)["en"];
+
+/** Any Chinese the host asks for reads the Simplified text; anything else reads English. */
+const wordsFor = (locale: string | undefined): Words => (locale?.toLowerCase().startsWith("zh") ? WORDS["zh-CN"] : WORDS.en);
+
+function contextOf(c: Awaited<ReturnType<Query["getContextUsage"]>>, words: Words): ContextUse {
   const max = c.rawMaxTokens || c.maxTokens;
   return {
     used: c.totalTokens,
@@ -181,7 +239,7 @@ function contextOf(c: Awaited<ReturnType<Query["getContextUsage"]>>): ContextUse
     parts: c.categories
       .filter((p) => p.kind === "used" && p.tokens > 0)
       .sort((a, b) => b.tokens - a.tokens)
-      .map((p) => ({ name: CATEGORY_LABEL[p.name] ?? p.name, tokens: p.tokens })),
+      .map((p) => ({ name: words.categories[p.name] ?? p.name, tokens: p.tokens })),
   };
 }
 
@@ -277,7 +335,10 @@ function settlesWithin(p: Promise<unknown>, ms: number): Promise<boolean> {
 class ClaudeRuntime implements BotRuntime {
   readonly capabilities = CLAUDE_CAPABILITIES;
 
-  constructor(private launch: Launch) {}
+  constructor(
+    private launch: Launch,
+    private words: Words,
+  ) {}
 
   #inbox = new Inbox();
   #query: Query | undefined;
@@ -561,7 +622,7 @@ class ClaudeRuntime implements BotRuntime {
     const q = this.#query;
     if (!q || this.#dead) return;
     const c = await q.getContextUsage({ detail: "summary" }).catch(() => null);
-    if (c) this.#report({ context: contextOf(c) });
+    if (c) this.#report({ context: contextOf(c, this.words) });
   }
 
   /** Counts every category with the token-count API, which the per-turn summary only estimates. */
@@ -572,28 +633,29 @@ class ClaudeRuntime implements BotRuntime {
     const rows = (list: Array<{ name: string; tokens: number }>) =>
       list.filter((r) => r.tokens > 0).sort((a, b) => b.tokens - a.tokens);
     const m = c.messageBreakdown;
+    const s = this.words.sections;
     return {
-      ...contextOf(c),
+      ...contextOf(c, this.words),
       model: c.model,
       sections: [
         {
-          title: "消息",
+          title: s.messages,
           rows: m
             ? rows([
-                { name: "工具调用", tokens: m.toolCallTokens },
-                { name: "工具结果", tokens: m.toolResultTokens },
-                { name: "附件", tokens: m.attachmentTokens },
-                { name: "助手消息", tokens: m.assistantMessageTokens },
-                { name: "用户消息", tokens: m.userMessageTokens },
+                { name: s.toolCalls, tokens: m.toolCallTokens },
+                { name: s.toolResults, tokens: m.toolResultTokens },
+                { name: s.attachments, tokens: m.attachmentTokens },
+                { name: s.assistant, tokens: m.assistantMessageTokens },
+                { name: s.user, tokens: m.userMessageTokens },
               ])
             : [],
         },
-        { title: "记忆文件", rows: rows(c.memoryFiles.map((f) => ({ name: f.path, tokens: f.tokens }))) },
-        { title: "MCP 工具", rows: rows(c.mcpTools.map((t) => ({ name: t.name, tokens: t.tokens }))) },
-        { title: "自定义 Agent", rows: rows(c.agents.map((a) => ({ name: a.agentType, tokens: a.tokens }))) },
-        { title: "技能", rows: rows((c.skills?.skillFrontmatter ?? []).map((s) => ({ name: s.name, tokens: s.tokens }))) },
-        { title: "系统工具", rows: rows((c.systemTools ?? []).map((t) => ({ name: t.name, tokens: t.tokens }))) },
-      ].filter((s) => s.rows.length > 0),
+        { title: s.memory, rows: rows(c.memoryFiles.map((f) => ({ name: f.path, tokens: f.tokens }))) },
+        { title: s.mcp, rows: rows(c.mcpTools.map((t) => ({ name: t.name, tokens: t.tokens }))) },
+        { title: s.agents, rows: rows(c.agents.map((a) => ({ name: a.agentType, tokens: a.tokens }))) },
+        { title: s.skills, rows: rows((c.skills?.skillFrontmatter ?? []).map((k) => ({ name: k.name, tokens: k.tokens }))) },
+        { title: s.tools, rows: rows((c.systemTools ?? []).map((t) => ({ name: t.name, tokens: t.tokens }))) },
+      ].filter((section) => section.rows.length > 0),
     };
   }
 
@@ -776,19 +838,20 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
   const endpoint = endpointOf(instance.source);
   const launch = launchOf(instance.program, endpoint);
   const snapshot = probeCache(launch);
+  const words = wordsFor(instance.locale);
   return {
     id: instance.id,
     label: instance.label,
     type: "claude-code",
     capabilities: CLAUDE_CAPABILITIES,
-    create: () => new ClaudeRuntime(launch),
+    create: () => new ClaudeRuntime(launch, words),
     // starting the CLI with this program and the endpoint's environment is what can fail here
     async check() {
       const probed = await snapshot(0).catch((err: unknown) => err as Error);
-      if (probed instanceof Error) return { ok: false, detail: `Claude Code 启动不了：${probed.message}` };
+      if (probed instanceof Error) return { ok: false, detail: words.cantStart(probed.message) };
       const account = probed.account;
       const via = account?.apiKeySource ?? account?.tokenSource;
-      return { ok: true, detail: `启动正常，认证走 ${via ?? endpoint.name}` };
+      return { ok: true, detail: words.starts(via ?? endpoint.name) };
     },
     async sessionInfo({ model, effort, mode, fast }): Promise<SessionInfo> {
       const { catalog, applied, fast: gate, ultracode } = await snapshot(CATALOG_REUSE_MS);
@@ -820,9 +883,9 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
         models,
         efforts: [
           ...Object.entries(EFFORT_LABEL).map(([id, label]) => ({ id, label })),
-          ...(ultracode ? [ULTRACODE_OPTION] : []),
+          ...(ultracode ? [{ id: ULTRACODE, label: "Ultracode", description: words.ultracode }] : []),
         ],
-        modes: MODES.map(({ id, label, description }) => ({ id, label, description })),
+        modes: MODES.map(({ id, label }) => ({ id, label, description: words.modes[id] ?? "" })),
         ...(fast ? { fast } : {}),
         compact: true,
         ...(commands.length > 0 ? { commands: commandsOf(commands) } : {}),

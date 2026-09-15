@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { arch, homedir, platform, release } from "node:os";
 import { join } from "node:path";
 
-/** What the 关于 page shows: which build is running, on what, and where its data lives. */
+/** What the About page shows: which build is running, on what, and where its data lives. */
 export interface About {
   version: string;
   /** run from a checkout rather than a packaged app */

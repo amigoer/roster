@@ -6,10 +6,11 @@ import { MAX_BYTES, MAX_PER_MESSAGE, type AttachmentStore } from "./attachments.
 import type { Harnesses } from "./harnesses.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { Detector } from "./detect.js";
-import { isLogo, LOGO_IDS, LOGOS, LOGOS_DIR } from "./logos.js";
+import { isLogo, LOGO_IDS, LOGOS_DIR, logos } from "./logos.js";
 import { Rejection } from "./errors.js";
 import type { ExecutorSettings } from "./executors.js";
 import type { Extensions } from "./extensions.js";
+import { isPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import type { Installer } from "./installer.js";
 import type { Orchestrator } from "./orchestrator.js";
 import type { BotInput, MemberSettings, Mode, Store } from "./store.js";
@@ -32,6 +33,11 @@ export interface ServerHandle {
   close(): Promise<void>;
 }
 
+/** What a person set for Roster as a whole; resolved is the language "system" came out as. */
+export interface Preferences {
+  locale: { preference: LocalePreference; resolved: Locale };
+}
+
 
 const optText = (v: unknown, max: number): string | null => {
   if (v === undefined || v === null) return null;
@@ -50,30 +56,30 @@ function botInput(
 
   if (has("name")) {
     const name = String(body["name"] ?? "").trim();
-    if (!name) throw new Rejection("名字不能为空");
+    if (!name) throw new Rejection(t("error.bot.nameRequired"));
     // @name is how a group addresses it, so the name has to survive being typed after @
-    if (/[@\s]/.test(name)) throw new Rejection("名字里不能有空格或 @");
-    if ([...name].length > 24) throw new Rejection("名字最多 24 个字");
+    if (/[@\s]/.test(name)) throw new Rejection(t("error.bot.nameChars"));
+    if ([...name].length > 24) throw new Rejection(t("error.bot.nameLength"));
     out.name = name;
   }
   if (has("title")) out.title = optText(body["title"], 40);
   if (has("avatar")) {
     // only the bundled logos, so every bot shares one style; null asks for one to be picked
     const avatar = optText(body["avatar"], 40);
-    if (avatar && !isLogo(avatar)) throw new Rejection("头像只能从内置的 logo 里选");
+    if (avatar && !isLogo(avatar)) throw new Rejection(t("error.bot.avatar"));
     out.avatar = avatar;
   }
   if (has("system_prompt")) out.system_prompt = optText(body["system_prompt"], 12_000);
   if (has("executor_id")) {
     const executor = String(body["executor_id"] ?? "");
     // only one that can run: the agent carries the source, so a broken one would carry the bot down with it
-    if (!executors.includes(executor)) throw new Rejection(executor ? "这个 agent 现在用不了，先到设置里修好它" : "选一个 agent");
+    if (!executors.includes(executor)) throw new Rejection(executor ? t("error.bot.agentBroken") : t("error.bot.pickAgent"));
     out.executor_id = executor;
   }
   if (has("model")) out.model = optText(body["model"], 120);
   if (has("permission_tier")) {
     const tier = String(body["permission_tier"] ?? "");
-    if (!(TIERS as readonly string[]).includes(tier)) throw new Rejection("权限档只能是 read / write / execute");
+    if (!(TIERS as readonly string[]).includes(tier)) throw new Rejection(t("error.bot.tier"));
     out.permission_tier = tier as BotInput["permission_tier"];
   }
   return out;
@@ -93,6 +99,9 @@ export function startServer(opts: {
   reload(): Promise<void>;
   uiDir: string | null;
   about(): About;
+  preferences(): Preferences;
+  /** saves the language and rewrites everything already written in the old one */
+  setLocale(preference: LocalePreference): Promise<void>;
   port?: number;
   broadcast(msg: unknown): void;
   subscribe(fn: (msg: unknown) => void): () => void;
@@ -137,7 +146,7 @@ export function startServer(opts: {
   /** One extension's catalog entry, by the id the UI sends. */
   const catalogEntry = (id: string): CatalogEntry => {
     const entry = catalog.find((c) => c.id === id);
-    if (!entry) throw new Rejection("目录里没有这个扩展", 404);
+    if (!entry) throw new Rejection(t("error.extension.notInCatalog"), 404);
     return entry;
   };
 
@@ -188,9 +197,22 @@ export function startServer(opts: {
         // names only, so an agent's model source can be labelled anywhere; keys never leave the settings page
         sources: store.listProviders().map((p) => ({ id: p.id, name: p.name, preset: p.preset, api: p.api })),
         presence: orchestrator.presence(),
-        logos: LOGOS,
+        logos: logos(),
+        preferences: opts.preferences(),
         defaultDir: process.env["ROSTER_DEFAULT_DIR"] ?? process.cwd(),
       });
+    }
+
+    if (path === "/api/preferences" && method === "GET") {
+      return json(res, opts.preferences());
+    }
+    if (path === "/api/preferences" && method === "PATCH") {
+      const body = await readBody(req);
+      if ("locale" in body) {
+        if (!isPreference(body["locale"])) throw new Rejection(t("error.preference.locale", { locale: String(body["locale"]) }));
+        await opts.setLocale(body["locale"]);
+      }
+      return json(res, opts.preferences());
     }
 
     // under /api so the Vite dev proxy reaches it too
@@ -226,7 +248,7 @@ export function startServer(opts: {
           return installer.install(entry.id, npm, { ...(version ? { version } : {}), ...(overrides ? { overrides } : {}) });
         }
         const program = harnesses.program(entry.id);
-        if (!program) throw new Error(`「${entry.label}」随 Roster 内置，没有什么要装的`);
+        if (!program) throw new Error(t("error.extension.nothingToInstall", { label: entry.label }));
         return installer.installProgram(entry.id, program);
       });
       if (job.state === "done") {
@@ -355,7 +377,7 @@ export function startServer(opts: {
 
     if (path === "/api/bots" && method === "POST") {
       const input = botInput(await readBody(req), false, executors()) as BotInput;
-      if (store.nameTaken(input.name)) throw new Rejection(`通讯录里已经有叫「${input.name}」的 bot 了`);
+      if (store.nameTaken(input.name)) throw new Rejection(t("error.bot.nameTaken", { name: input.name }));
       const bot = store.createBot({ ...input, avatar: input.avatar ?? store.leastUsedLogo(LOGO_IDS) });
       pushBots();
       return json(res, { bot });
@@ -364,10 +386,10 @@ export function startServer(opts: {
     const bot = /^\/api\/bots\/([^/]+)$/.exec(path);
     if (bot?.[1] && method === "PATCH") {
       const current = store.getBot(bot[1]);
-      if (!current) throw new Rejection("没有这个 bot");
+      if (!current) throw new Rejection(t("error.bot.notFound"));
       const patch = botInput(await readBody(req), true, executors());
       if (patch.name && store.nameTaken(patch.name, bot[1])) {
-        throw new Rejection(`通讯录里已经有叫「${patch.name}」的 bot 了`);
+        throw new Rejection(t("error.bot.nameTaken", { name: patch.name }));
       }
       if ("avatar" in patch && !patch.avatar) patch.avatar = store.leastUsedLogo(LOGO_IDS, bot[1]);
       const updated = store.updateBot(bot[1], patch);
@@ -394,13 +416,13 @@ export function startServer(opts: {
         const body = await readBody(req);
         const text = String(body["text"] ?? "").trim();
         const ids = Array.isArray(body["attachments"]) ? [...new Set((body["attachments"] as unknown[]).map(String))] : [];
-        if (ids.length > MAX_PER_MESSAGE) throw new Rejection(`一条消息最多带 ${MAX_PER_MESSAGE} 个附件`);
+        if (ids.length > MAX_PER_MESSAGE) throw new Rejection(t("error.message.tooManyAttachments", { count: MAX_PER_MESSAGE }));
         const refs = ids.map((aid) => {
           const ref = attachments.get(id, aid);
-          if (!ref) throw new Rejection("有附件找不到了，重新添加一下");
+          if (!ref) throw new Rejection(t("error.message.attachmentGone"));
           return ref;
         });
-        if (!text && refs.length === 0) throw new Rejection("消息不能为空");
+        if (!text && refs.length === 0) throw new Rejection(t("error.message.empty"));
         await orchestrator.send(id, text, refs);
         return json(res, { ok: true });
       }
@@ -409,9 +431,9 @@ export function startServer(opts: {
     // the file's bytes are the body, so a large one never sits in memory as JSON
     const upload = route(/^\/api\/conversations\/([^/]+)\/attachments$/, "POST");
     if (upload?.[1]) {
-      if (!store.getConversation(upload[1])) throw new Rejection("没有这个会话", 404);
+      if (!store.getConversation(upload[1])) throw new Rejection(t("error.conversation.notFound"), 404);
       if (Number(req.headers["content-length"] ?? 0) > MAX_BYTES) {
-        throw new Rejection(`文件太大了，单个最多 ${MAX_BYTES / 1024 / 1024} MB`, 413);
+        throw new Rejection(t("error.attachment.tooLarge", { size: MAX_BYTES / 1024 / 1024 }), 413);
       }
       const header = req.headers["x-file-name"];
       let name = "file";
@@ -428,7 +450,7 @@ export function startServer(opts: {
     if (attachment?.[1] && attachment[2]) {
       const [, convId, attachmentId] = attachment as unknown as [string, string, string];
       const ref = attachments.get(convId, attachmentId);
-      if (!ref) throw new Rejection("没有这个附件", 404);
+      if (!ref) throw new Rejection(t("error.attachment.notFound"), 404);
       if (method === "GET") {
         res.writeHead(200, {
           "content-type": ref.mime,
@@ -443,7 +465,7 @@ export function startServer(opts: {
         return;
       }
       if (method === "DELETE") {
-        if (store.isAttachmentSent(convId, attachmentId)) throw new Rejection("已经发出去的附件不能删除", 409);
+        if (store.isAttachmentSent(convId, attachmentId)) throw new Rejection(t("error.attachment.sent"), 409);
         attachments.remove(convId, attachmentId);
         return json(res, { ok: true });
       }
@@ -452,7 +474,7 @@ export function startServer(opts: {
     // model, mode, effort and plan usage for the composer; later changes arrive as pushes
     const status = route(/^\/api\/conversations\/([^/]+)\/status$/, "GET");
     if (status?.[1]) {
-      if (!store.getConversation(status[1])) throw new Rejection("没有这个会话");
+      if (!store.getConversation(status[1])) throw new Rejection(t("error.conversation.notFound"));
       return json(res, await orchestrator.status(status[1]));
     }
 
@@ -461,17 +483,17 @@ export function startServer(opts: {
       const dir = String(body["repoPath"] ?? process.cwd()).trim();
       // catch a bad path here, where the message can be shown, rather than three
       // layers down inside a backend
-      if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Rejection(`不是一个目录：${dir}`);
+      if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Rejection(t("error.conversation.notDirectory", { path: dir }));
       const botIds = Array.isArray(body["botIds"]) ? [...new Set((body["botIds"] as unknown[]).map(String))] : [];
-      if (botIds.length === 0) throw new Rejection("至少选一个 bot");
-      for (const id of botIds) {
-        const b = store.getBot(id);
-        if (!b || b.archived_at !== null) throw new Rejection("选中的 bot 已经不在通讯录里了");
-      }
+      const bots = botIds.map((id) => store.getBot(id));
+      if (bots.length === 0) throw new Rejection(t("error.conversation.pickBot"));
+      if (bots.some((b) => !b || b.archived_at !== null)) throw new Rejection(t("error.conversation.botGone"));
       const mode = MODES.includes(body["mode"] as Mode) ? (body["mode"] as Mode) : "human_led";
       const leaderBotId = typeof body["leaderBotId"] === "string" ? body["leaderBotId"] : undefined;
+      // a default title, which the first message replaces
+      const fallback = bots.length > 1 ? t("conversation.newGroup") : t("conversation.directTitle", { name: bots[0]!.name });
       const conv = store.createConversation({
-        title: optText(body["title"], 80) ?? (botIds.length > 1 ? "新群聊" : "New conversation"),
+        title: optText(body["title"], 80) ?? fallback,
         repoPath: dir,
         worktreePath: dir,
         botIds,
@@ -564,16 +586,16 @@ export function startServer(opts: {
     }
     if (conv?.[1] && method === "PATCH") {
       const id = conv[1];
-      if (!store.getConversation(id)) throw new Rejection("没有这个会话");
+      if (!store.getConversation(id)) throw new Rejection(t("error.conversation.notFound"));
       const body = await readBody(req);
       if ("title" in body) {
         const title = String(body["title"] ?? "").trim();
-        if (!title) throw new Rejection("标题不能为空");
+        if (!title) throw new Rejection(t("error.conversation.titleRequired"));
         store.rename(id, title.slice(0, 80));
       }
       if ("mode" in body) {
         const mode = body["mode"] as Mode;
-        if (!MODES.includes(mode)) throw new Rejection("不认识的群聊模式");
+        if (!MODES.includes(mode)) throw new Rejection(t("error.conversation.unknownMode"));
         const leader = typeof body["leaderMemberId"] === "string" ? body["leaderMemberId"] : undefined;
         guard(() => orchestrator.setMode(id, mode, leader));
       }

@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionManifest, HarnessType, ProgramManifest } from "@roster/adapter-api";
 import { acpHarness } from "./acp.js";
+import { t } from "./i18n/index.js";
 
 /** The contract major version this build speaks. An extension written for another is not loaded. */
 export const CONTRACT_API = 2;
@@ -116,7 +117,7 @@ export class Extensions {
         const ext = await this.#build(pkgDir, root.origin);
         if (!ext) continue;
         if (seen.has(ext.type)) {
-          found.push({ ...ext, harness: undefined, error: `「${ext.type}」已经由另一个扩展提供，这个没有加载` });
+          found.push({ ...ext, harness: undefined, error: t("error.extension.duplicate", { type: ext.type }) });
           continue;
         }
         seen.add(ext.type);
@@ -148,27 +149,29 @@ export class Extensions {
     const fallbackType = manifest.type ?? name;
     const label = manifest.label ?? fallbackType;
     if (manifest.api !== CONTRACT_API) {
-      return { ...base, type: fallbackType, label, kind, error: `它是按契约 v${manifest.api} 写的，这个版本的 Roster 只认 v${CONTRACT_API}` };
+      const error = t("error.extension.contract", { found: manifest.api, expected: CONTRACT_API });
+      return { ...base, type: fallbackType, label, kind, error };
     }
     let code: HarnessType | undefined;
     if (manifest.entry) {
       try {
         const mod = (await import(pathToFileURL(resolve(dir, manifest.entry)).href)) as { harness?: HarnessType; default?: HarnessType };
         code = mod.harness ?? mod.default;
-        if (!code || typeof code.create !== "function") throw new Error("入口没有导出 harness");
+        if (!code || typeof code.create !== "function") throw new Error(t("error.extension.noExport"));
       } catch (err) {
-        return { ...base, type: fallbackType, label, kind, error: `加载失败：${err instanceof Error ? err.message : String(err)}` };
+        const error = t("error.extension.loadFailed", { message: err instanceof Error ? err.message : String(err) });
+        return { ...base, type: fallbackType, label, kind, error };
       }
     }
     const type = code?.type ?? fallbackType;
     let harness: HarnessType | undefined = code;
     if (manifest.acp) {
       const missing = missingProgram(dir, manifest.acp.command);
-      if (missing) return { ...base, type, label, kind, error: `它的依赖没有装好（找不到 ${missing}）；重新安装一次` };
+      if (missing) return { ...base, type, label, kind, error: t("error.extension.missingDependency", { missing }) };
       const acp = acpHarness({ type, label: code?.label ?? label, dir, manifest: manifest.acp, own: true });
       harness = code ? compose(code, acp) : acp;
     }
-    if (!harness) return { ...base, type, label, kind, error: "清单里既没有入口也没有 ACP 配置" };
+    if (!harness) return { ...base, type, label, kind, error: t("error.extension.empty") };
     return { ...base, type, label: harness.label, kind, harness };
   }
 }

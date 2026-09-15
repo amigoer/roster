@@ -1,31 +1,13 @@
 import type { Attachment } from "@roster/adapter-api";
 import type { Delivered } from "./attachments.js";
+import { t } from "./i18n/index.js";
 import type { Mode, TranscriptItem } from "./store.js";
 
 /** Why a member is being asked to take a turn. Several can merge into one turn. */
 export type Ask = "reply" | "mention" | "lead" | "reports" | "dispatch" | "discuss";
 
-export const MODE_LABEL: Record<Mode, string> = {
-  human_led: "人主导",
-  leader: "群主分发",
-  discussion: "讨论",
-};
-
 /** Oldest lines drop past this: a member joining late needs the gist, not every byte. */
 const BACKLOG_CHARS = 32_000;
-
-const INSTRUCTIONS: Record<Ask, string> = {
-  reply: "以上是你上次发言之后群里的新消息，轮到你回复用户。你的回复群里所有人都能看到。",
-  mention:
-    "用户在群里 @ 了你，请回复。你的回复群里所有人都能看到；需要其他成员配合时直接说明，由用户决定是否 @ 他们。",
-  lead:
-    "你是这个群的群主。先判断任务要不要拆：需要时，用「@成员名 + 具体任务」分派给最合适的成员，每人单独一段，写清要做什么、交付什么；成员完成后你会收到他们的回复。不需要分派时直接回复用户，不要 @ 任何成员。",
-  reports:
-    "你分派的成员已经回复（见上）。汇总结果回复用户；还需要下一步时，继续用「@成员名 + 具体任务」分派。",
-  dispatch: "群主给你分派了任务（见上）。完成你负责的部分，然后简要汇报结果，不要 @ 其他成员。",
-  discuss:
-    "现在是讨论模式：每位成员各自对用户最新的消息发表看法，最后由用户裁决。给出你的观点和理由；这一阶段只读，不要修改文件。",
-};
 
 /** When asks merge, the most specific instruction wins; the transcript carries the rest. */
 const PRIORITY: Ask[] = ["reports", "lead", "dispatch", "discuss", "mention", "reply"];
@@ -88,35 +70,41 @@ function direct(d: DeliveryInput, items: DeliveryItem[], omitted: number): strin
   while (cut > 0 && items[cut - 1]!.kind === "human") cut--;
   const history = items.slice(0, cut);
   const latest = items.slice(cut);
-  const lines = ["以下是这个会话此前的记录，供你接上上下文：", open("history", omitted)];
+  const lines = [t("delivery.history"), open("history", omitted)];
   for (const i of history) lines.push(...render(d, i));
   lines.push("</history>", "");
-  lines.push(latest.length ? latest.map(said).join("\n\n") : "请接着之前的内容继续。");
+  lines.push(latest.length ? latest.map(said).join("\n\n") : t("delivery.continue"));
   return lines.join("\n");
 }
 
 function group(d: DeliveryInput, items: DeliveryItem[], omitted: number): string {
-  const lines = [`<group_chat title="${attr(d.title)}" mode="${MODE_LABEL[d.mode]}">`, "<members>"];
+  const lines = [`<group_chat title="${attr(d.title)}" mode="${t(`delivery.mode.${d.mode}`)}">`, "<members>"];
   for (const m of d.members) {
     const tags = [
-      m.id === d.selfId ? "你" : null,
-      d.mode === "leader" && m.id === d.leaderId ? "群主" : null,
-    ].filter(Boolean);
-    lines.push(`- ${m.name}${tags.length ? `（${tags.join("，")}）` : ""}${m.title ? `：${m.title}` : ""}`);
+      m.id === d.selfId ? t("delivery.tag.self") : null,
+      d.mode === "leader" && m.id === d.leaderId ? t("delivery.tag.leader") : null,
+    ].filter((tag) => tag !== null);
+    const tagged = tags.length ? t("delivery.tags", { tags: tags.join(t("delivery.tagSeparator")) }) : "";
+    lines.push(`- ${m.name}${tagged}${m.title ? t("delivery.title", { title: m.title }) : ""}`);
   }
-  lines.push("- 用户：提出任务、做最终决定的人", "</members>", open("messages", omitted));
+  lines.push(t("delivery.userLine"), "</members>", open("messages", omitted));
   for (const i of items) lines.push(...render(d, i));
   lines.push("</messages>", "</group_chat>", "");
   const ask = PRIORITY.find((a) => d.asks.has(a)) ?? "reply";
-  lines.push(INSTRUCTIONS[ask]);
+  lines.push(t(`delivery.ask.${ask}`));
   return lines.join("\n");
 }
 
 function render(d: DeliveryInput, i: DeliveryItem): string[] {
   const time = hhmm(i.at);
   if (i.kind === "notice") return [`<notice time="${time}">${i.text}</notice>`];
-  const name = i.memberId ? (d.names.get(i.memberId) ?? "已离开的成员") : "";
-  const from = i.kind === "human" ? "用户" : i.memberId === d.selfId ? `${name}（你）` : name;
+  const name = i.memberId ? (d.names.get(i.memberId) ?? t("delivery.departed")) : "";
+  const from =
+    i.kind === "human"
+      ? t("delivery.user")
+      : i.memberId === d.selfId
+        ? `${name}${t("delivery.tags", { tags: t("delivery.tag.self") })}`
+        : name;
   return [`<message from="${attr(from)}" time="${time}">`, said(i), "</message>"];
 }
 

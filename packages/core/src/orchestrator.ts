@@ -14,7 +14,9 @@ import type {
   ToolDecision,
 } from "@roster/adapter-api";
 import type { AttachmentRef, AttachmentStore } from "./attachments.js";
-import { composeDelivery, MODE_LABEL, type Ask } from "./delivery.js";
+import { composeDelivery, type Ask } from "./delivery.js";
+import { t, type Key, type ParamsFor } from "./i18n/index.js";
+import type { ParamValue } from "./i18n/translate.js";
 import type { CoreEvent } from "./log.js";
 import { findMentions } from "./mentions.js";
 import type { Registry } from "./registry.js";
@@ -165,7 +167,7 @@ export class Orchestrator {
       source_kind: e.source_kind,
       provider_id: e.provider_id,
       model: e.model,
-      problem: this.registry.entry(e.id) ? null : (this.registry.problem(e.id) ?? "现在建不出来"),
+      problem: this.registry.entry(e.id) ? null : (this.registry.problem(e.id) ?? t("error.agent.unbuildable")),
     }));
   }
 
@@ -235,18 +237,18 @@ export class Orchestrator {
   async configure(conversationId: string, memberId: string, patch: MemberSettings): Promise<void> {
     const member = this.#memberOf(conversationId, memberId);
     const options = await this.#optionsFor(member);
-    if (!options) throw new Error("这个 agent 不支持在会话里切换");
+    if (!options) throw new Error(t("error.configure.unsupported"));
     if (patch.model !== undefined && !options.models.some((m) => m.id === patch.model)) {
-      throw new Error(`不认识的模型：${patch.model}`);
+      throw new Error(t("error.configure.unknownModel", { model: patch.model }));
     }
     if (patch.effort !== undefined && !options.efforts.some((e) => e.id === patch.effort)) {
-      throw new Error(`不认识的思考级别：${patch.effort}`);
+      throw new Error(t("error.configure.unknownEffort", { effort: patch.effort }));
     }
     if (patch.mode !== undefined && !options.modes.some((m) => m.id === patch.mode)) {
-      throw new Error(`不认识的模式：${patch.mode}`);
+      throw new Error(t("error.configure.unknownMode", { mode: patch.mode }));
     }
     if (patch.fast && options.fast?.available === false) {
-      throw new Error("这个账号现在用不了 fast mode");
+      throw new Error(t("error.configure.fastUnavailable"));
     }
 
     const live = this.#lives.get(memberId);
@@ -275,10 +277,10 @@ export class Orchestrator {
   async compact(conversationId: string, memberId: string): Promise<void> {
     const member = this.#memberOf(conversationId, memberId);
     const options = await this.#optionsFor(member).catch(() => null);
-    if (!options?.compact) throw new Error("这个 agent 不能压缩上下文");
+    if (!options?.compact) throw new Error(t("error.compact.unsupported"));
     const live = this.#live(conversationId, memberId);
-    if (live.gone) throw new Error("成员已离开");
-    if (live.running) throw new Error("正在回复，等这一轮结束再压缩");
+    if (live.gone) throw new Error(t("error.member.left"));
+    if (live.running) throw new Error(t("error.compact.busy"));
 
     const turnId = randomUUID();
     Object.assign(live, { running: true, asks: new Set(), turnId, buffer: "", aborted: false, errored: false });
@@ -288,7 +290,7 @@ export class Orchestrator {
       void (async () => {
         const runtime = await this.#ensure(live);
         if (!live.running || live.turnId !== turnId) return;
-        if (!runtime.compact) throw new Error("这个 agent 不能压缩上下文");
+        if (!runtime.compact) throw new Error(t("error.compact.unsupported"));
         // completion arrives as the backend's turn.end, which finishes this like any turn
         await runtime.compact();
       })().catch((err: unknown) => this.#fail(live, turnId, err));
@@ -299,16 +301,16 @@ export class Orchestrator {
   async contextDetail(conversationId: string, memberId: string): Promise<ContextDetail> {
     this.#memberOf(conversationId, memberId);
     const live = this.#live(conversationId, memberId);
-    if (live.gone) throw new Error("成员已离开");
+    if (live.gone) throw new Error(t("error.member.left"));
     const runtime = await this.#ensure(live);
-    if (!runtime.contextDetail) throw new Error("这个 agent 不能查看上下文明细");
+    if (!runtime.contextDetail) throw new Error(t("error.context.unsupported"));
     return runtime.contextDetail();
   }
 
   #memberOf(conversationId: string, memberId: string): MemberRow {
     const member = this.store.getMember(memberId);
     if (!member || member.conversation_id !== conversationId || member.left_at !== null) {
-      throw new Error("没有这个成员");
+      throw new Error(t("error.member.notFound"));
     }
     return member;
   }
@@ -326,7 +328,7 @@ export class Orchestrator {
 
   async send(conversationId: string, text: string, attachments: readonly AttachmentRef[] = []): Promise<void> {
     const conv = this.store.getConversation(conversationId);
-    if (!conv) throw new Error("no such conversation");
+    if (!conv) throw new Error(t("error.conversation.notFound"));
     const members = this.store.activeMembers(conversationId);
     const mentioned = findMentions(text, this.#named(members));
 
@@ -352,7 +354,7 @@ export class Orchestrator {
     g.relays = 0;
     this.store.setAttention(conversationId, "none");
 
-    if (members.length === 0) this.#notice(conversationId, "群里还没有成员，先添加一个再发消息。");
+    if (members.length === 0) this.#notice(conversationId, "notice.noMembers");
     for (const [memberId, ask] of this.#route(conv, members, mentioned)) {
       this.#ask(conversationId, memberId, ask);
     }
@@ -385,7 +387,7 @@ export class Orchestrator {
     g.awaiting.clear();
     const lives = this.#livesOf(conversationId);
     for (const l of lives) l.queued.clear();
-    this.#denyPending((p) => p.conversationId === conversationId, "用户停止了这一轮。");
+    this.#denyPending((p) => p.conversationId === conversationId, t("deny.stopped"));
     for (const w of g.lease.queue.splice(0)) w.grant(false);
 
     const running = lives.filter((l) => l.running);
@@ -410,7 +412,7 @@ export class Orchestrator {
     const p = this.#pending.get(requestId);
     if (!p || p.conversationId !== conversationId) return false;
     this.#pending.delete(requestId);
-    p.resolve(allow ? { action: "allow" } : { action: "deny", reason: "Denied by the human." });
+    p.resolve(allow ? { action: "allow" } : { action: "deny", reason: t("deny.byUser") });
     this.#sync(conversationId);
     return true;
   }
@@ -418,14 +420,14 @@ export class Orchestrator {
   // ---- membership and rules ----
 
   addMember(conversationId: string, botId: string): MemberRow {
-    if (!this.store.getConversation(conversationId)) throw new Error("no such conversation");
+    if (!this.store.getConversation(conversationId)) throw new Error(t("error.conversation.notFound"));
     const bot = this.store.getBot(botId);
-    if (!bot || bot.archived_at !== null) throw new Error("通讯录里没有这个 bot");
+    if (!bot || bot.archived_at !== null) throw new Error(t("error.bot.notInContacts"));
     if (this.store.activeMembers(conversationId).some((m) => m.bot_id === botId)) {
-      throw new Error(`${bot.name} 已经在群里了`);
+      throw new Error(t("error.member.alreadyIn", { name: bot.name }));
     }
     const member = this.store.addMember(conversationId, botId);
-    this.#notice(conversationId, `${bot.name} 加入了群聊`);
+    this.#notice(conversationId, "notice.joined", { name: bot.name });
     this.#pushConversations();
     return member;
   }
@@ -433,7 +435,7 @@ export class Orchestrator {
   async removeMember(conversationId: string, memberId: string): Promise<void> {
     const member = this.store.getMember(memberId);
     if (!member || member.conversation_id !== conversationId || member.left_at !== null) {
-      throw new Error("没有这个成员");
+      throw new Error(t("error.member.notFound"));
     }
     const conv = this.store.getConversation(conversationId)!;
     const leaderBefore = this.#leaderOf(conv, this.store.activeMembers(conversationId));
@@ -441,12 +443,12 @@ export class Orchestrator {
     this.store.leaveMember(memberId);
     const live = this.#lives.get(memberId);
     if (live) await this.#retire(live);
-    this.#notice(conversationId, `${name} 被移出了群聊`);
+    this.#notice(conversationId, "notice.removed", { name });
 
     const rest = this.store.activeMembers(conversationId);
     if (conv.mode === "leader" && leaderBefore?.id === memberId && rest[0]) {
       this.store.setMode(conversationId, "leader", rest[0].id);
-      this.#notice(conversationId, `群主改为 ${this.#name(rest[0])}`);
+      this.#notice(conversationId, "notice.leader", { name: this.#name(rest[0]) });
     }
     // a leader waiting on this member's report would otherwise wait forever
     const g = this.#group(conversationId);
@@ -459,24 +461,20 @@ export class Orchestrator {
 
   setMode(conversationId: string, mode: Mode, leaderMemberId?: string): void {
     const conv = this.store.getConversation(conversationId);
-    if (!conv) throw new Error("no such conversation");
+    if (!conv) throw new Error(t("error.conversation.notFound"));
     const members = this.store.activeMembers(conversationId);
     if (leaderMemberId && !members.some((m) => m.id === leaderMemberId)) {
-      throw new Error("群主必须是群里的成员");
+      throw new Error(t("error.leader.notMember"));
     }
     const before = this.#leaderOf(conv, members);
     this.store.setMode(conversationId, mode, leaderMemberId ?? (mode === "leader" ? before?.id : null));
     const leader = this.#leaderOf(this.store.getConversation(conversationId)!, members);
 
     if (mode !== conv.mode) {
-      this.#notice(
-        conversationId,
-        mode === "leader" && leader
-          ? `群聊模式改为「群主分发」，群主是 ${this.#name(leader)}`
-          : `群聊模式改为「${MODE_LABEL[mode]}」`,
-      );
+      if (mode === "leader" && leader) this.#notice(conversationId, "notice.mode.leaderWith", { name: this.#name(leader) });
+      else this.#notice(conversationId, `notice.mode.${mode}`);
     } else if (mode === "leader" && leader && leader.id !== before?.id) {
-      this.#notice(conversationId, `群主改为 ${this.#name(leader)}`);
+      this.#notice(conversationId, "notice.leader", { name: this.#name(leader) });
     }
     // handoffs belong to the rules they were made under
     this.#group(conversationId).awaiting.clear();
@@ -487,10 +485,10 @@ export class Orchestrator {
   async syncMember(conversationId: string, memberId: string): Promise<void> {
     const member = this.store.getMember(memberId);
     if (!member || member.conversation_id !== conversationId || member.left_at !== null) {
-      throw new Error("没有这个成员");
+      throw new Error(t("error.member.notFound"));
     }
     const live = this.#lives.get(memberId);
-    if (live?.running) throw new Error("它正在干活，等这一轮结束再同步");
+    if (live?.running) throw new Error(t("error.sync.busy"));
     const picked = member.settings;
     this.store.refreshSpec(memberId);
     if (live) {
@@ -504,7 +502,7 @@ export class Orchestrator {
       const kept = options ? stillOffered(picked, options) : {};
       if (Object.keys(kept).length > 0) this.store.setSettings(memberId, kept);
     }
-    this.#notice(conversationId, `${this.#name(member)} 更新了设定`);
+    this.#notice(conversationId, "notice.synced", { name: this.#name(member) });
     this.#pushConversations();
     // the old session's report no longer holds; show what the new spec will run until a turn restates it
     const synced = this.store.getMember(memberId);
@@ -521,7 +519,7 @@ export class Orchestrator {
    * tokens are already stored, so unarchiving picks up where it left off.
    */
   async release(conversationId: string): Promise<void> {
-    this.#denyPending((p) => p.conversationId === conversationId, "会话已关闭。");
+    this.#denyPending((p) => p.conversationId === conversationId, t("deny.closed"));
     const g = this.#groups.get(conversationId);
     if (g) for (const w of g.lease.queue.splice(0)) w.grant(false);
     this.#groups.delete(conversationId);
@@ -541,7 +539,7 @@ export class Orchestrator {
   }
 
   async disposeAll(): Promise<void> {
-    this.#denyPending(() => true, "Roster 正在退出。");
+    this.#denyPending(() => true, t("deny.quitting"));
     const lives = [...this.#lives.values()];
     this.#lives.clear();
     await Promise.all(
@@ -656,9 +654,9 @@ export class Orchestrator {
   async #start(live: Live): Promise<BotRuntime> {
     const member = this.store.getMember(live.memberId);
     const conv = this.store.getConversation(live.conversationId);
-    if (!member || !conv) throw new Error("成员已不在会话里");
+    if (!member || !conv) throw new Error(t("error.member.gone"));
     const executor = this.registry.get(member.spec.executor_id);
-    if (!executor) throw new Error(this.registry.problem(member.spec.executor_id) ?? "它用的 agent 已经删除了，给这个 bot 换一个 agent 再同步");
+    if (!executor) throw new Error(this.registry.problem(member.spec.executor_id) ?? t("error.agent.deleted"));
     const settings = this.#effective(member);
 
     // the registry is rebuilt on every settings change, so an endpoint edited since the last turn is already in here, key included
@@ -682,7 +680,7 @@ export class Orchestrator {
     }
     if (live.gone) {
       await runtime.dispose().catch(() => {});
-      throw new Error("成员已离开");
+      throw new Error(t("error.member.left"));
     }
     live.runtime = runtime;
     live.executor = executor.id;
@@ -796,8 +794,8 @@ export class Orchestrator {
 
     if (asks.has("dispatch") && g.awaiting.delete(live.memberId)) {
       if (!text) {
-        const why = reason === "aborted" ? "被中止" : reason === "error" ? "出错了" : "没有输出";
-        this.#notice(conv.id, `${this.#nameOf(live.memberId)} 没有交回结果（${why}）`);
+        const why = reason === "done" ? "empty" : reason;
+        this.#notice(conv.id, `notice.noReport.${why}`, { name: this.#nameOf(live.memberId) });
       }
       if (g.awaiting.size === 0 && leader.id !== live.memberId) this.#relay(conv.id, leader.id, "reports");
     }
@@ -820,7 +818,7 @@ export class Orchestrator {
     if (++g.relays > RELAY_BRAKE) {
       g.halted = true;
       g.awaiting.clear();
-      this.#notice(conversationId, `已经连续自动接力 ${RELAY_BRAKE} 次，先停下来等你。回一条消息让它继续。`);
+      this.#notice(conversationId, "notice.relayBrake", { count: RELAY_BRAKE });
       return false;
     }
     this.#ask(conversationId, memberId, ask);
@@ -835,11 +833,11 @@ export class Orchestrator {
    * human takes.
    */
   async #gate(live: Live, call: ToolCall): Promise<ToolDecision> {
-    if (live.gone || live.aborted) return { action: "deny", reason: "已停止。", terminate: true };
+    if (live.gone || live.aborted) return { action: "deny", reason: t("deny.halted"), terminate: true };
     const conv = this.store.getConversation(live.conversationId);
     const member = this.store.getMember(live.memberId);
     const bot = member && this.store.getBot(member.bot_id);
-    if (!conv || !member || !bot) return { action: "deny", reason: "成员已不在会话里。", terminate: true };
+    if (!conv || !member || !bot) return { action: "deny", reason: t("deny.memberGone"), terminate: true };
 
     // A backend with permission modes of its own decides by the mode picked for
     // the session, the way it would outside Roster. Discussion is talk only, so
@@ -858,7 +856,7 @@ export class Orchestrator {
     }
     // taken before the backend decides: two writers must not both be let through
     if (call.effect !== "read" && !(await this.#acquire(live))) {
-      return { action: "deny", reason: "已停止。", terminate: true };
+      return { action: "deny", reason: t("deny.halted"), terminate: true };
     }
     this.#setPresence(live, "tool", call.name);
     return deferring ? { action: "defer" } : { action: "allow" };
@@ -866,7 +864,7 @@ export class Orchestrator {
 
   /** The session's own mode wants a human for a call the gate deferred; the gate already holds the lease. */
   async #backendAsks(live: Live, call: ToolCall): Promise<ToolDecision> {
-    if (live.gone || live.aborted) return { action: "deny", reason: "已停止。", terminate: true };
+    if (live.gone || live.aborted) return { action: "deny", reason: t("deny.halted"), terminate: true };
     const decision = await this.#askHuman(live, call);
     this.#event(live, { type: "permission.decision", display: "card", id: call.id, decision });
     if (decision.action === "deny") this.#setPresence(live, "thinking");
@@ -979,7 +977,7 @@ export class Orchestrator {
   /** Stops a member for good: its turn, its prompts, its backend session. */
   async #retire(live: Live): Promise<void> {
     live.queued.clear();
-    this.#denyPending((p) => p.memberId === live.memberId, "成员已被移出群聊。");
+    this.#denyPending((p) => p.memberId === live.memberId, t("deny.removed"));
     if (live.running) this.#finish(live, "aborted");
     live.gone = true;
     this.#lives.delete(live.memberId);
@@ -1045,7 +1043,7 @@ export class Orchestrator {
 
   #nameOf(memberId: string): string {
     const m = this.store.getMember(memberId);
-    return m ? this.#name(m) : "成员";
+    return m ? this.#name(m) : t("member.someone");
   }
 
   #named(members: MemberRow[]) {
@@ -1075,8 +1073,11 @@ export class Orchestrator {
     this.#append(live.conversationId, live.memberId, live.turnId, e);
   }
 
-  #notice(conversationId: string, text: string): void {
-    this.#append(conversationId, null, null, { type: "system.notice", display: "message", text });
+  /** Written as its key, so a transcript reads in whatever language it is opened in, and to whichever bot catches up on it. */
+  #notice<K extends Extract<Key, `notice.${string}`>>(conversationId: string, key: K, ...params: ParamsFor<K>): void {
+    const [values] = params;
+    const notice = values ? { key, params: values as Record<string, ParamValue> } : { key };
+    this.#append(conversationId, null, null, { type: "system.notice", display: "message", text: t(key, ...params), notice });
   }
 
   #append(conversationId: string, memberId: string | null, turnId: string | null, e: CoreEvent): void {

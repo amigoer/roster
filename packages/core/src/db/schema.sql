@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS harness_settings (
   updated_at INTEGER NOT NULL
 );
 
+-- What a person set for Roster as a whole, such as its language. Core writes text in it, so it lives here rather than in the UI.
+CREATE TABLE IF NOT EXISTS preferences (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- A model endpoint and how to authenticate to it. An executor names one when it does not run on the agent's own sign-in.
 CREATE TABLE IF NOT EXISTS providers (
   id           TEXT PRIMARY KEY,

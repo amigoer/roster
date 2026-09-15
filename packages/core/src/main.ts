@@ -10,6 +10,7 @@ import { openDb } from "./db/index.js";
 import { Detector } from "./detect.js";
 import { ExecutorSettings } from "./executors.js";
 import { Extensions, type ExtensionRoot } from "./extensions.js";
+import { isPreference, locale, resolveLocale, setLocale, t, type LocalePreference } from "./i18n/index.js";
 import { Installer } from "./installer.js";
 import { LOGO_IDS } from "./logos.js";
 import { Orchestrator } from "./orchestrator.js";
@@ -66,6 +67,17 @@ const vault = await readVault();
 const dataDir = process.env["ROSTER_DATA_DIR"] ?? join(homedir(), ".roster");
 mkdirSync(dataDir, { recursive: true });
 
+const db = openDb(join(dataDir, "roster.db"));
+const store = new Store(db);
+store.recoverAfterRestart();
+
+const localePreference = (): LocalePreference => {
+  const saved = store.preference("locale");
+  return isPreference(saved) ? saved : "system";
+};
+// before anything is written for a person to read: loading extensions below already reports in it
+setLocale(resolveLocale(localePreference()));
+
 const uiDir = process.env["ROSTER_UI_DIR"]
   ? resolve(process.env["ROSTER_UI_DIR"])
   : resolve(here, "../../ui/dist");
@@ -102,9 +114,6 @@ const about = aboutReader({
   paths: { data: dataDir, agents: join(dataDir, "agents"), attachments: join(dataDir, "attachments"), extensions: extensionsDir },
 });
 
-const db = openDb(join(dataDir, "roster.db"));
-const store = new Store(db);
-store.recoverAfterRestart();
 const secrets = new Secrets(db, vault);
 const sealed = secrets.sealPlain();
 if (sealed > 0) console.log(`[roster] sealed ${sealed} keys that were stored before there was a key to seal them with`);
@@ -122,11 +131,11 @@ setShellEnv(await detector.shellEnv());
 
 // scripted replies instead of models: for working on the UI without credentials, spend, or extensions
 if (scripted && store.listExecutors().length === 0) {
-  const executor = store.createExecutor({ name: "脚本回复", type: "scripted", source_kind: "own", provider_id: null, model: null });
+  const executor = store.createExecutor({ name: t("scripted.name"), type: "scripted", source_kind: "own", provider_id: null, model: null });
   if (!store.hasAnyBot()) {
     store.createBot({
       name: "Pi",
-      title: "通用编码助手",
+      title: t("scripted.botTitle"),
       avatar: "sheep",
       system_prompt: null,
       executor_id: executor.id,
@@ -153,6 +162,7 @@ const build = () =>
         label: row.name,
         source: sourceOf(row, store, secrets),
         program: programOf(type.type),
+        locale: locale(),
       }));
 
 let registry = build();
@@ -175,6 +185,23 @@ const settings = new ExecutorSettings(
 );
 const pushExecutors = () =>
   broadcast({ kind: "executors", executors: orchestrator.executors(), capabilities: orchestrator.capabilities() });
+
+const preferences = () => ({ locale: { preference: localePreference(), resolved: locale() } });
+
+/**
+ * Text already handed out stays as it was written: extension errors, agents'
+ * reports, everything adapters produce. Reloading writes it again in the new
+ * language; a session already running keeps its adapter until it next starts.
+ */
+async function switchLocale(preference: LocalePreference): Promise<void> {
+  store.setPreference("locale", preference);
+  setLocale(resolveLocale(preference));
+  if (!scripted) await extensions.load();
+  changed();
+  broadcast({ kind: "preferences", ...preferences() });
+  pushExecutors();
+  broadcast({ kind: "extensions" });
+}
 
 // before anyone connects: older data can hold an agent on a sign-in its harness does not have
 const merged = settings.mergeStrayOwn();
@@ -215,6 +242,8 @@ const handle = await startServer({
   },
   uiDir,
   about,
+  preferences,
+  setLocale: switchLocale,
   port: Number(process.env["ROSTER_PORT"] ?? 7788),
   broadcast,
   subscribe(fn) {
@@ -223,8 +252,8 @@ const handle = await startServer({
   },
 });
 
-// the handshake Electron reads off stdout
-console.log(JSON.stringify({ roster: "ready", port: handle.port, url: `http://127.0.0.1:${handle.port}/` }));
+// the handshake Electron reads off stdout; its menus and notifications speak the same language
+console.log(JSON.stringify({ roster: "ready", port: handle.port, url: `http://127.0.0.1:${handle.port}/`, locale: locale() }));
 
 /** Past what a backend takes to close a session that will not end on its own. */
 const SHUTDOWN_GRACE_MS = 5_000;

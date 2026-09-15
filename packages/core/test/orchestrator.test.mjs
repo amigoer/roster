@@ -20,15 +20,30 @@ import { Rejection } from "../dist/errors.js";
 import { checkEndpoint, ExecutorSettings } from "../dist/executors.js";
 import { Extensions } from "../dist/extensions.js";
 import { Harnesses } from "../dist/harnesses.js";
+import { locale, matchLocale, setLocale, systemLocale } from "../dist/i18n/index.js";
 import { Installer } from "../dist/installer.js";
-import { LOGO_IDS, LOGOS, LOGOS_DIR } from "../dist/logos.js";
+import { LOGO_IDS, LOGOS_DIR, logos } from "../dist/logos.js";
 import { findMentions } from "../dist/mentions.js";
 import { Orchestrator } from "../dist/orchestrator.js";
 import { Registry } from "../dist/registry.js";
 import { scriptedFactory } from "../dist/scripted.js";
 import { NO_VAULT, Secrets } from "../dist/secrets.js";
 import { sourceOf, Sources } from "../dist/sources.js";
-import { Store } from "../dist/store.js";
+import { Store, UNTITLED } from "../dist/store.js";
+
+// the fixtures and expectations are written in Chinese; the languages suite switches and switches back
+setLocale("zh-CN");
+
+/** Runs fn with core in another language, and puts the language back whatever happens. */
+async function inLocale(next, fn) {
+  const before = locale();
+  setLocale(next);
+  try {
+    return await fn();
+  } finally {
+    setLocale(before);
+  }
+}
 
 const dirs = [];
 after(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -613,7 +628,7 @@ describe("session status", () => {
 
 describe("logos", () => {
   test("every catalog entry ships an image", () => {
-    assert.equal(new Set(LOGO_IDS).size, LOGOS.length, "logo ids must be unique");
+    assert.equal(new Set(LOGO_IDS).size, logos().length, "logo ids must be unique");
     for (const id of LOGO_IDS) {
       const file = join(LOGOS_DIR, `${id}.webp`);
       assert.ok(existsSync(file) && statSync(file).size > 0, `missing ${file}`);
@@ -1313,6 +1328,137 @@ describe("extensions", () => {
     } finally {
       delete process.env.FAKE_ACP_LOGGED_OUT;
     }
+  });
+});
+
+describe("languages", () => {
+  test("a group turn, its roster and its instruction are written in the current language", async () => {
+    const out = await inLocale("en", () =>
+      composeDelivery({
+        shape: "group",
+        title: "t",
+        mode: "leader",
+        selfId: "a",
+        leaderId: "a",
+        members: [{ id: "a", name: "Alice", title: "Frontend" }, { id: "b", name: "Bob", title: null }],
+        names: new Map([["a", "Alice"], ["b", "Bob"]]),
+        items: [{ seq: 1, memberId: null, kind: "human", text: "@Alice build the login page", at: 0 }, { seq: 2, memberId: "b", kind: "bot", text: "on it", at: 0 }],
+        asks: new Set(["lead"]),
+      }).text,
+    );
+    assert.match(out, /mode="leader-led"/);
+    assert.match(out, /- Alice \(you, leader\): Frontend/);
+    assert.match(out, /- User: /);
+    assert.match(out, /<message from="User"/);
+    assert.match(out, /<message from="Bob"/);
+    assert.match(out, /You are the leader of this group\./);
+  });
+
+  test("a notice reads in the language it is opened in, and a bot catching up reads it that way too", async () => {
+    const h = harness();
+    const conv = h.group([h.bot("甲")]);
+    const b = h.bot("乙");
+    h.orch.addMember(conv.id, b.id);
+    // one written before notices had keys stays as it was written
+    h.store.append(conv.id, null, null, { type: "system.notice", display: "message", text: "旧的通知" });
+    assert.deepEqual(h.said(conv.id), ["* 乙 加入了群聊", "* 旧的通知"]);
+
+    await inLocale("en", async () => {
+      assert.deepEqual(h.said(conv.id), ["* 乙 joined the group", "* 旧的通知"]);
+      await h.orch.send(conv.id, "@乙 hello");
+      await settle(h.store, conv.id);
+      const caughtUp = h.sent.find((s) => s.preset === "preset:乙").text;
+      assert.match(caughtUp, /<notice time="[^"]+">乙 joined the group<\/notice>/);
+      assert.match(caughtUp, /The user mentioned you in the group/);
+    });
+  });
+
+  test("the scripted leader loop reads and answers English prompts", async () => {
+    await inLocale("en", async () => {
+      const h = harness();
+      const lead = h.bot("Lead");
+      const conv = h.group([lead, h.bot("Alice"), h.bot("Bob")], { mode: "leader", leaderBotId: lead.id });
+      await h.orch.send(conv.id, "build a login page");
+      await settle(h.store, conv.id);
+      const lines = h.said(conv.id);
+      assert.deepEqual(lines.slice(1).map((l) => l.split(":")[0]).sort(), ["Alice", "Bob", "Lead", "Lead"]);
+      assert.match(lines.at(-1), /^Lead: Summary: /);
+    });
+  });
+
+  test("a default title in either language gives way to the first message", () => {
+    for (const title of ["Chat with Pi", "与 Pi 的会话", "New group", "新群聊", "New conversation"]) assert.match(title, UNTITLED);
+    for (const title of ["Chat with", "登录页", "New groups"]) assert.doesNotMatch(title, UNTITLED);
+  });
+
+  test("a default title is listed in the current language, and a typed one as typed", async () => {
+    const h = harness();
+    const pi = h.bot("Pi");
+    const direct = h.group([pi], { title: "与 Pi 的会话" });
+    const group = h.group([pi, h.bot("Bob")]);
+    const typed = h.group([pi], { title: "登录页" });
+    const titles = () => Object.fromEntries(h.store.listConversations().map((c) => [c.id, c.title]));
+    await inLocale("en", () =>
+      assert.deepEqual([direct, group, typed].map((c) => titles()[c.id]), ["Chat with Pi", "New group", "登录页"]),
+    );
+    assert.deepEqual([direct, group].map((c) => titles()[c.id]), ["与 Pi 的会话", "新群聊"]);
+    // the first message still sees the stored default and replaces it
+    await inLocale("en", () => h.orch.send(direct.id, "fix the login page"));
+    await settle(h.store, direct.id);
+    assert.equal(titles()[direct.id], "fix the login page");
+  });
+
+  test("an agent named in one language still follows a new source after a switch, and new names use the new one", async () => {
+    const h = settingsHarness();
+    const official = await h.settings.createProvider({ name: "官方", preset: "anthropic", key: "sk-aaaaaaaaaaaaaaaa" });
+    const agent = await h.settings.createExecutor({ type: "alpha", source_kind: "own" });
+    assert.equal(agent.name, "alpha · 订阅");
+    await inLocale("en", async () => {
+      const moved = await h.settings.updateExecutor(agent.id, { name: agent.name, source_kind: "endpoint", provider_id: official.id });
+      assert.equal(moved.name, "alpha · 官方");
+      assert.equal((await h.settings.updateExecutor(agent.id, { name: moved.name, source_kind: "own" })).name, "alpha · Subscription");
+      await assert.rejects(h.settings.createExecutor({ type: "beta", source_kind: "own" }), /has no sign-in of its own/);
+    });
+  });
+
+  test("the system language is the shell's list first, and Traditional Chinese is not shown in Simplified", () => {
+    assert.equal(matchLocale(["zh-Hant-TW", "en-US"]), "en");
+    assert.equal(matchLocale(["zh_CN.UTF-8"]), "zh-CN");
+    assert.equal(matchLocale(["zh-Hans-CN", "en-CN"]), "zh-CN");
+    assert.equal(matchLocale(["ja-JP"]), null);
+    const saved = process.env.ROSTER_SYSTEM_LOCALES;
+    try {
+      process.env.ROSTER_SYSTEM_LOCALES = "zh-Hans-CN,en-CN";
+      assert.equal(systemLocale(), "zh-CN");
+      process.env.ROSTER_SYSTEM_LOCALES = "fr-FR,en-GB";
+      assert.equal(systemLocale(), "en");
+    } finally {
+      if (saved === undefined) delete process.env.ROSTER_SYSTEM_LOCALES;
+      else process.env.ROSTER_SYSTEM_LOCALES = saved;
+    }
+  });
+
+  test("an adapter writes in the language it is handed, and logos are named in the current one", async () => {
+    const endpoint = { id: "p1", name: "DS", preset: "deepseek", apiKey: "sk-test", models: ["deepseek-flash"] };
+    const check = (tag) => piHarness.create({ id: "e1", label: "pi", source: { kind: "endpoint", endpoint }, locale: tag }).check();
+    assert.equal((await check("en")).detail, "1 model to pick from");
+    assert.equal((await check("zh-CN")).detail, "1 个模型可选");
+    assert.throws(() => piHarness.create({ id: "e2", label: "pi", source: { kind: "own" }, locale: "en" }), /no sign-in of its own/);
+    assert.equal(logos()[0].name, "狐狸");
+    await inLocale("en", () => assert.equal(logos()[0].name, "Fox"));
+  });
+
+  test("a preference is kept across a reopen", () => {
+    const dir = mkdtempSync(join(tmpdir(), "roster-pref-"));
+    dirs.push(dir);
+    const file = join(dir, "roster.db");
+    const db = openDb(file);
+    const store = new Store(db);
+    assert.equal(store.preference("locale"), null);
+    store.setPreference("locale", "en");
+    store.setPreference("locale", "zh-CN");
+    db.close();
+    assert.equal(new Store(openDb(file)).preference("locale"), "zh-CN");
   });
 });
 

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { ProgramManifest } from "@roster/adapter-api";
+import { t } from "./i18n/index.js";
 
 export interface InstallJob {
   /** what is being installed: an agent program by its catalog id, or an adapter by its id */
@@ -125,7 +126,7 @@ export class Installer {
   /** Re-resolves an adapter at its latest version, in place. */
   update(id: string): Promise<InstallJob> {
     const dir = this.dirOf(id);
-    if (!existsSync(join(dir, "package.json"))) throw new Error(`「${id}」没有装过`);
+    if (!existsSync(join(dir, "package.json"))) throw new Error(t("error.install.notInstalled", { id }));
     const job: InstallJob = { id, state: "running", log: [], startedAt: Date.now() };
     this.#jobs.set(id, job);
     this.changed();
@@ -138,7 +139,7 @@ export class Installer {
 
   #install(id: string, dir: string, pkg: string, opts: InstallOptions, kind: "program" | "extension"): Promise<InstallJob> {
     const running = this.#jobs.get(id);
-    if (running?.state === "running") throw new Error(`「${id}」正在安装`);
+    if (running?.state === "running") throw new Error(t("error.install.running", { id }));
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "package.json"),
@@ -161,7 +162,7 @@ export class Installer {
   }
 
   #remove(id: string, dir: string): void {
-    if (this.#jobs.get(id)?.state === "running") throw new Error(`「${id}」正在安装，等它结束`);
+    if (this.#jobs.get(id)?.state === "running") throw new Error(t("error.install.runningWait", { id }));
     rmSync(dir, { recursive: true, force: true });
     this.#jobs.delete(id);
     this.changed();
@@ -197,7 +198,7 @@ export class Installer {
       child.on("exit", (code) => {
         job.state = code === 0 ? "done" : "failed";
         job.endedAt = Date.now();
-        if (code !== 0 && job.log.length === 0) job.log.push(`npm 退出码 ${code ?? "signal"}`);
+        if (code !== 0 && job.log.length === 0) job.log.push(t("install.npmExit", { code: code ?? "signal" }));
         this.changed();
         resolve(job);
       });

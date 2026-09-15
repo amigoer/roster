@@ -1,8 +1,9 @@
 import type { HarnessType, LoginState, ModelOption, ProviderConfig, ProviderPreset, SourceKind } from "@roster/adapter-api";
 import { Rejection } from "./errors.js";
+import { everyLocale, list, t } from "./i18n/index.js";
 import type { Registry } from "./registry.js";
 import type { Secrets } from "./secrets.js";
-import { CUSTOM_PRESET, envVar, fits, OWN_SOURCE_LABEL, providerConfigOf, Sources } from "./sources.js";
+import { CUSTOM_PRESET, envVar, fits, providerConfigOf, Sources } from "./sources.js";
 import type { ExecutorInput, ExecutorRow, ProviderInput, ProviderRow, Store } from "./store.js";
 
 const PRESETS_REUSE_MS = 10 * 60_000;
@@ -78,39 +79,41 @@ function parseModelIds(body: unknown): string[] | null {
  * and it is free, so testing a setup never spends anything.
  */
 export async function checkEndpoint(p: ProviderConfig, preset?: ProviderPreset): Promise<EndpointCheck> {
-  if (!p.apiKey) return { ok: false, detail: "还没有可用的密钥" };
+  if (!p.apiKey) return { ok: false, detail: t("check.endpoint.noKey") };
   const req = endpointRequest(p, preset);
   if (!req) {
     return (p.baseUrl ?? preset?.baseUrl)
-      ? { ok: true, detail: "密钥已配置；这种协议没法不花钱地提前验证" }
-      : { ok: true, detail: "密钥已配置，没有地址可以探测" };
+      ? { ok: true, detail: t("check.endpoint.unverifiable") }
+      : { ok: true, detail: t("check.endpoint.noAddress") };
   }
   try {
     const res = await fetch(req.url, { headers: { ...p.headers, ...req.headers }, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
-    if (res.status === 401 || res.status === 403) return { ok: false, detail: `密钥被拒绝（${res.status}）` };
-    if (res.status === 404) return { ok: true, detail: "地址连得上，但它不提供模型列表，密钥要到第一次对话才知道对不对" };
-    if (!res.ok) return { ok: false, detail: `API 返回 ${res.status}` };
+    if (res.status === 401 || res.status === 403) return { ok: false, detail: t("check.endpoint.rejected", { status: res.status }) };
+    if (res.status === 404) return { ok: true, detail: t("check.endpoint.noList") };
+    if (!res.ok) return { ok: false, detail: t("check.endpoint.status", { status: res.status }) };
     const models = parseModelIds(await res.json().catch(() => null));
-    return models ? { ok: true, detail: `连上了，API 列出 ${models.length} 个模型`, models } : { ok: true, detail: "连上了" };
+    return models
+      ? { ok: true, detail: t("check.endpoint.listed", { count: models.length }), models }
+      : { ok: true, detail: t("check.endpoint.connected") };
   } catch (err) {
-    return { ok: false, detail: `连不上：${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, detail: t("check.endpoint.unreachable", { message: err instanceof Error ? err.message : String(err) }) };
   }
 }
 
 /** Same probe as checkEndpoint, but for actually populating the model list rather than just counting it. */
 export async function fetchModels(p: ProviderConfig, preset?: ProviderPreset): Promise<{ ok: boolean; models?: string[]; detail: string }> {
-  if (!p.apiKey) return { ok: false, detail: "还没有可用的密钥" };
+  if (!p.apiKey) return { ok: false, detail: t("check.endpoint.noKey") };
   const req = endpointRequest(p, preset);
-  if (!req) return { ok: false, detail: "这种协议不提供模型列表，手动填一下" };
+  if (!req) return { ok: false, detail: t("probe.noList") };
   try {
     const res = await fetch(req.url, { headers: { ...p.headers, ...req.headers }, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
-    if (res.status === 401 || res.status === 403) return { ok: false, detail: `密钥被拒绝（${res.status}）` };
-    if (!res.ok) return { ok: false, detail: `API 返回 ${res.status}` };
+    if (res.status === 401 || res.status === 403) return { ok: false, detail: t("check.endpoint.rejected", { status: res.status }) };
+    if (!res.ok) return { ok: false, detail: t("check.endpoint.status", { status: res.status }) };
     const models = parseModelIds(await res.json().catch(() => null));
-    if (!models || models.length === 0) return { ok: false, detail: "API 没有返回模型列表" };
-    return { ok: true, models, detail: `拉到 ${models.length} 个模型` };
+    if (!models || models.length === 0) return { ok: false, detail: t("probe.empty") };
+    return { ok: true, models, detail: t("probe.fetched", { count: models.length }) };
   } catch (err) {
-    return { ok: false, detail: `连不上：${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, detail: t("check.endpoint.unreachable", { message: err instanceof Error ? err.message : String(err) }) };
   }
 }
 
@@ -182,7 +185,7 @@ export class ExecutorSettings {
       executors: this.store.listExecutors().map((e) => ({
         ...e,
         // one that cannot run stays listed with the reason, so it can be seen, fixed or deleted
-        problem: registry.entry(e.id) ? null : (registry.problem(e.id) ?? "现在建不出来"),
+        problem: registry.entry(e.id) ? null : (registry.problem(e.id) ?? t("error.agent.unbuildable")),
       })),
       providers: this.store.listProviders().map((p) => this.#providerView(p)),
       /** program paths a person picked, by type */
@@ -212,12 +215,12 @@ export class ExecutorSettings {
     const current = this.#liveExecutor(id);
     const bots = this.store.liveBotsOn(id);
     if (bots.length > 0) {
-      throw new Rejection(`还有 bot 在用「${current.name}」：${bots.map((b) => b.name).join("、")}。先给它们换一个 agent`, 409);
+      throw new Rejection(t("error.executor.inUseByBots", { name: current.name, bots: list(bots.map((b) => b.name)) }), 409);
     }
     const members = this.store.membersOn(id);
     if (members.length > 0) {
-      const conversations = new Set(members.map((m) => m.conversation_id)).size;
-      throw new Rejection(`还有 ${conversations} 个会话里的成员在用「${current.name}」，先把它们移出会话`, 409);
+      const count = new Set(members.map((m) => m.conversation_id)).size;
+      throw new Rejection(t("error.executor.inUseByMembers", { count, name: current.name }), 409);
     }
     this.store.archiveExecutor(id);
     this.changed();
@@ -250,19 +253,23 @@ export class ExecutorSettings {
   async check(id: string): Promise<{ ok: boolean; items: CheckItem[] }> {
     const row = this.#liveExecutor(id);
     const entry = this.registry().entry(id);
-    if (!entry) return { ok: false, items: [{ label: row.name, ok: false, detail: this.registry().problem(id) ?? "现在建不出来" }] };
+    if (!entry) {
+      return { ok: false, items: [{ label: row.name, ok: false, detail: this.registry().problem(id) ?? t("error.agent.unbuildable") }] };
+    }
     const items: CheckItem[] = [];
     if (row.source_kind === "own") {
       const login = await this.login(row.type, true);
       items.push({
-        label: OWN_SOURCE_LABEL,
+        label: t("source.own"),
         ok: login.state === "ok",
         detail:
           login.state === "ok"
-            ? `已登录${login.account ? `（${login.account}）` : ""}`
+            ? login.account
+              ? t("check.login.okAs", { account: login.account })
+              : t("check.login.ok")
             : login.state === "none"
-              ? "没有登录"
-              : (login.detail ?? "没问到登录状态"),
+              ? t("check.login.none")
+              : (login.detail ?? t("check.login.unknown")),
       });
     } else {
       const provider = row.provider_id ? this.store.getProvider(row.provider_id) : undefined;
@@ -287,7 +294,7 @@ export class ExecutorSettings {
       // a harness whose program is nowhere would only offer an agent that cannot start
       if (!this.ready(type.type)) continue;
       if (type.sources.own && !live.some((e) => e.type === type.type && e.source_kind === "own")) {
-        out.push({ type: type.type, source_kind: "own", provider_id: null, name: this.#nameFor(type, OWN_SOURCE_LABEL) });
+        out.push({ type: type.type, source_kind: "own", provider_id: null, name: this.#nameFor(type, t("source.own")) });
       }
       if (type.sources.apis.length === 0) continue;
       const presets = await this.presets(type).catch(() => []);
@@ -314,8 +321,8 @@ export class ExecutorSettings {
   /** Whether the agent's own sign-in is there on this machine. Spawns the agent, so the answer is reused for a while. */
   login(typeId: string, fresh = false): Promise<LoginState> {
     const type = this.types().find((t) => t.type === typeId);
-    if (!type) return Promise.resolve({ state: "unknown", detail: "这个版本不认识它，装上对应的适配器", methods: [] });
-    if (!type.sources.own || !type.login) return Promise.resolve({ state: "none", detail: "它没有自带登录", methods: [] });
+    if (!type) return Promise.resolve({ state: "unknown", detail: t("login.unknownType"), methods: [] });
+    if (!type.sources.own || !type.login) return Promise.resolve({ state: "none", detail: t("login.noOwn"), methods: [] });
     const cached = this.#logins.get(typeId);
     if (!fresh && cached && Date.now() - cached.at < LOGIN_REUSE_MS) return cached.value;
     const value = type
@@ -327,7 +334,7 @@ export class ExecutorSettings {
 
   async authenticate(typeId: string, methodId: string): Promise<LoginState> {
     const type = this.#type(typeId);
-    if (!type.authenticate) throw new Rejection("它不能由 Roster 代为登录");
+    if (!type.authenticate) throw new Rejection(t("error.authenticate.unsupported"));
     await type.authenticate(methodId, this.programOf(typeId));
     // executors on its sign-in probed while signed out; rebuilding drops what they cached
     this.changed();
@@ -373,7 +380,7 @@ export class ExecutorSettings {
     const current = this.#liveProvider(id);
     const users = this.store.executorsOnProvider(id);
     if (users.length > 0) {
-      throw new Rejection(`还有 agent 接着「${current.name}」：${users.map((e) => e.name).join("、")}。先给它们换一个模型 API`, 409);
+      throw new Rejection(t("error.provider.inUse", { name: current.name, agents: list(users.map((e) => e.name)) }), 409);
     }
     this.store.archiveProvider(id);
     if (current.secret_ref) this.secrets.delete(current.secret_ref);
@@ -407,7 +414,7 @@ export class ExecutorSettings {
   async probeModels(body: Body): Promise<{ ok: boolean; models?: string[]; detail: string }> {
     const api = text(body["api"], 60);
     const baseUrl = text(body["base_url"], 500);
-    if (!api || !baseUrl) return { ok: false, detail: "先填地址和协议" };
+    if (!api || !baseUrl) return { ok: false, detail: t("probe.needAddress") };
     const providerId = text(body["provider_id"], 80);
     const headers: Record<string, string> = {};
     let apiKey = text(body["key"], 1000) ?? undefined;
@@ -418,7 +425,7 @@ export class ExecutorSettings {
         Object.assign(headers, current.headers);
       }
     }
-    if (!apiKey) return { ok: false, detail: "先填密钥" };
+    if (!apiKey) return { ok: false, detail: t("probe.needKey") };
     return fetchModels({ id: providerId ?? "probe", name: "", preset: CUSTOM_PRESET, api, baseUrl, apiKey, headers });
   }
 
@@ -433,27 +440,27 @@ export class ExecutorSettings {
 
   #endpoint(p: ProviderRow, presets: readonly ProviderPreset[]): Promise<EndpointCheck> {
     if (p.key_env && !envVar(p.key_env)) {
-      return Promise.resolve({ ok: false, detail: `环境变量 ${p.key_env} 没有设置（登录 shell 里也没有）` });
+      return Promise.resolve({ ok: false, detail: t("check.endpoint.envMissing", { name: p.key_env }) });
     }
     if (p.secret_ref && this.secrets.get(p.secret_ref) === undefined) {
-      return Promise.resolve({ ok: false, detail: "保存的密钥解不开了（换过机器或钥匙串），重新填一次" });
+      return Promise.resolve({ ok: false, detail: t("check.endpoint.sealed") });
     }
     return checkEndpoint(providerConfigOf(p, this.secrets), presets.find((x) => x.id === p.preset));
   }
 
   #liveExecutor(id: string): ExecutorRow {
     const row = this.store.getExecutor(id);
-    if (!row || row.archived_at) throw new Rejection("没有这个 agent", 404);
+    if (!row || row.archived_at) throw new Rejection(t("error.executor.notFound"), 404);
     return row;
   }
 
   #type(typeId: string): HarnessType {
     const type = this.types().find((t) => t.type === typeId);
-    if (!type) throw new Rejection("没有这个 harness，或者它的适配器没有装上", 404);
+    if (!type) throw new Rejection(t("error.harness.notFound"), 404);
     return type;
   }
 
-  /** "Claude Code · 订阅", numbered past any live executor that already has it. */
+  /** "Claude Code · Subscription", numbered past any live executor that already has it. */
   #nameFor(type: HarnessType, sourceLabel: string, exceptId?: string): string {
     const wanted = `${type.label} · ${sourceLabel}`;
     let name = wanted;
@@ -461,15 +468,17 @@ export class ExecutorSettings {
     return name;
   }
 
-  /** Whether a name is one #nameFor could have given this pairing. */
-  #isNameFor(name: string, type: HarnessType, sourceLabel: string): boolean {
-    const wanted = `${type.label} · ${sourceLabel}`;
-    return name === wanted || (name.startsWith(`${wanted} `) && /^\d+$/.test(name.slice(wanted.length + 1)));
+  /** Whether a name is one #nameFor could have given this pairing, in whichever language it was given. */
+  #isNameFor(name: string, type: HarnessType, sourceLabels: readonly string[]): boolean {
+    return sourceLabels.some((label) => {
+      const wanted = `${type.label} · ${label}`;
+      return name === wanted || (name.startsWith(`${wanted} `) && /^\d+$/.test(name.slice(wanted.length + 1)));
+    });
   }
 
   #liveProvider(id: string): ProviderRow {
     const row = this.store.getProvider(id);
-    if (!row || row.archived_at) throw new Rejection("没有这个模型 API", 404);
+    if (!row || row.archived_at) throw new Rejection(t("error.provider.notFound"), 404);
     return row;
   }
 
@@ -480,44 +489,49 @@ export class ExecutorSettings {
    */
   async #executorInput(body: Body, current?: ExecutorRow): Promise<ExecutorInput> {
     const type = this.types().find((t) => t.type === (current?.type ?? String(body["type"] ?? "")));
-    if (!type) throw new Rejection(current ? "它的适配器没有装，先装上再改" : "没有这个 harness");
+    if (!type) throw new Rejection(current ? t("error.executor.adapterMissing") : t("error.executor.noHarness"));
 
     const kind = body["source_kind"] ?? current?.source_kind;
-    if (kind !== "own" && kind !== "endpoint") throw new Rejection("接入方式只能是订阅或模型 API");
+    if (kind !== "own" && kind !== "endpoint") throw new Rejection(t("error.executor.sourceKind"));
     const provider_id = kind === "endpoint" ? text(body["provider_id"] ?? current?.provider_id, 80) : null;
-    if (kind === "endpoint" && !provider_id) throw new Rejection("选一个模型 API");
+    if (kind === "endpoint" && !provider_id) throw new Rejection(t("error.executor.pickProvider"));
     const usable = await this.#sources.usable(type, kind, provider_id);
     if (!usable.ok) throw new Rejection(usable.reason);
     if (kind === "own") {
       const other = this.store.listExecutors().find((e) => e.type === type.type && e.source_kind === "own" && e.id !== current?.id);
-      if (other) throw new Rejection(`「${type.label}」的订阅已经有 agent 了：${other.name}。订阅只有一个账号，用它就行`);
+      if (other) throw new Rejection(t("error.executor.ownTaken", { label: type.label, name: other.name }));
     }
 
     const model = "model" in body ? text(body["model"], 120) : (current?.model ?? null);
-    const labelOf = (k: SourceKind, providerId: string | null) =>
-      k === "own" ? OWN_SOURCE_LABEL : ((providerId ? this.store.getProvider(providerId)?.name : undefined) ?? "模型 API");
+    const providerName = (providerId: string | null) => (providerId ? this.store.getProvider(providerId)?.name : undefined);
+    /** A model API goes by its own name; a source without one, by the word for it in any language. */
+    const labelsOf = (k: SourceKind, providerId: string | null): string[] => {
+      const named = k === "endpoint" ? providerName(providerId) : undefined;
+      return named ? [named] : everyLocale(k === "own" ? "source.own" : "source.endpoint");
+    };
     const given = text(body["name"] ?? current?.name, 40);
     // a name that only ever said the old pairing follows the new one
     const follows =
       current !== undefined &&
       given === current.name &&
       (kind !== current.source_kind || provider_id !== current.provider_id) &&
-      this.#isNameFor(current.name, type, labelOf(current.source_kind, current.provider_id));
-    const name = (follows ? null : given) ?? this.#nameFor(type, labelOf(kind, provider_id), current?.id);
-    if (this.store.executorNameTaken(name, current?.id)) throw new Rejection(`「${name}」这个名字已经用过了`);
+      this.#isNameFor(current.name, type, labelsOf(current.source_kind, current.provider_id));
+    const label = kind === "own" ? t("source.own") : (providerName(provider_id) ?? t("source.endpoint"));
+    const name = (follows ? null : given) ?? this.#nameFor(type, label, current?.id);
+    if (this.store.executorNameTaken(name, current?.id)) throw new Rejection(t("error.executor.nameTaken", { name }));
     return { name, type: type.type, source_kind: kind, provider_id, model };
   }
 
   async #providerInput(body: Body, current?: ProviderRow): Promise<ProviderInput & { key: string | undefined }> {
     const name = text(body["name"] ?? current?.name, 40);
-    if (!name) throw new Rejection("模型 API 要有个名字");
-    if (this.store.providerNameTaken(name, current?.id)) throw new Rejection(`已经有叫「${name}」的模型 API 了`);
+    if (!name) throw new Rejection(t("error.provider.nameRequired"));
+    if (this.store.providerNameTaken(name, current?.id)) throw new Rejection(t("error.provider.nameTaken", { name }));
 
     const preset = text(body["preset"] ?? current?.preset, 80);
-    if (!preset) throw new Rejection("选一个预设，或者选自定义");
+    if (!preset) throw new Rejection(t("error.provider.presetRequired"));
     const custom = preset === CUSTOM_PRESET;
     if (!custom && !(await this.#allPresets()).some((p) => p.id === preset)) {
-      throw new Rejection(`没有「${preset}」这个预设`);
+      throw new Rejection(t("error.provider.unknownPreset", { preset }));
     }
 
     const pick = (key: string) => (key in body ? body[key] : current?.[key as keyof ProviderRow]);
@@ -528,16 +542,16 @@ export class ExecutorSettings {
     if (custom) {
       api = text(pick("api"), 60);
       const apis = new Set(this.types().flatMap((t) => t.sources.apis));
-      if (!api || !apis.has(api)) throw new Rejection("自定义 API 要选一种协议");
+      if (!api || !apis.has(api)) throw new Rejection(t("error.provider.protocolRequired"));
       base_url = text(pick("base_url"), 500);
-      if (!base_url || !/^https?:\/\/[^\s]+$/.test(base_url)) throw new Rejection("地址要以 http:// 或 https:// 开头");
+      if (!base_url || !/^https?:\/\/[^\s]+$/.test(base_url)) throw new Rejection(t("error.provider.badUrl"));
       const rawModels = pick("models");
       models = (Array.isArray(rawModels) ? rawModels : String(rawModels ?? "").split(/[\n,]/))
         .map((m) => String(m).trim())
         .filter(Boolean)
         .slice(0, 100);
-      if (models.length === 0) throw new Rejection("自定义 API 至少要写一个模型 id");
-      if (models.some((m) => m.length > 200)) throw new Rejection("模型 id 太长了");
+      if (models.length === 0) throw new Rejection(t("error.provider.modelsRequired"));
+      if (models.some((m) => m.length > 200)) throw new Rejection(t("error.provider.modelTooLong"));
     }
 
     const rawHeaders = (pick("headers") ?? {}) as Body;
@@ -545,12 +559,12 @@ export class ExecutorSettings {
     for (const [k, v] of Object.entries(rawHeaders).slice(0, 20)) {
       const value = text(v, 2000);
       if (!value) continue;
-      if (!HEADER_NAME.test(k)) throw new Rejection(`请求头名字不合法：${k}`);
+      if (!HEADER_NAME.test(k)) throw new Rejection(t("error.provider.badHeader", { name: k }));
       headers[k] = value;
     }
 
     const key_env = text(pick("key_env"), 120);
-    if (key_env && !ENV_NAME.test(key_env)) throw new Rejection("环境变量名只能是字母、数字和下划线");
+    if (key_env && !ENV_NAME.test(key_env)) throw new Rejection(t("error.provider.badEnvName"));
     const key = "key" in body ? String(body["key"] ?? "").trim().slice(0, 1000) : undefined;
 
     return { name, preset, api, base_url, models, headers, key_env, key };

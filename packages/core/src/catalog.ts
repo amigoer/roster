@@ -1,4 +1,5 @@
 import type { ProgramManifest } from "@roster/adapter-api";
+import { t } from "./i18n/index.js";
 
 /**
  * The harnesses Roster knows how to drive. The adapter for each ships with Roster;
@@ -20,11 +21,14 @@ export interface CatalogEntry {
   extension?: { npm: string; version?: string; overrides?: Record<string, string> };
 }
 
+/** Descriptions are getters, so each read is in the language Roster is in by then. */
 export const CATALOG: readonly CatalogEntry[] = [
   {
     id: "claude-code",
     label: "Claude Code",
-    description: "Anthropic 的编码 agent。用 Claude 订阅登录（走 ACP），或接 Anthropic 兼容的 API（走 Agent SDK）。",
+    get description() {
+      return t("catalog.claude-code");
+    },
     brand: "claude",
     program: {
       // the same binary the Agent SDK ships as its platform package, pinned to the SDK the adapter uses
@@ -39,20 +43,26 @@ export const CATALOG: readonly CatalogEntry[] = [
   {
     id: "pi-agent",
     label: "pi-agent",
-    description: "库形态的编码 agent，随 Roster 内置，跑在你配置的任意模型 API 上；没有自带登录。",
+    get description() {
+      return t("catalog.pi-agent");
+    },
     brand: "pi",
   },
   {
     id: "codex",
     label: "Codex",
-    description: "OpenAI 的编码 agent，走 ACP。用 ChatGPT 账号登录，或接 OpenAI 兼容的 API。",
+    get description() {
+      return t("catalog.codex");
+    },
     brand: "openai",
     program: { npm: "@zed-industries/codex-acp", version: "0.16.0", bin: "codex-acp", versionArgs: ["--version"] },
   },
   {
     id: "gemini-cli",
     label: "Gemini CLI",
-    description: "Google 的编码 agent，走 ACP。用 Google 账号登录，或接 Gemini API 密钥。",
+    get description() {
+      return t("catalog.gemini-cli");
+    },
     brand: "google",
     program: { npm: "@google/gemini-cli", version: "0.59.0", bin: "gemini", versionArgs: ["--version"] },
   },

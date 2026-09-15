@@ -1,12 +1,10 @@
 import type { HarnessType, ModelOption, ModelSource, ProviderConfig, ProviderPreset, SourceKind } from "@roster/adapter-api";
+import { t } from "./i18n/index.js";
 import type { Registry } from "./registry.js";
 import type { Secrets } from "./secrets.js";
 import type { ExecutorRow, ProviderRow, Store } from "./store.js";
 
 export const CUSTOM_PRESET = "custom";
-
-/** What a person calls the agent's own sign-in as a model source. */
-export const OWN_SOURCE_LABEL = "订阅";
 
 /**
  * Variables read once from the login shell. An app opened from the dock never
@@ -48,7 +46,7 @@ export function fits(type: HarnessType, provider: Pick<ProviderRow, "preset" | "
 export function sourceOf(row: Pick<ExecutorRow, "source_kind" | "provider_id">, store: Store, secrets: Secrets): ModelSource {
   if (row.source_kind === "own") return { kind: "own" };
   const provider = row.provider_id ? store.getProvider(row.provider_id) : undefined;
-  if (!provider || provider.archived_at) throw new Error("它接的模型 API 已经删除了，换一个模型 API");
+  if (!provider || provider.archived_at) throw new Error(t("error.source.deleted"));
   return { kind: "endpoint", endpoint: providerConfigOf(provider, secrets) };
 }
 
@@ -67,12 +65,14 @@ export class Sources {
   /** Whether a type can run on this source: its own sign-in when it has one, or a model API that speaks its protocol. */
   async usable(type: HarnessType, kind: SourceKind, providerId: string | null): Promise<{ ok: true } | { ok: false; reason: string }> {
     if (kind === "own") {
-      return type.sources.own ? { ok: true } : { ok: false, reason: `「${type.label}」没有自带登录，要接一个模型 API` };
+      return type.sources.own ? { ok: true } : { ok: false, reason: t("error.source.noOwn", { label: type.label }) };
     }
     const row = providerId ? this.store.getProvider(providerId) : undefined;
-    if (!row || row.archived_at) return { ok: false, reason: "要接的模型 API 不存在" };
+    if (!row || row.archived_at) return { ok: false, reason: t("error.source.missing") };
     const presets = await this.presetsOf(type).catch(() => []);
-    return fits(type, row, presets) ? { ok: true } : { ok: false, reason: `「${row.name}」接不到「${type.label}」上：协议对不上` };
+    return fits(type, row, presets)
+      ? { ok: true }
+      : { ok: false, reason: t("error.source.mismatch", { endpoint: row.name, label: type.label }) };
   }
 
   /** The models a model API serves, whichever type drives it: the ids it listed, and nothing a harness knows about them. */

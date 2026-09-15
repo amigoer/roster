@@ -5,6 +5,7 @@ import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Attachment } from "@roster/adapter-api";
 import { Rejection } from "./errors.js";
+import { list, t } from "./i18n/index.js";
 
 /** What a message keeps of a file: enough to show it and to find it again. */
 export interface AttachmentRef {
@@ -89,7 +90,7 @@ export class AttachmentStore {
     const limit = new Transform({
       transform(chunk: Buffer, _enc, done) {
         size += chunk.length;
-        if (size > MAX_BYTES) done(new Rejection(`文件太大了，单个最多 ${MAX_BYTES / 1024 / 1024} MB`, 413));
+        if (size > MAX_BYTES) done(new Rejection(t("error.attachment.tooLarge", { size: MAX_BYTES / 1024 / 1024 }), 413));
         else done(null, chunk);
       },
     });
@@ -148,7 +149,10 @@ export class AttachmentStore {
 export function attachmentsPreview(refs: readonly AttachmentRef[]): string {
   const images = refs.filter((r) => r.mime.startsWith("image/")).length;
   const files = refs.filter((r) => !r.mime.startsWith("image/")).map((r) => r.name);
-  return [images ? `[图片${images > 1 ? ` ×${images}` : ""}]` : "", files.length ? `[文件] ${files.join("、")}` : ""]
+  return [
+    images > 1 ? t("preview.images", { count: images }) : images ? t("preview.image") : "",
+    files.length ? t("preview.files", { count: files.length, names: list(files) }) : "",
+  ]
     .filter(Boolean)
     .join(" ");
 }

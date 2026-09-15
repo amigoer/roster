@@ -47,6 +47,7 @@ import type {
   ToolEffect,
   Unsubscribe,
 } from "@roster/adapter-api";
+import { t } from "./i18n/index.js";
 
 /**
  * Any agent that speaks the Agent Client Protocol, driven over stdio. The
@@ -139,7 +140,7 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
   const resolveItem = (item: string): string => {
     if (item === "node") return process.execPath;
     if (item === PROGRAM) {
-      if (!program) throw new Error(`没有找到 ${spec.label} 的程序：本机没装，Roster 也没装，先到设置里的 Harness 页安装`);
+      if (!program) throw new Error(t("error.acp.noProgram", { label: spec.label }));
       return program;
     }
     if (item.startsWith("./") || item.startsWith("../")) return resolve(spec.dir, item);
@@ -359,7 +360,9 @@ class AcpRuntime implements BotRuntime {
       this.#dead = true;
       // every started turn must end, or the host waits on it forever
       if (this.#running) {
-        this.#emit({ type: "error", display: "message", message: `${this.label} 进程退出了${link.tail() ? `：${link.tail()}` : ""}` });
+        const output = link.tail();
+        const message = output ? t("error.acp.exitedWith", { label: this.label, output }) : t("error.acp.exited", { label: this.label });
+        this.#emit({ type: "error", display: "message", message });
         this.#end("error");
       }
     });
@@ -533,8 +536,8 @@ class AcpRuntime implements BotRuntime {
     const link = this.#link;
     const sessionId = this.#sessionId;
     if (!link || !sessionId) throw new Error("acp runtime not started");
-    if (this.#dead) throw new Error(`${this.label} 进程已经退出`);
-    if (this.#running) throw new Error(`${this.label} 正在回复`);
+    if (this.#dead) throw new Error(t("error.acp.dead", { label: this.label }));
+    if (this.#running) throw new Error(t("error.acp.busy", { label: this.label }));
     this.#running = true;
     this.#aborting = false;
     this.#emit({ type: "turn.start", display: "status" });
@@ -576,7 +579,7 @@ class AcpRuntime implements BotRuntime {
 
   /** Agents expose compaction as a slash command; sending it runs as an ordinary turn. */
   async compact(): Promise<void> {
-    if (!this.#commands.some((c) => c.name === "compact")) throw new Error(`${this.label} 没有提供压缩命令`);
+    if (!this.#commands.some((c) => c.name === "compact")) throw new Error(t("error.acp.noCompact", { label: this.label }));
     await this.send("/compact");
   }
 
@@ -597,7 +600,7 @@ class AcpRuntime implements BotRuntime {
 
 /** The message a person can act on, whatever shape the failure took. */
 function describe(err: unknown, label: string, link?: Link): string {
-  if (err instanceof RequestError && err.code === AUTH_REQUIRED) return `${label} 没有登录`;
+  if (err instanceof RequestError && err.code === AUTH_REQUIRED) return t("error.acp.signedOut", { label });
   const message = err instanceof Error ? err.message : String(err);
   const tail = link?.tail();
   return tail && !message.includes(tail) ? `${message}\n${tail}` : message;
@@ -664,10 +667,12 @@ async function probe(launch: Launch, label: string): Promise<Snapshot> {
         }
       })(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} 没有在 ${PROBE_TIMEOUT_MS / 1000} 秒内回答`)), PROBE_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new Error(t("error.acp.timeout", { label, count: PROBE_TIMEOUT_MS / 1000 }))), PROBE_TIMEOUT_MS);
       }),
-      link.exited.then((code) => {
-        throw new Error(`${label} 启动就退出了（${code ?? "signal"}）${link.tail() ? `：${link.tail()}` : ""}`);
+      link.exited.then((exit) => {
+        const code = exit ?? "signal";
+        const output = link.tail();
+        throw new Error(output ? t("error.acp.exitedOnStartWith", { label, code, output }) : t("error.acp.exitedOnStart", { label, code }));
       }),
     ]);
   } finally {
@@ -682,7 +687,7 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
   const out: LoginMethod[] = [];
   const hint = spec.manifest.login?.terminal;
   if (hint && hint.length > 0) {
-    out.push({ id: "terminal", label: "在终端登录", terminal: { command: hint[0]!, args: hint.slice(1) } });
+    out.push({ id: "terminal", label: t("login.terminal"), terminal: { command: hint[0]!, args: hint.slice(1) } });
   }
   for (const m of methods) {
     if ("type" in m && m.type === "terminal") {
@@ -702,9 +707,9 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
 
 function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory {
   const { source } = instance;
-  if (source.kind === "own" && !spec.own) throw new Error(`「${spec.label}」没有自带登录，要接一个模型 API`);
+  if (source.kind === "own" && !spec.own) throw new Error(t("error.source.noOwn", { label: spec.label }));
   if (source.kind === "endpoint" && !(source.endpoint.api && spec.manifest.env?.[source.endpoint.api])) {
-    throw new Error(`「${source.endpoint.name}」接不到「${spec.label}」上：协议对不上`);
+    throw new Error(t("error.source.mismatch", { endpoint: source.endpoint.name, label: spec.label }));
   }
   const launch = () => resolveLaunch(spec, instance.program, source);
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
@@ -747,9 +752,9 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     async check() {
       const s = await snapshotOf(0).catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }) as Snapshot);
       if (s.error) return { ok: false, detail: s.error };
-      if (s.loggedOut) return { ok: false, detail: `${spec.label} 没有登录` };
+      if (s.loggedOut) return { ok: false, detail: t("error.acp.signedOut", { label: spec.label }) };
       const models = byCategory(s.options, "model");
-      return { ok: true, detail: `启动正常${models ? `，${selectOptions(models).length} 个模型可选` : ""}` };
+      return { ok: true, detail: models ? t("check.acp.okModels", { count: selectOptions(models).length }) : t("check.acp.ok") };
     },
   };
 }
