@@ -354,11 +354,16 @@ export interface ContextUse {
   /** percent of max where the backend compacts on its own */
   autoCompactAt?: number;
   parts?: Array<{ name: string; tokens: number }>;
+  /** the end of the window held back for compaction: inside max, never in used */
+  reserved?: { name: string; tokens: number };
+  /** what waits outside the window until it is needed */
+  deferred?: Array<{ name: string; tokens: number }>;
 }
 
 export interface ContextDetail extends ContextUse {
   model: string;
-  sections: Array<{ title: string; rows: Array<{ name: string; tokens: number }> }>;
+  /** tokens is the section's total, where its rows are all of what it holds */
+  sections: Array<{ title: string; tokens?: number; rows: Array<{ name: string; tokens: number }> }>;
 }
 
 /** A pick for one session. Where the models come from is the agent's, not the session's, to change. */

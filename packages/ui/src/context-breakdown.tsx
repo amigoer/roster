@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader } from "lucide-react";
 import { api, type ContextDetail, type ContextUse } from "./api";
 import { useI18n } from "./i18n";
@@ -32,7 +32,13 @@ export const partColor = (i: number) => PALETTE[i % PALETTE.length];
 
 export type Slice = { name: string; tokens: number; color: string };
 
-/** One segment per slice, drawn against the whole window so the empty track is the room left. */
+/** Held back, not in use: hatched, so it reads as part of the window without passing for a category. */
+const RESERVED = "text-muted-foreground/50 [background-image:repeating-linear-gradient(135deg,currentColor_0_1.5px,transparent_1.5px_4px)]";
+
+/**
+ * One segment per slice, drawn against the whole window so the empty track is the room left.
+ * The compaction reserve sits over the far end, where the window runs out.
+ */
 export function ContextBar({
   context,
   slices,
@@ -53,9 +59,10 @@ export function ContextBar({
       ...p,
       color: partColor(i),
     }));
+  const reserved = context.reserved ? Math.min(100, (context.reserved.tokens / context.max) * 100) : 0;
   return (
     <div className={cn("relative h-1.5 w-full", className)}>
-      <div className="bg-muted flex size-full gap-px overflow-hidden rounded-full">
+      <div className="bg-muted relative flex size-full gap-px overflow-hidden rounded-full">
         {shown.map((s) => (
           <div
             key={s.name}
@@ -63,6 +70,8 @@ export function ContextBar({
             style={{ width: `${Math.max(0.5, (s.tokens / context.max) * 100)}%` }}
           />
         ))}
+        {/* over the segments rather than beside them: a window already running into it still shows */}
+        {reserved > 0 && <div aria-hidden className={cn("absolute inset-y-0 right-0", RESERVED)} style={{ width: `${reserved}%` }} />}
       </div>
       {marker !== undefined && (
         <span
@@ -84,23 +93,37 @@ function rowLabel(name: string): { text: string; title?: string } {
   return { text: `…/${parts.slice(-2).join("/")}`, title: name };
 }
 
-function Share({ color, name, value, max }: { color: string; name: string; value: number; max: number }) {
+function Share({
+  swatch,
+  name,
+  value,
+  max,
+  outside = false,
+}: {
+  swatch: string;
+  name: string;
+  value: number;
+  max: number;
+  /** outside the window, so it has no share of it */
+  outside?: boolean;
+}) {
   return (
     <li className="flex items-center gap-1.5">
-      <span className={cn("size-2 shrink-0 rounded-full", color)} />
+      <span className={cn("size-2 shrink-0 rounded-full", swatch)} />
       <span className="text-muted-foreground min-w-0 flex-1 truncate">{name}</span>
-      <span className="shrink-0 tabular-nums">{tokens(value)}</span>
-      <span className="text-muted-foreground/70 w-11 shrink-0 text-right tabular-nums">{share(value, max)}</span>
+      <span className={cn("shrink-0 tabular-nums", outside && "text-muted-foreground")}>{tokens(value)}</span>
+      <span className="text-muted-foreground/70 w-11 shrink-0 text-right tabular-nums">{outside ? "—" : share(value, max)}</span>
     </li>
   );
 }
 
 /**
- * What is inside one category. Deliberately without a total: a backend counts
- * these its own way -- Claude's message rows are the raw content, not the room
- * it takes in the window -- so only the rows themselves are its own claim.
+ * What is inside one category. A total is shown only where the backend gives
+ * one: a backend counts these its own way -- Claude's message rows are the raw
+ * content, not the room it takes in the window -- so where rows do not add up
+ * to what the category holds, only the rows themselves are its own claim.
  */
-function Section({ title, rows }: { title: string; rows: Array<{ name: string; tokens: number }> }) {
+function Section({ title, total, rows }: { title: string; total: number | undefined; rows: Array<{ name: string; tokens: number }> }) {
   const [open, setOpen] = useState(false);
   const { t } = useI18n();
   return (
@@ -113,7 +136,10 @@ function Section({ title, rows }: { title: string; rows: Array<{ name: string; t
       >
         <ChevronRight className={cn("text-muted-foreground size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
         <span className="min-w-0 flex-1 truncate text-left">{title}</span>
-        <span className="text-muted-foreground shrink-0 tabular-nums">{t("context.items", { count: rows.length })}</span>
+        {total !== undefined && <span className="shrink-0 tabular-nums">{tokens(total)}</span>}
+        <span className="text-muted-foreground/70 min-w-11 shrink-0 text-right whitespace-nowrap tabular-nums">
+          {t("context.items", { count: rows.length })}
+        </span>
       </button>
       {open && (
         <ul className="space-y-1 pt-0.5 pb-1.5 pl-5">
@@ -153,39 +179,70 @@ export function ContextBreakdown({
 }) {
   const [detail, setDetail] = useState<ContextDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** the session's count a request went out at, and the count its answer came back with */
+  const asked = useRef<number | null>(null);
+  const answered = useRef<number | null>(null);
+  const counting = useRef(false);
+  const mounted = useRef(true);
+  const [settled, setSettled] = useState(0);
   const { t } = useI18n();
 
-  // a finished turn changes the count, so it counts again; what was there stays until the new count lands
   useEffect(() => {
-    let live = true;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // A finished turn changes the count, so it counts again, one count at a time;
+  // what was there stays until the new one lands. A backend that reports its
+  // fresher count back through the session has not changed anything by it.
+  useEffect(() => {
+    const used = context.used;
+    if (counting.current || used === asked.current || used === answered.current) return;
+    counting.current = true;
+    asked.current = used;
     api
       .contextDetail(conversationId, memberId)
-      .then((d) => live && (d.error ? setError(d.error) : (setDetail(d), setError(null))))
-      .catch((e: unknown) => live && setError(String(e)));
-    return () => {
-      live = false;
-    };
-  }, [conversationId, memberId, context.used]);
+      .then((d) => {
+        if (!mounted.current) return;
+        if (d.error) return setError(d.error);
+        answered.current = d.used;
+        setDetail(d);
+        setError(null);
+      })
+      .catch((e: unknown) => mounted.current && setError(String(e)))
+      .finally(() => {
+        counting.current = false;
+        // the count may have moved while this one was out
+        if (mounted.current) setSettled((n) => n + 1);
+      });
+  }, [conversationId, memberId, context.used, settled]);
 
+  const reserved = context.reserved?.tokens ?? 0;
   return (
     <div className={cn("space-y-3 text-xs", className)}>
       <ul className="space-y-1.5">
         {context.parts?.map((p, i) => (
-          <Share key={p.name} color={partColor(i)} name={p.name} value={p.tokens} max={context.max} />
+          <Share key={p.name} swatch={partColor(i)} name={p.name} value={p.tokens} max={context.max} />
         ))}
+        {context.reserved && <Share swatch={RESERVED} name={context.reserved.name} value={reserved} max={context.max} />}
         <Share
-          color="bg-muted ring-1 ring-inset ring-foreground/15"
+          swatch="bg-muted ring-1 ring-inset ring-foreground/15"
           name={t("context.free")}
-          value={Math.max(0, context.max - context.used)}
+          value={Math.max(0, context.max - context.used - reserved)}
           max={context.max}
         />
+        {context.deferred?.map((p) => (
+          <Share key={p.name} swatch="ring-1 ring-inset ring-muted-foreground/40" name={p.name} value={p.tokens} max={context.max} outside />
+        ))}
       </ul>
       {detail ? (
         detail.sections.length > 0 && (
           <div>
             <h4 className="text-muted-foreground pb-1 font-medium">{t("context.breakdown")}</h4>
             {detail.sections.map((s) => (
-              <Section key={s.title} title={s.title} rows={s.rows} />
+              <Section key={s.title} title={s.title} total={s.tokens} rows={s.rows} />
             ))}
           </div>
         )

@@ -136,11 +136,11 @@ function ContextSection({
           {context.percent}%
         </span>
       </div>
-      {/* opened, every category is listed, so none of them is folded into the grey slice */}
+      {/* opened, every category is listed, so none of them is folded into the grey slice; a reserve drawn at the end already marks the threshold */}
       <ContextBar
         context={context}
         slices={!open && slices.length > 0 ? slices : undefined}
-        marker={compactAt}
+        marker={context.reserved ? undefined : compactAt}
         className="mt-2.5 h-2 shrink-0"
       />
       {open ? (
