@@ -7,7 +7,7 @@ Coding agents as contacts: a direct chat is a session, a group chat is an agent 
 Roster is a desktop app for the coding agents you already use: Claude Code, Codex, Gemini CLI and pi-agent. It does not write its own agent loop. It drives those agents, so model upgrades and prompt tuning keep coming from them, and gives them the shape of a chat app: conversations that persist, bots you set up once and reuse, groups where several agents work in the same repository, and one list that shows what needs you.
 
 > [!NOTE]
-> Early development: there are no packaged releases yet, so run it from source. The interface is in Chinese for now.
+> Early development: there are no packaged releases yet, so run it from source.
 
 ## Features
 
@@ -18,8 +18,9 @@ Roster is a desktop app for the coding agents you already use: Claude Code, Code
 - **Permission levels.** Read-only, can write, or can execute. Anything beyond a bot's level becomes an approval card in the chat, never a blocking dialog.
 - **What needs you comes first.** Conversations waiting for an approval or a reply sort to the top, longest wait first. The desktop app adds notifications and a Dock badge.
 - **One working directory per conversation**, chosen when you start it. Attachments, slash commands and a context usage panel are built in.
+- **English and Simplified Chinese.** Roster follows your system language, or the one picked in Settings > Language. Group notices and the instructions Roster gives agents switch along with the interface.
 
-Planned: a space (空间) that collects the documents and reports agents produce.
+Planned: a Space that collects the documents and reports agents produce.
 
 ## Harnesses
 
