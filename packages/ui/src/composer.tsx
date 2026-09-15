@@ -87,7 +87,6 @@ export function Composer({
   setDraft,
   inputRef,
   handle,
-  onContext,
   onRename,
 }: {
   conv: Conversation;
@@ -101,7 +100,6 @@ export function Composer({
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** how files dropped anywhere on the conversation reach this composer */
   handle?: RefObject<ComposerHandle | null>;
-  onContext: (memberId: string) => void;
   onRename: () => void;
 }) {
   const [menu, setMenu] = useState<(Trigger & { index: number }) | null>(null);
@@ -256,7 +254,7 @@ export function Composer({
     ...(solo && choices?.compact && !running
       ? [action("compact", t("composer.action.compact"), Shrink, () => void run(() => api.compact(conv.id, solo.id)))]
       : []),
-    ...(solo && info?.context ? [action("context", t("composer.action.context"), Layers, () => onContext(solo.id))] : []),
+    ...(solo && info?.context ? [action("context", t("composer.action.context"), Layers, () => openPicker("context"))] : []),
     action("rename", t("composer.action.rename"), PencilLine, onRename),
     ...(running ? [action("stop", t("composer.action.stop"), Square, () => void api.abort(conv.id))] : []),
   ];
@@ -448,7 +446,7 @@ export function Composer({
           }}
         />
       </div>
-      <SessionBar conv={conv} sessions={sessions} options={sessionOptions} quota={quota} onContext={onContext} request={picker} />
+      <SessionBar conv={conv} sessions={sessions} options={sessionOptions} quota={quota} request={picker} />
     </footer>
   );
 }

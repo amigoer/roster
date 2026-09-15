@@ -27,7 +27,6 @@ import { CapabilityBadge } from "./capabilities";
 import { MessageCard, StreamingBubble, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
-import { ContextPanel } from "./context-panel";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
@@ -138,8 +137,6 @@ export default function App() {
   const [editing, setEditing] = useState<{ botId: string | null; template: Template | null } | null>(null);
   const [starting, setStarting] = useState<{ open: boolean; botIds: string[] }>({ open: false, botIds: [] });
   const [panel, setPanel] = usePanelOpen();
-  /** the member whose context window is open on the right, which takes the members panel's place */
-  const [contextFor, setContextFor] = useState<string | null>(null);
   const list_ = useColumnWidth("roster.w.list", 300, 240, 520);
   const activeRef = useRef<string | null>(null);
   const scrollRoot = useRef<HTMLDivElement>(null);
@@ -328,7 +325,6 @@ export default function App() {
     if (!active) return;
     setStreams({});
     setMessages([]);
-    setContextFor(null);
     void api.messages(active).then((r) => {
       setMessages(r.messages);
       setStreams(r.streams ?? {});
@@ -871,15 +867,11 @@ export default function App() {
                     </span>
                   )}
                   <Button
-                    variant={panelOpen && !contextFor ? "secondary" : "ghost"}
+                    variant={panelOpen ? "secondary" : "ghost"}
                     size="sm"
                     style={NO_DRAG}
-                    title={panelOpen && !contextFor ? t("app.hideMembers") : t("app.membersAndMode")}
-                    onClick={() => {
-                      // the context window is in that slot; the first press brings the members back
-                      if (contextFor) return setContextFor(null), setPanel((p) => ({ ...p, [conv.shape]: true }));
-                      setPanel((p) => ({ ...p, [conv.shape]: !p[conv.shape] }));
-                    }}
+                    title={panelOpen ? t("app.hideMembers") : t("app.membersAndMode")}
+                    onClick={() => setPanel((p) => ({ ...p, [conv.shape]: !p[conv.shape] }))}
                   >
                     <Users className="size-4" />
                     {members.length + 1}
@@ -947,32 +939,21 @@ export default function App() {
                   setDraft={setDraft}
                   inputRef={composer}
                   handle={composerHandle}
-                  onContext={setContextFor}
                   onRename={() => setRenaming(conv.id)}
                 />
               </div>
-              {contextFor ? (
-                <ContextPanel
-                  conversationId={conv.id}
-                  memberId={contextFor}
-                  title={memberById.get(contextFor)?.bot.name ?? ""}
-                  used={sessions[contextFor]?.context?.used}
-                  onClose={() => setContextFor(null)}
+              {panelOpen && (
+                <MembersPanel
+                  conv={conv}
+                  bots={bots}
+                  presence={presence}
+                  onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
+                  onOpenBot={(id) => {
+                    setNav("contacts");
+                    setContact({ kind: "bot", id });
+                    setEditing(null);
+                  }}
                 />
-              ) : (
-                panelOpen && (
-                  <MembersPanel
-                    conv={conv}
-                    bots={bots}
-                    presence={presence}
-                    onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
-                    onOpenBot={(id) => {
-                      setNav("contacts");
-                      setContact({ kind: "bot", id });
-                      setEditing(null);
-                    }}
-                  />
-                )
               )}
             </>
           )}

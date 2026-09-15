@@ -28,7 +28,8 @@ import { cn } from "@/lib/utils";
 type Item = { id: string; label: string; description?: string };
 type Model = SessionOptions["models"][number];
 
-export type Picker = "model" | "effort" | "mode";
+/** what the bar can be asked to open: one of its pickers, or the context card behind the ring */
+export type Picker = "model" | "effort" | "mode" | "context";
 /** A picker the composer wants opened; the nonce makes asking twice for the same one open it again. */
 export type PickerRequest = { picker: Picker; nonce: number };
 
@@ -138,14 +139,12 @@ export function SessionBar({
   sessions,
   options,
   quota,
-  onContext,
   request,
 }: {
   conv: Conversation;
   sessions: Record<string, SessionInfo>;
   options: Record<string, SessionOptions>;
   quota: Record<string, Quota | null>;
-  onContext: (memberId: string) => void;
   request?: PickerRequest | null;
 }) {
   const opens = (picker: Picker) => (request?.picker === picker ? request.nonce : undefined);
@@ -272,10 +271,11 @@ export function SessionBar({
           context={info?.context}
           quota={plan}
           busy={conv.run_state === "running"}
+          member={solo ? { conversationId: conv.id, memberId: solo.id } : undefined}
+          openWhen={opens("context")}
           // asking for the status is what makes core re-read usage; the answer arrives on the stream
           onOpen={() => void api.status(conv.id)}
           onCompact={solo && choices?.compact ? () => void run(() => api.compact(conv.id, solo.id)) : undefined}
-          onDetail={solo && info?.context ? () => onContext(solo.id) : undefined}
         />
       </div>
     </div>
