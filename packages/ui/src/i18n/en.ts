@@ -32,7 +32,6 @@ export const en = {
 
   "nav.messages": "Messages",
   "nav.contacts": "Contacts",
-  "nav.space": "Space",
   "nav.profile": "Profile",
   "nav.settings": "Settings",
   "nav.settingsHint": "Settings: appearance, language, agents and model APIs",
@@ -46,8 +45,6 @@ export const en = {
   "app.startFailed": "Couldn't start the conversation right away",
   "app.activeOnly": "Show active only",
   "app.showArchived": "Show archived",
-  "app.notBuiltNamed": "{name}: not in the first version yet",
-  "app.notBuilt": "Not in the first version yet",
   "app.search": "Search conversations, bots or repos",
   "app.noConversations": "No conversations yet. Click + at the top right to start one.",
   "app.noMatches": "No conversations about “{query}”.",

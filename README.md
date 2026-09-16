@@ -20,8 +20,6 @@ Roster is a desktop app for the coding agents you already use: Claude Code, Code
 - **One working directory per conversation**, chosen when you start it. Attachments, slash commands and a context usage panel are built in.
 - **English and Simplified Chinese.** Roster follows your system language, or the one picked in Settings > Language. Group notices and the instructions Roster gives agents switch along with the interface.
 
-Planned: a Space that collects the documents and reports agents produce.
-
 ## Harnesses
 
 | Harness | Sign-in | Model API |

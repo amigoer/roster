@@ -2,7 +2,7 @@ import { DRAG, NO_DRAG } from "./app-region";
 import { HumanAvatar } from "./bot-avatar";
 import { useI18n } from "./i18n";
 import { useMe } from "./me";
-import { ContactsIcon, MessagesIcon, SettingsIcon, SpaceIcon } from "./rail-icons";
+import { ContactsIcon, MessagesIcon, SettingsIcon } from "./rail-icons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -10,14 +10,13 @@ import { cn } from "@/lib/utils";
 export const NAV = [
   { id: "messages", icon: MessagesIcon },
   { id: "contacts", icon: ContactsIcon },
-  { id: "space", icon: SpaceIcon },
 ] as const;
 
-/** neither has a place in the rail's three entries: your profile is your avatar above them, settings the gear under them */
+/** neither has a place in the rail's two entries: your profile is your avatar above them, settings the gear under them */
 export type Nav = (typeof NAV)[number]["id"] | "profile" | "settings";
 
 /**
- * Icons and a word each: three entries never justify a resizable column. It is
+ * Icons and a word each: two entries never justify a resizable column. It is
  * as wide as it is to hold the traffic lights, which main.cjs centres on it.
  */
 export const RAIL = 72;

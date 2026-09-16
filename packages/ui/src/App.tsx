@@ -485,7 +485,7 @@ export default function App() {
     <SourceRefs.Provider value={sourceRefs}>
     <TooltipProvider delayDuration={200}>
       <div className="bg-sidebar text-sidebar-foreground flex h-full">
-        {/* 1. The rail: a fixed strip of icons. Three entries do not fill a column, so the width goes to the list and the conversation */}
+        {/* 1. The rail: a fixed strip of icons. Two entries do not fill a column, so the width goes to the list and the conversation */}
         <NavRail nav={nav} onNav={setNav} waiting={waiting} />
 
         {/* the margins around the panels are chrome too: the window drags by them */}
@@ -565,8 +565,6 @@ export default function App() {
                 setEditing(null);
               }}
             />
-          ) : nav !== "messages" ? (
-            <Empty label={t("app.notBuiltNamed", { name: t(`nav.${nav}`) })} />
           ) : (
             <>
               <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
@@ -819,8 +817,8 @@ export default function App() {
                 <TemplateGallery onPick={(template) => setEditing({ botId: null, template })} />
               )}
             </div>
-          ) : nav !== "messages" || !conv ? (
-            <Empty label={nav === "messages" ? t("app.pickConversation") : t("app.notBuilt")} className={PANEL} />
+          ) : !conv ? (
+            <Empty label={t("app.pickConversation")} className={PANEL} />
           ) : (
             <>
               <div

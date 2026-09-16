@@ -34,7 +34,6 @@ export const zhCN = translation<typeof en>()({
 
   "nav.messages": "消息",
   "nav.contacts": "通讯录",
-  "nav.space": "空间",
   "nav.profile": "个人资料",
   "nav.settings": "设置",
   "nav.settingsHint": "设置：外观、语言、agent 和模型 API",
@@ -48,8 +47,6 @@ export const zhCN = translation<typeof en>()({
   "app.startFailed": "没能直接开始会话",
   "app.activeOnly": "只看进行中",
   "app.showArchived": "显示已归档",
-  "app.notBuiltNamed": "{name}：第一版还没做",
-  "app.notBuilt": "第一版还没做",
   "app.search": "搜索会话、bot 或仓库",
   "app.noConversations": "还没有会话，点右上角 + 发起。",
   "app.noMatches": "没有和「{query}」相关的会话。",
