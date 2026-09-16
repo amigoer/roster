@@ -164,6 +164,15 @@
     overscroll-behavior: none;
   }
 
+  /*
+   * app-region is inherited, and Chromium counts each element's whole box, even
+   * scrolled out of sight: a scrolled pane would spread its panel's no-drag over
+   * the header above. Only the element that sets it claims a region.
+   */
+  * {
+    -webkit-app-region: initial;
+  }
+
   input,
   textarea {
     -webkit-user-select: text;
