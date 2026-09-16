@@ -144,6 +144,44 @@ async function until(pred, timeout = 5000) {
   throw new Error("condition not met in time");
 }
 
+/**
+ * A backend that plays one turn as written: a string is text, { start } announces
+ * a call, { gate } takes it through the host, { end } returns its result.
+ */
+function played(actions) {
+  const scripted = scriptedFactory("pi", 1);
+  return {
+    ...scripted,
+    create() {
+      const handlers = new Set();
+      const emit = (e) => handlers.forEach((h) => h(e));
+      let opts;
+      return {
+        capabilities: scripted.capabilities,
+        resumeToken: undefined,
+        subscribe: (h) => (handlers.add(h), () => handlers.delete(h)),
+        start: async (o) => {
+          opts = o;
+        },
+        send: async () => {
+          emit({ type: "turn.start", display: "status" });
+          void (async () => {
+            for (const a of actions) {
+              if (typeof a === "string") emit({ type: "assistant.text", display: "message", delta: a });
+              else if (a.start) emit({ type: "tool.start", display: "fold", call: a.start });
+              else if (a.gate) await opts.onToolCall(a.gate);
+              else if (a.end) emit({ type: "tool.end", display: "fold", ...a.end });
+            }
+            emit({ type: "turn.end", display: "status", reason: "done" });
+          })();
+        },
+        abort: async () => {},
+        dispose: async () => handlers.clear(),
+      };
+    },
+  };
+}
+
 describe("mentions", () => {
   const members = [
     { id: "go", name: "Go工程师" },
@@ -566,6 +604,63 @@ describe("session status", () => {
     assert.deepEqual(steps.map((s) => [s.name, s.ok]), [["read", true], ["write", true]]);
   });
 
+  test("a steps card says what each call was about, when it ran, and where it fell in the reply", async () => {
+    const bash = { id: "c1", name: "Bash", effect: "execute", input: { command: "pnpm test\n--reporter dot", description: "Run the tests" } };
+    const read = { id: "c2", name: "Read", effect: "read", input: { file_path: "/repo/notes.md" } };
+    const h = harness({
+      pi: played([
+        "先跑一下测试。",
+        { start: bash },
+        { gate: bash },
+        { end: { id: "c1", isError: true, content: "\nError: node:sqlite is missing\n    at main" } },
+        "测试挂了，看看说明。",
+        { start: read },
+        { gate: read },
+        { end: { id: "c2", isError: false, content: "notes" } },
+      ]),
+    });
+    const conv = h.group([h.bot("甲", { permission_tier: "execute" })]);
+    await h.orch.send(conv.id, "跑测试");
+    await settle(h.store, conv.id);
+
+    const messages = h.store.listMessages(conv.id);
+    const reply = JSON.parse(messages.find((m) => m.card_kind === "text" && m.author_kind === "bot").body_json).text;
+    assert.equal(reply, "先跑一下测试。\n\n测试挂了，看看说明。");
+    const card = messages.find((m) => m.card_kind === "steps");
+    const { steps, last } = JSON.parse(card.body_json);
+    assert.deepEqual(
+      steps.map((s) => [s.name, s.title, s.at, s.ok, s.error]),
+      [
+        ["Bash", "Run the tests", "先跑一下测试。\n\n".length, false, "Error: node:sqlite is missing"],
+        ["Read", "/repo/notes.md", reply.length + 2, true, undefined],
+      ],
+    );
+    assert.equal(reply.slice(0, steps[0].at).trim(), "先跑一下测试。", "the reply splits where the call was made");
+    assert.ok(steps.every((s) => s.startedAt <= s.endedAt));
+    assert.ok(last > card.seq, "the card remembers the latest event it folded in");
+
+    const detail = h.store.stepDetail(conv.id, card.turn_id, "c1");
+    assert.deepEqual([detail.input, detail.output, detail.isError], [bash.input, "\nError: node:sqlite is missing\n    at main", true]);
+    assert.equal(h.store.stepDetail(conv.id, card.turn_id, "nope"), null);
+
+    const working = h.pushed.filter((m) => m.kind === "presence" && m.state !== "idle");
+    assert.ok(working.length > 0 && working.every((m) => m.turnId === card.turn_id), "presence names the turn being written");
+  });
+
+  test("a call the backend asks about before announcing it gets one step, placed where it asked", async () => {
+    const edit = { id: "e1", name: "edit", effect: "write", input: { path: "notes.md" } };
+    const h = harness({ pi: played(["我改一下。", { gate: edit }, { start: edit }, { end: { id: "e1", isError: false, content: "ok" } }, "改好了。"]) });
+    const conv = h.group([h.bot("甲")]);
+    await h.orch.send(conv.id, "改");
+    await until(() => h.store.listMessages(conv.id).some((m) => m.status === "pending"));
+    const pending = h.store.listMessages(conv.id).find((m) => m.status === "pending");
+    h.orch.resolvePermission(conv.id, JSON.parse(pending.body_json).requestId, true);
+    await settle(h.store, conv.id);
+
+    const steps = h.store.listMessages(conv.id).filter((m) => m.card_kind === "steps").flatMap((m) => JSON.parse(m.body_json).steps);
+    assert.deepEqual(steps.map((s) => [s.id, s.title, s.at, s.ok]), [["e1", "notes.md", "我改一下。".length, true]]);
+  });
+
   test("plan usage is read in the background when first looked at, then served from cache", async () => {
     let reads = 0;
     const scripted = scriptedFactory("pi", 1);
@@ -656,6 +751,50 @@ describe("logos", () => {
 });
 
 describe("migrations", () => {
+  test("old steps cards are rebuilt from the log: titles, times, and pi's wrapped output read as text", () => {
+    const dir = mkdtempSync(join(tmpdir(), "roster-steps-"));
+    dirs.push(dir);
+    const file = join(dir, "roster.db");
+    const db = openDb(file);
+    const store = new Store(db);
+    store.createExecutor({ name: "pi", type: "pi-agent", source_kind: "own", provider_id: null, model: null });
+    const bot = store.createBot({
+      name: "Pi", title: null, avatar: null, system_prompt: null,
+      executor_id: store.listExecutors()[0].id, model: null, permission_tier: "read",
+    });
+    const conv = store.createConversation({ title: "x", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
+    const [member] = store.activeMembers(conv.id);
+    const event = (type, payload, at) =>
+      db
+        .prepare(
+          `INSERT INTO events (conversation_id, member_id, turn_id, type, payload_json, surface, broadcast, created_at)
+           VALUES (?, ?, 't1', ?, ?, 1, 0, ?)`,
+        )
+        .run(conv.id, member.id, type, JSON.stringify({ type, display: "fold", ...payload }), at);
+    const wrapped = (text) => JSON.stringify({ content: [{ type: "text", text }], details: {} });
+    event("tool.start", { call: { id: "b1", name: "bash", effect: "execute", input: { command: "ls -la" } } }, 1000);
+    event("tool.end", { id: "b1", isError: true, content: wrapped("ls: nope") }, 1500);
+    event("tool.start", { call: { id: "b2", name: "bash", effect: "execute", input: { command: "git log" } } }, 1600);
+    event("tool.end", { id: "b2", isError: true, content: wrapped("=== git log ===\n\n\nCommand exited with code 128") }, 1700);
+    // the card as it was written then: a name and a tick
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, seq, turn_id, author_kind, author_member_id, card_kind, body_json, created_at, updated_at)
+       VALUES ('old', ?, 1, 't1', 'bot', ?, 'steps', ?, 1000, 1500)`,
+    ).run(conv.id, member.id, JSON.stringify({ steps: [{ id: "b1", name: "bash", effect: "execute", ok: false }] }));
+    const { user_version: version } = db.prepare(`PRAGMA user_version`).get();
+    db.exec(`PRAGMA user_version = ${version - 1}`);
+    db.close();
+
+    const reopened = new Store(openDb(file));
+    const body = JSON.parse(reopened.getMessage("old").body_json);
+    assert.deepEqual(body.steps, [
+      { id: "b1", name: "bash", effect: "execute", title: "ls -la", startedAt: 1000, endedAt: 1500, ok: false, error: "ls: nope" },
+      // a shell's exit status says more than the first line of what it printed
+      { id: "b2", name: "bash", effect: "execute", title: "git log", startedAt: 1600, endedAt: 1700, ok: false, error: "Command exited with code 128" },
+    ]);
+    assert.equal(reopened.stepDetail(conv.id, "t1", "b1").output, "ls: nope");
+  });
+
   test("existing members keep their place; the event sequence skips past legacy rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "roster-mig-"));
     dirs.push(dir);

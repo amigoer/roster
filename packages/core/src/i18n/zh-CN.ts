@@ -211,6 +211,7 @@ export const zhCN = translation<typeof en>()({
   "scripted.ranWith": "执行了 /{command}，参数：{args}",
   "scripted.echo": "收到：{text}",
   "scripted.files": "收到了你发的文件",
+  "scripted.lookFirst": "我先看一下文件。",
 
   "logo.fox": "狐狸",
   "logo.puppy": "小白狗",

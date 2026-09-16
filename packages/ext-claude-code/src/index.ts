@@ -37,6 +37,7 @@ import type {
 } from "@roster/adapter-api";
 import { contextOf, detailOf } from "./context.js";
 import { planUsage, planUsageFromCredentials } from "./plan.js";
+import { resultText } from "./result.js";
 import { wordsFor, type Words } from "./words.js";
 
 /** Formats every Claude model reads as an image; anything else stays a path in the text. */
@@ -483,7 +484,7 @@ class ClaudeRuntime implements BotRuntime {
             display: "fold",
             id: String(block["tool_use_id"] ?? ""),
             isError: block["is_error"] === true,
-            content: typeof block["content"] === "string" ? block["content"] : "",
+            content: resultText(block["content"]),
           });
         }
         return;

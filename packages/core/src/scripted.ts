@@ -40,10 +40,23 @@ const CAPABILITIES: Capabilities = {
   permissionModes: false,
 };
 
-const TOOLS: Record<string, { name: string; effect: ToolEffect }> = {
-  "#read": { name: "read", effect: "read" },
-  "#write": { name: "write", effect: "write" },
-  "#exec": { name: "bash", effect: "execute" },
+interface ScriptedTool {
+  name: string;
+  effect: ToolEffect;
+  input: Record<string, unknown>;
+  output: string;
+}
+
+/** Inputs and results shaped like a real agent's, so every kind of step view has something to show. */
+const TOOLS: Record<string, ScriptedTool> = {
+  "#read": { name: "read", effect: "read", input: { path: "notes.md" }, output: "# Notes\n\n- ship the steps card\n- write the release notes" },
+  "#write": {
+    name: "write",
+    effect: "write",
+    input: { path: "notes.md", edits: [{ oldText: "- ship the steps card", newText: "- ship the steps card\n- fold answered permission requests" }] },
+    output: "Successfully replaced 1 block in notes.md",
+  },
+  "#exec": { name: "bash", effect: "execute", input: { command: "ls -la" }, output: "total 8\n-rw-r--r--  1 you  staff  64 notes.md" },
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -181,16 +194,15 @@ class ScriptedRuntime implements BotRuntime {
     const human = new RegExp(`<message from="${escapeRegExp(t("delivery.user"))}"[^>]*>\\n([\\s\\S]*?)\\n<\\/message>`, "g");
     const said = [...text.matchAll(human)].at(-1)?.[1] ?? text;
     try {
-      for (const [tag, tool] of Object.entries(TOOLS)) {
-        if (said.includes(tag) && !this.#aborting) await this.#tool(tool);
+      const tools = Object.entries(TOOLS).filter(([tag]) => said.includes(tag));
+      // an agent says what it is about to do, so its calls have text to sit between
+      if (tools.length > 0) await this.#say(t("scripted.lookFirst"));
+      for (const [, tool] of tools) {
+        if (!this.#aborting) await this.#tool(tool);
       }
       const named = attachments.map((a) => t("scripted.attachment", { name: a.name, mime: a.mime }));
       const files = attachments.length > 0 ? `\n\n${t("scripted.attachments", { files: list(named) })}` : "";
-      const reply = this.#reply(text, said) + files;
-      for (let i = 0; i < reply.length && !this.#aborting; i += 4) {
-        this.#emit({ type: "assistant.text", display: "message", delta: reply.slice(i, i + 4) });
-        await sleep(this.delayMs);
-      }
+      await this.#say(this.#reply(text, said) + files);
     } catch (err) {
       reason = "error";
       this.#emit({ type: "error", display: "message", message: err instanceof Error ? err.message : String(err) });
@@ -199,8 +211,15 @@ class ScriptedRuntime implements BotRuntime {
     this.#emit({ type: "turn.end", display: "status", reason: this.#aborting ? "aborted" : reason });
   }
 
-  async #tool(tool: { name: string; effect: ToolEffect }): Promise<void> {
-    const call: ToolCall = { id: randomUUID(), name: tool.name, input: { path: "notes.md" }, effect: tool.effect };
+  async #say(text: string): Promise<void> {
+    for (let i = 0; i < text.length && !this.#aborting; i += 4) {
+      this.#emit({ type: "assistant.text", display: "message", delta: text.slice(i, i + 4) });
+      await sleep(this.delayMs);
+    }
+  }
+
+  async #tool(tool: ScriptedTool): Promise<void> {
+    const call: ToolCall = { id: randomUUID(), name: tool.name, input: tool.input, effect: tool.effect };
     this.#emit({ type: "tool.start", display: "fold", call });
     const gated: ToolDecision = (await this.#opts?.onToolCall?.(call)) ?? { action: "allow" };
     // stands in for a backend's own mode: reads pass, anything else asks
@@ -210,7 +229,7 @@ class ScriptedRuntime implements BotRuntime {
         : ((await this.#opts?.onPermission?.(call)) ?? { action: "deny", reason: "nobody to ask" });
     await sleep(this.delayMs * 2);
     const denied = decision.action === "deny";
-    this.#emit({ type: "tool.end", display: "fold", id: call.id, isError: denied, content: denied ? decision.reason : "ok" });
+    this.#emit({ type: "tool.end", display: "fold", id: call.id, isError: denied, content: denied ? decision.reason : tool.output });
     if (denied && decision.terminate) this.#aborting = true;
   }
 

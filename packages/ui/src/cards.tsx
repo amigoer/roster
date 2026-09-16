@@ -1,16 +1,5 @@
-import { useContext, useState } from "react";
-import {
-  Bird,
-  Bot,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Loader,
-  Quote,
-  ShieldAlert,
-  User,
-  X,
-} from "lucide-react";
+import { useContext, useMemo, useState } from "react";
+import { Bird, Bot, Quote, ShieldAlert, User } from "lucide-react";
 import { api, type AttachmentRef, type Member, type Message } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
@@ -19,6 +8,8 @@ import { Markdown, MentionChip, MentionNames } from "./markdown";
 import { segments } from "./mentions";
 import { ProviderIcon, type Provider } from "./provider-icon";
 import { CopyIcon, useCopy } from "./copy";
+import { CallInput, StepsGroup } from "./steps";
+import { interleave, type Turn } from "./transcript";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,7 +173,7 @@ function HumanText({ text }: { text: string }) {
   );
 }
 
-/** In a group the card has to say whose tool calls these were. */
+/** In a group the card has to say whose tool call this is. */
 function CardAuthor({ author }: { author?: Member }) {
   if (!author) return null;
   return (
@@ -193,62 +184,14 @@ function CardAuthor({ author }: { author?: Member }) {
   );
 }
 
-/** Tool calls never get their own bubbles; they fold into one card per turn. */
-function StepsCard({
-  body,
-  author,
-  indent,
-}: {
-  body: { steps: Array<{ id: string; name: string; effect: string; ok?: boolean }> };
-  author?: Member;
-  indent: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const { t } = useI18n();
-  const { steps } = body;
-  if (steps.length === 0) return null;
-  return (
-    <div className={cn("max-w-[min(680px,78%)]", indent && "ml-12")}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 py-0.5 text-left text-sm transition-colors"
-      >
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        <CardAuthor author={author} />
-        <span>{t("cards.steps", { count: steps.length })}</span>
-        <span className="flex items-center gap-0.5">
-          {steps.map((s) =>
-            s.ok === undefined ? (
-              <Loader key={s.id} className="text-muted-foreground/50 size-3 animate-spin" />
-            ) : s.ok ? (
-              <Check key={s.id} className="text-muted-foreground size-3" />
-            ) : (
-              <X key={s.id} className="text-destructive size-3" />
-            ),
-          )}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-1 py-1 pl-5">
-          {steps.map((s) => (
-            <div key={s.id} className="flex items-center gap-2">
-              <span className="font-mono text-xs">{s.name}</span>
-              <Badge variant="secondary" className="px-1 py-0 text-[10px]">
-                {s.effect}
-              </Badge>
-              {s.ok === false && <X className="text-destructive size-3" />}
-              {s.ok === true && <Check className="text-muted-foreground size-3" />}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const DECIDED = ["allowed", "denied", "expired"] as const;
 
 const isDecided = (status: string | null): status is (typeof DECIDED)[number] => DECIDED.includes(status as never);
+
+interface PermissionBody {
+  requestId: string;
+  call: { name: string; effect: string; input: Record<string, unknown> };
+}
 
 /**
  * In the stream, never a modal: five running conversations would mean five
@@ -260,16 +203,13 @@ function PermissionCard({
   message,
   body,
   author,
-  indent,
+  root,
 }: {
   conversationId: string;
   message: Message;
-  body: {
-    requestId: string;
-    call: { name: string; effect: string; input: Record<string, unknown> };
-  };
+  body: PermissionBody;
   author?: Member;
-  indent: boolean;
+  root: string;
 }) {
   const [busy, setBusy] = useState(false);
   const { t } = useI18n();
@@ -279,36 +219,109 @@ function PermissionCard({
     await api.resolvePermission(conversationId, body.requestId, allow);
   };
   return (
-    <div className={cn("max-w-[min(680px,78%)]", indent && "ml-12")}>
-      <Card className="gap-0 overflow-hidden py-0">
-        <div className="bg-muted flex items-center gap-2 px-3.5 py-2">
-          {author ? <CardAuthor author={author} /> : <ShieldAlert className="size-3.5" />}
-          <span className="text-sm font-medium">{t("cards.permission")}</span>
-          <span className="font-mono text-sm">{body.call.name}</span>
-          <Badge variant="outline" className="bg-background ml-auto px-1.5 py-0 text-[10px]">
-            {body.call.effect}
-          </Badge>
+    <Card className="gap-0 overflow-hidden py-0">
+      <div className="bg-muted flex items-center gap-2 px-3.5 py-2">
+        {author ? <CardAuthor author={author} /> : <ShieldAlert className="size-3.5" />}
+        <span className="text-sm font-medium">{t("cards.permission")}</span>
+        <span className="font-mono text-sm">{body.call.name}</span>
+        <Badge variant="outline" className="bg-background ml-auto px-1.5 py-0 text-[10px]">
+          {body.call.effect}
+        </Badge>
+      </div>
+      <Separator />
+      <div className="px-3.5 py-2.5">
+        <CallInput input={body.call.input} root={root} />
+      </div>
+      <Separator />
+      {decided ? (
+        <div className="text-muted-foreground px-3.5 py-2 text-sm">
+          {isDecided(message.status) ? t(`cards.decided.${message.status}`) : message.status}
         </div>
-        <Separator />
-        <pre className="text-muted-foreground max-h-40 overflow-auto px-3.5 py-2.5 font-mono text-xs leading-relaxed">
-          {JSON.stringify(body.call.input, null, 2)}
-        </pre>
-        <Separator />
-        {decided ? (
-          <div className="text-muted-foreground px-3.5 py-2 text-sm">
-            {isDecided(message.status) ? t(`cards.decided.${message.status}`) : message.status}
-          </div>
-        ) : (
-          <div className="flex gap-2 px-3.5 py-2.5">
-            <Button size="sm" disabled={busy} onClick={() => act(true)}>
-              {t("cards.allow")}
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(false)}>
-              {t("cards.deny")}
-            </Button>
-          </div>
-        )}
-      </Card>
+      ) : (
+        <div className="flex gap-2 px-3.5 py-2.5">
+          <Button size="sm" disabled={busy} onClick={() => act(true)}>
+            {t("cards.allow")}
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => act(false)}>
+            {t("cards.deny")}
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * One bot turn in the order it happened: what it wrote, the calls it made in
+ * between, and whatever it is waiting on the human for. An answered permission
+ * request folds into the call it was about.
+ */
+export function TurnView({
+  conversationId,
+  turn,
+  live,
+  stream,
+  author,
+  group,
+  onQuote,
+  root,
+}: {
+  conversationId: string;
+  turn: Turn;
+  live: boolean;
+  /** the reply so far, while the turn is being written */
+  stream?: string;
+  author?: Member;
+  group: boolean;
+  onQuote?: (text: string) => void;
+  /** the conversation's repo, so paths inside it read as relative */
+  root: string;
+}) {
+  const raw = turn.text ? String((JSON.parse(turn.text.body_json) as { text?: unknown }).text ?? "") : (stream ?? "");
+  const parts = useMemo(() => interleave(raw, turn.steps), [raw, turn.steps]);
+  const decisions = new Map(
+    turn.permissions.map((p) => [(JSON.parse(p.body_json) as PermissionBody).requestId, p.status ?? "pending"]),
+  );
+  const pending = turn.permissions.filter((p) => p.status === "pending");
+  if (parts.length === 0 && pending.length === 0) return null;
+  return (
+    <div className="group/msg flex gap-3">
+      {group && (author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />)}
+      <div className="flex w-full max-w-[min(680px,78%)] min-w-0 flex-col gap-1">
+        {group && author && <Byline author={author} />}
+        <div className="flex min-w-0 flex-col gap-2">
+          {parts.map((part, i) =>
+            part.kind === "steps" ? (
+              <StepsGroup
+                key={part.steps[0]!.id}
+                conversationId={conversationId}
+                turnId={turn.id}
+                steps={part.steps}
+                live={live}
+                decisions={decisions}
+                root={root}
+              />
+            ) : !turn.text && i === parts.length - 1 ? (
+              // still being written, and half-written Markdown renders as garbage
+              <div key={`text-${i}`} className="text-message leading-relaxed break-words whitespace-pre-wrap">
+                {part.text}
+              </div>
+            ) : (
+              <Markdown key={`text-${i}`}>{part.text}</Markdown>
+            ),
+          )}
+          {pending.map((p) => (
+            <PermissionCard
+              key={p.id}
+              conversationId={conversationId}
+              message={p}
+              body={JSON.parse(p.body_json) as PermissionBody}
+              root={root}
+            />
+          ))}
+        </div>
+        {turn.text && raw && <Actions text={raw} at={turn.text.created_at} align="start" onQuote={onQuote} />}
+      </div>
     </div>
   );
 }
@@ -355,16 +368,19 @@ export function MessageCard({
       );
     }
     case "steps":
-      return <StepsCard body={body as never} author={shownAuthor} indent={group} />;
+      // the transcript folds a turn's steps into its TurnView
+      return null;
     case "permission":
       return (
-        <PermissionCard
-          conversationId={conversationId}
-          message={message}
-          body={body as never}
-          author={shownAuthor}
-          indent={group}
-        />
+        <div className={cn("max-w-[min(680px,78%)]", group && "ml-12")}>
+          <PermissionCard
+            conversationId={conversationId}
+            message={message}
+            body={body as unknown as PermissionBody}
+            author={shownAuthor}
+            root=""
+          />
+        </div>
       );
     case "error":
       return (
@@ -386,19 +402,4 @@ export function MessageCard({
         </div>
       );
   }
-}
-
-/** A reply still being written: plain text, since half-written Markdown renders as garbage. */
-export function StreamingBubble({ text, author, group }: { text: string; author?: Member; group: boolean }) {
-  return (
-    <div className="flex gap-3">
-      {group && author && <BotAvatar bot={author.bot} />}
-      <div className="flex max-w-[min(680px,78%)] min-w-0 flex-col gap-1">
-        {group && author && <Byline author={author} />}
-        <div className="text-message leading-relaxed break-words whitespace-pre-wrap">
-          {text}
-        </div>
-      </div>
-    </div>
-  );
 }

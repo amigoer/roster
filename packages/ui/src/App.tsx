@@ -24,7 +24,7 @@ import { AboutPanel, type AboutState } from "./about";
 import { AppearancePanel } from "./appearance";
 import { BotAvatar, busyOf, GroupAvatar, Logos, type Busy } from "./bot-avatar";
 import { CapabilityBadge } from "./capabilities";
-import { MessageCard, StreamingBubble, Who } from "./cards";
+import { MessageCard, TurnView, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
@@ -44,6 +44,7 @@ import { Resizer, useColumnWidth } from "./resizable";
 import { AgentEditor, HarnessPanel, HarnessesPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
+import { transcript } from "./transcript";
 import { useTypography } from "./typography";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -376,12 +377,17 @@ export default function App() {
   }, [loadedFor, nav]);
 
   const streamed = Object.values(streams).reduce((n, s) => n + s.length, 0);
-  // follow new content only when the reader was already at the bottom
+  // follow new content only when the reader was already at the bottom; a steps card grows in place
   useEffect(() => {
     if (!stick.current) return;
     const vp = viewport();
     vp?.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
-  }, [messages.length, streamed]);
+  }, [messages, streamed]);
+
+  const rows = useMemo(
+    () => transcript(messages, Object.values(presence).filter((p) => p.conversationId === active), streams),
+    [messages, presence, streams, active],
+  );
 
   const busyByBot = useMemo(() => {
     const out: Record<string, Busy> = {};
@@ -912,22 +918,32 @@ export default function App() {
                           )}
                         </div>
                       )}
-                      {messages.map((m) => (
-                        // the id is what the outline scrolls to
-                        <div key={m.id} id={`m-${m.id}`}>
-                          <MessageCard
-                            conversationId={conv.id}
-                            message={m}
-                            group={group}
-                            author={m.author_member_id ? memberById.get(m.author_member_id) : undefined}
-                            onQuote={quote}
-                          />
-                        </div>
-                      ))}
-                      {Object.entries(streams).map(([memberId, text]) =>
-                        text.trim() ? (
-                          <StreamingBubble key={memberId} text={text} author={memberById.get(memberId)} group={group} />
-                        ) : null,
+                      {rows.map((row) =>
+                        row.kind === "message" ? (
+                          // the id is what the outline scrolls to
+                          <div key={row.key} id={`m-${row.message.id}`}>
+                            <MessageCard
+                              conversationId={conv.id}
+                              message={row.message}
+                              group={group}
+                              author={row.message.author_member_id ? memberById.get(row.message.author_member_id) : undefined}
+                              onQuote={quote}
+                            />
+                          </div>
+                        ) : (
+                          <div key={row.key} id={row.turn.anchor ? `m-${row.turn.anchor.id}` : undefined}>
+                            <TurnView
+                              conversationId={conv.id}
+                              turn={row.turn}
+                              live={row.live}
+                              stream={row.live && row.turn.memberId ? streams[row.turn.memberId] : undefined}
+                              author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
+                              group={group}
+                              onQuote={quote}
+                              root={conv.repo_path}
+                            />
+                          </div>
+                        ),
                       )}
                     </div>
                   </ScrollArea>

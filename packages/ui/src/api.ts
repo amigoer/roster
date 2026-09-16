@@ -321,6 +321,42 @@ export interface Message {
   created_at: number;
 }
 
+/** One tool call as a steps card lists it; what it took and returned is read with api.step. */
+export interface Step {
+  id: string;
+  name: string;
+  effect: "read" | "write" | "execute";
+  /** what the call is about, in one line */
+  title?: string;
+  /** how much of the turn's reply was written when the call was made; absent on older turns */
+  at?: number;
+  startedAt?: number;
+  endedAt?: number;
+  ok?: boolean;
+  /** the first line of what a failed call returned */
+  error?: string;
+}
+
+export interface StepsBody {
+  steps: Step[];
+  /** the seq of the latest event the card folded in */
+  last?: number;
+}
+
+/** Everything one call took and returned. */
+export interface StepDetail {
+  id: string;
+  name: string;
+  effect: Step["effect"];
+  input: Record<string, unknown>;
+  output?: string;
+  /** the output's full length, when only its start came back */
+  size?: number;
+  isError?: boolean;
+  startedAt: number;
+  endedAt?: number;
+}
+
 /** A file on a message, as core keeps it. */
 export interface AttachmentRef {
   id: string;
@@ -414,6 +450,8 @@ export interface Presence {
   memberId: string;
   state: PresenceState;
   detail?: string;
+  /** the turn being written */
+  turnId?: string;
 }
 
 export type ServerMsg =
@@ -515,6 +553,10 @@ export const api = {
 
   messages: (id: string) =>
     j<{ messages: Message[]; streams: Record<string, string> }>(`/api/conversations/${id}/messages`),
+  step: (id: string, turnId: string, callId: string) =>
+    j<{ step?: StepDetail }>(
+      `/api/conversations/${id}/turns/${encodeURIComponent(turnId)}/steps/${encodeURIComponent(callId)}`,
+    ).then((r) => r.step ?? null),
   status: (id: string) =>
     j<{
       sessions: Record<string, SessionInfo>;

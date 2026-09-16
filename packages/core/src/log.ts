@@ -9,12 +9,19 @@ export interface Notice {
 }
 
 /**
+ * A call with where it fell in its turn's reply: how much of the reply was
+ * written by then. Deltas are not kept, so this is the only record of it.
+ */
+type Placed<T extends NormalizedEvent["type"]> = Extract<NormalizedEvent, { type: T }> & { at?: number };
+
+/**
  * Backend events plus the two kinds core writes itself. Human lines and
  * membership notices go through the same log as everything else, so a member's
  * catch-up is one range scan over broadcast events.
  */
 export type CoreEvent =
-  | NormalizedEvent
+  | Exclude<NormalizedEvent, { type: "tool.start" | "permission.request" }>
+  | Placed<"tool.start" | "permission.request">
   | { type: "human.text"; display: "message"; text: string; mentions: string[]; attachments?: AttachmentRef[] }
   | { type: "system.notice"; display: "message"; text: string; notice?: Notice };
 

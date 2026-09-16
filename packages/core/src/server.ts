@@ -428,6 +428,13 @@ export function startServer(opts: {
       }
     }
 
+    // read when a step is opened: a steps card only lists its calls
+    const step = route(/^\/api\/conversations\/([^/]+)\/turns\/([^/]+)\/steps\/([^/]+)$/, "GET");
+    if (step?.[1] && step[2] && step[3]) {
+      const detail = store.stepDetail(step[1], decodeURIComponent(step[2]), decodeURIComponent(step[3]));
+      return detail ? json(res, { step: detail }) : json(res, { error: "not found" }, 404);
+    }
+
     // the file's bytes are the body, so a large one never sits in memory as JSON
     const upload = route(/^\/api\/conversations\/([^/]+)\/attachments$/, "POST");
     if (upload?.[1]) {

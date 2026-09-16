@@ -374,7 +374,7 @@ class PiRuntime implements BotRuntime {
           type: "tool.update",
           display: "fold",
           id: String(event["toolCallId"]),
-          chunk: stringify(event["partialResult"]),
+          chunk: resultText(event["partialResult"]),
         });
         return;
       case "tool_execution_end":
@@ -383,7 +383,7 @@ class PiRuntime implements BotRuntime {
           display: "fold",
           id: String(event["toolCallId"]),
           isError: Boolean(event["isError"]),
-          content: stringify(event["result"]),
+          content: resultText(event["result"]),
         });
         return;
       default:
@@ -465,6 +465,19 @@ function stringify(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+/** A tool result as text: its content blocks are what the model reads, its details are not. */
+function resultText(result: unknown): string {
+  const content = (result as { content?: unknown } | null | undefined)?.content;
+  if (!Array.isArray(content)) return stringify(result);
+  return content
+    .map((block: unknown) => {
+      const b = (block ?? {}) as { type?: unknown; text?: unknown };
+      if (b.type === "text" && typeof b.text === "string") return b.text;
+      return b.type === "image" ? "[image]" : stringify(block);
+    })
+    .join("\n");
 }
 
 const endpointOf = (source: ModelSource, words: Words): ProviderConfig => {

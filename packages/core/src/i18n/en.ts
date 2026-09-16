@@ -222,6 +222,7 @@ export const en = {
   "scripted.ranWith": "Ran /{command} with arguments: {args}",
   "scripted.echo": "Got it: {text}",
   "scripted.files": "Got the files you sent",
+  "scripted.lookFirst": "Let me look at the files first.",
 
   "logo.fox": "Fox",
   "logo.puppy": "Puppy",

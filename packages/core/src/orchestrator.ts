@@ -71,6 +71,8 @@ export interface Presence {
   memberId: string;
   state: PresenceState;
   detail?: string;
+  /** the turn being worked on, so the transcript knows which one is still being written */
+  turnId?: string;
 }
 
 type Reason = "done" | "aborted" | "error";
@@ -708,7 +710,8 @@ export class Orchestrator {
           this.#delta(live, gap);
         }
         this.#setPresence(live, "tool", e.call.name);
-        break;
+        this.#event(live, { ...e, at: this.#written(live) });
+        return;
       case "tool.end":
         this.#setPresence(live, "thinking");
         break;
@@ -773,6 +776,11 @@ export class Orchestrator {
     if (!live.gone) this.#chain(live, asks, reason, text);
     this.#sync(live.conversationId);
     if (live.runtime && live.executor) this.#refreshQuota(live.executor, QUOTA_AFTER_TURN_MS);
+  }
+
+  /** How much of its reply the turn has written, counted the way #flush will store it. */
+  #written(live: Live): number {
+    return live.buffer.trimStart().length;
   }
 
   /** Turns the accumulated deltas into the one row that represents what was said. */
@@ -873,7 +881,7 @@ export class Orchestrator {
   }
 
   #askHuman(live: Live, call: ToolCall): Promise<ToolDecision> {
-    this.#event(live, { type: "permission.request", display: "card", call });
+    this.#event(live, { type: "permission.request", display: "card", call, at: this.#written(live) });
     this.#setPresence(live, "waiting_permission", call.name);
     const decided = new Promise<ToolDecision>((resolve) =>
       this.#pending.set(call.id, { conversationId: live.conversationId, memberId: live.memberId, resolve }),
@@ -1051,16 +1059,17 @@ export class Orchestrator {
   }
 
   #setPresence(live: Live, state: PresenceState | null, detail?: string): void {
-    if (live.presence?.state === (state ?? undefined) && live.presence?.detail === detail) return;
-    live.presence = state
-      ? { conversationId: live.conversationId, memberId: live.memberId, state, ...(detail ? { detail } : {}) }
-      : null;
+    const turnId = state && live.turnId ? live.turnId : undefined;
+    const p = live.presence;
+    if (p?.state === (state ?? undefined) && p?.detail === detail && p?.turnId === turnId) return;
+    const extra = { ...(detail ? { detail } : {}), ...(turnId ? { turnId } : {}) };
+    live.presence = state ? { conversationId: live.conversationId, memberId: live.memberId, state, ...extra } : null;
     this.broadcast({
       kind: "presence",
       conversationId: live.conversationId,
       memberId: live.memberId,
       state: state ?? "idle",
-      ...(detail ? { detail } : {}),
+      ...extra,
     });
   }
 

@@ -4,6 +4,7 @@ import type { SessionInfo, SessionSettings, SourceKind } from "@roster/adapter-a
 import { attachmentsPreview, type AttachmentRef } from "./attachments.js";
 import { everyLocale, stored, t } from "./i18n/index.js";
 import { routeOf, type CoreEvent, type Notice } from "./log.js";
+import { foldStep, OUTPUT_MAX, outputText, type StepDetail, type StepEvent, type StepsBody } from "./steps.js";
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
 export type Tier = "read" | "write" | "execute";
@@ -1097,26 +1098,12 @@ export class Store {
         return [msg];
       }
       case "tool.start":
-      case "tool.end": {
-        // one steps card per turn per member, updated in place
-        const card = this.stepsCard(conversationId, memberId, turnId, seq);
-        const body = JSON.parse(card.body_json) as {
-          steps: Array<{ id: string; name: string; effect: string; ok?: boolean }>;
-        };
-        if (event.type === "tool.start") {
-          if (body.steps.some((s) => s.id === event.call.id)) return [];
-          body.steps.push({ id: event.call.id, name: event.call.name, effect: event.call.effect });
-        } else {
-          const step = body.steps.find((s) => s.id === event.id);
-          if (step) step.ok = !event.isError;
-        }
-        this.db
-          .prepare(`UPDATE messages SET body_json = ?, updated_at = ? WHERE id = ?`)
-          .run(JSON.stringify(body), at, card.id);
-        return [this.getMessage(card.id)!];
-      }
+      case "tool.end":
+        return this.#foldStep(conversationId, memberId, turnId, event, seq, at);
       case "permission.request":
         return [
+          // the call gets its step even when the backend asks before announcing it
+          ...this.#foldStep(conversationId, memberId, turnId, event, seq, at),
           this.#insertMessage({
             conversationId,
             seq,
@@ -1163,28 +1150,58 @@ export class Store {
     this.db.prepare(`UPDATE conversations SET preview = ? WHERE id = ?`).run(preview, conversationId);
   }
 
-  private stepsCard(
+  /** One steps card per turn per member, updated in place. */
+  #foldStep(
     conversationId: string,
     memberId: string | null,
     turnId: string | null,
+    event: StepEvent,
     seq: number | null,
-  ): MessageRow {
+    time: number,
+  ): MessageRow[] {
     const existing = this.db
       .prepare(
         `SELECT * FROM messages WHERE conversation_id = ? AND card_kind = 'steps'
            AND turn_id IS ? ORDER BY seq DESC LIMIT 1`,
       )
       .get(conversationId, turnId) as unknown as MessageRow | undefined;
-    if (existing) return existing;
-    return this.#insertMessage({
-      conversationId,
-      seq,
-      turnId,
-      authorKind: "bot",
-      memberId,
-      cardKind: "steps",
-      body: { steps: [] },
-    });
+    if (!existing && event.type === "tool.end") return [];
+    const body: StepsBody = existing ? (JSON.parse(existing.body_json) as StepsBody) : { steps: [] };
+    if (!foldStep(body, event, seq, time)) return [];
+    if (!existing) {
+      return [this.#insertMessage({ conversationId, seq, turnId, authorKind: "bot", memberId, cardKind: "steps", body })];
+    }
+    this.db
+      .prepare(`UPDATE messages SET body_json = ?, updated_at = ? WHERE id = ?`)
+      .run(JSON.stringify(body), time, existing.id);
+    return [this.getMessage(existing.id)!];
+  }
+
+  /** What one call took and returned. The steps card only lists calls; the log has the rest. */
+  stepDetail(conversationId: string, turnId: string, callId: string): StepDetail | null {
+    const rows = this.db
+      .prepare(
+        `SELECT payload_json, created_at FROM events
+          WHERE turn_id = ? AND conversation_id = ? AND type IN ('tool.start', 'tool.end', 'permission.request')
+          ORDER BY seq`,
+      )
+      .all(turnId, conversationId) as unknown as Array<{ payload_json: string; created_at: number }>;
+    let detail: StepDetail | null = null;
+    for (const r of rows) {
+      const e = JSON.parse(r.payload_json) as StepEvent;
+      if (e.type !== "tool.end") {
+        if (!detail && e.call.id === callId) {
+          detail = { id: callId, name: e.call.name, effect: e.call.effect, input: e.call.input, startedAt: r.created_at };
+        }
+      } else if (detail && e.id === callId) {
+        const output = outputText(e.content);
+        detail.output = output.slice(0, OUTPUT_MAX);
+        if (output.length > OUTPUT_MAX) detail.size = output.length;
+        detail.isError = e.isError;
+        detail.endedAt = r.created_at;
+      }
+    }
+    return detail;
   }
 
   getMessage(id: string): MessageRow | undefined {
