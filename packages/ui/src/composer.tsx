@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
+  ArrowUp,
   AtSign,
+  CircleAlert,
   Gauge,
   Layers,
   Paperclip,
   PencilLine,
-  SendHorizonal,
+  Plus,
   ShieldCheck,
   Shrink,
   Slash,
   Sparkles,
   Square,
-  UserPlus,
   Users,
   X,
   type LucideIcon,
@@ -21,6 +22,7 @@ import {
   api,
   type Bot,
   type Conversation,
+  type Member,
   type Message,
   type Quota,
   type Quote,
@@ -29,29 +31,29 @@ import {
   type SlashCommand,
 } from "./api";
 import { fitImage, isImage, MAX_BYTES, MAX_FILES, PendingTray, type Pending } from "./attachments";
-import { BotAvatar } from "./bot-avatar";
+import { BotAvatar, LogoImage, logoOf, useLogos } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
-import { ALL_ALIASES, recipientLabel } from "./mentions";
-import { SessionBar, type Picker, type PickerRequest } from "./session-bar";
-import { Button } from "@/components/ui/button";
+import { MentionTextarea } from "./mention-textarea";
+import { ALL_ALIASES, recipients } from "./mentions";
+import { PILL, SessionPickers, SessionUsage, type Picker, type PickerRequest } from "./session-controls";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type Action = { kind: "action"; name: string; label: string; icon: LucideIcon; run: () => void };
 
-type Suggestion =
-  | { kind: "member"; bot: Bot }
-  | { kind: "all" }
-  | { kind: "invite"; bot: Bot }
-  | Action
-  | { kind: "command"; command: SlashCommand };
+type Suggestion = { kind: "member"; bot: Bot } | { kind: "all" } | Action | { kind: "command"; command: SlashCommand };
 
 /** What is being typed right before the caret that a list can finish. */
 type Trigger = { type: "@" | "/"; query: string; start: number };
 
 /** Roster's own commands; a backend's command of the same name is left out, so one name does one thing. */
 const OWN = new Set(["attach", "model", "effort", "mode", "compact", "context", "rename", "stop"]);
+
+/** The send and stop buttons: round, so the one thing that fires stands apart from the pills beside it. */
+const ROUND =
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50";
 
 /** The @ being typed right before the caret, if any. */
 function mentionAt(value: string, caret: number): Trigger | null {
@@ -80,7 +82,6 @@ export interface ComposerHandle {
 
 export function Composer({
   conv,
-  bots,
   sessions,
   sessionOptions,
   quota,
@@ -94,7 +95,6 @@ export function Composer({
   onRename,
 }: {
   conv: Conversation;
-  bots: Bot[];
   sessions: Record<string, SessionInfo>;
   sessionOptions: Record<string, SessionOptions>;
   quota: Record<string, Quota | null>;
@@ -128,9 +128,14 @@ export function Composer({
   const members = activeMembers(conv);
   const group = conv.shape === "group";
   const running = conv.run_state === "running";
-  const solo = group ? undefined : members[0];
+  const to = group ? recipients(i18n, conv, draft, messages) : null;
+  // the session the toolbar switches is the one the message goes to, so a group sending to one member reads like a direct conversation
+  const solo = to ? (to.members.length === 1 ? to.members[0] : undefined) : members[0];
   const info = solo ? sessions[solo.id] : undefined;
   const choices = solo ? sessionOptions[solo.id] : undefined;
+  // sent to several, the ring shows whichever is nearest its limit, the way it shows a plan's tightest window
+  const percentOf = (m: Member) => sessions[m.id]?.context?.percent ?? -1;
+  const gauge = solo ?? to?.members.filter((m) => percentOf(m) >= 0).sort((a, b) => percentOf(b) - percentOf(a))[0];
 
   // an upload belongs to the conversation it went to; one never sent goes when the composer does
   useEffect(
@@ -251,6 +256,7 @@ export function Composer({
     });
   };
 
+  const focusInput = () => inputRef.current?.focus();
   const openPicker = (p: Picker) => setPicker((r) => ({ picker: p, nonce: (r?.nonce ?? 0) + 1 }));
   const run = async (call: () => Promise<{ error?: string }>) => {
     const r = await call().catch((e: unknown) => ({ error: String(e) }));
@@ -266,12 +272,12 @@ export function Composer({
     ...(solo && choices?.compact && !running
       ? [action("compact", t("composer.action.compact"), Shrink, () => void run(() => api.compact(conv.id, solo.id)))]
       : []),
-    ...(solo && info?.context ? [action("context", t("composer.action.context"), Layers, () => openPicker("context"))] : []),
+    ...(gauge && sessions[gauge.id]?.context ? [action("context", t("composer.action.context"), Layers, () => openPicker("context"))] : []),
     action("rename", t("composer.action.rename"), PencilLine, onRename),
     ...(running ? [action("stop", t("composer.action.stop"), Square, () => void api.abort(conv.id))] : []),
   ];
   // a group wraps what you type in its transcript, where no backend would see the slash
-  const commands = solo ? (info?.commands ?? choices?.commands ?? []).filter((c) => !OWN.has(c.name)) : [];
+  const commands = group ? [] : (info?.commands ?? choices?.commands ?? []).filter((c) => !OWN.has(c.name));
 
   const suggestions: Suggestion[] = (() => {
     if (!menu) return [];
@@ -288,20 +294,18 @@ export function Composer({
       ];
     }
     const hit = (b: Bot) => b.name.toLowerCase().includes(q) || (b.title ?? "").toLowerCase().includes(q);
-    const inGroup = new Set(members.map((m) => m.bot.id));
+    // only who is here: bringing someone in is the members panel's job
     return [
       ...members.filter((m) => hit(m.bot)).map((m): Suggestion => ({ kind: "member", bot: m.bot })),
       ...(members.length > 1 && (t("composer.everyone").includes(q) || ALL_ALIASES.some((a) => a.startsWith(q)))
         ? [{ kind: "all" } as Suggestion]
         : []),
-      // Grok-style: @ someone who is not here yet and they join
-      ...bots.filter((b) => !inGroup.has(b.id) && hit(b)).map((b): Suggestion => ({ kind: "invite", bot: b })),
     ];
   })();
   const index = menu ? Math.min(menu.index, suggestions.length - 1) : 0;
 
   /** Enter runs what it can run as it is; Tab only fills it in. */
-  const pick = async (s: Suggestion, go: boolean) => {
+  const pick = (s: Suggestion, go: boolean) => {
     if (!menu) return;
     const caret = inputRef.current?.selectionStart ?? draft.length;
     const rest = draft.slice(caret).replace(/^\s+/, "");
@@ -319,10 +323,6 @@ export function Composer({
     }
     const name = s.kind === "all" ? t("composer.everyone") : s.bot.name;
     place(`${draft.slice(0, menu.start)}@${name} ${draft.slice(caret)}`, menu.start + name.length + 2);
-    if (s.kind === "invite") {
-      const r = await api.addMember(conv.id, s.bot.id);
-      setError(r.error ?? null);
-    }
   };
 
   const insert = (trigger: "@" | "/") => {
@@ -339,11 +339,8 @@ export function Composer({
     const m = /^\/(\S+) $/.exec(draft);
     return m ? commands.find((c) => c.name === m[1]) : undefined;
   })();
-  const hint = typed?.hint
-    ? `/${typed.name} ${typed.hint}${typed.description ? ` · ${typed.description}` : ""}`
-    : group
-      ? t("composer.hintGroup", { recipients: recipientLabel(i18n, conv, draft, messages) })
-      : t("composer.hintDirect");
+  // with nothing new to send, the button stops the turn instead
+  const stoppable = running && !draft.trim() && ready.length === 0;
 
   return (
     <footer className="shrink-0 px-5 pt-2.5 pb-4">
@@ -355,11 +352,12 @@ export function Composer({
             wide={menu.type === "/"}
             commandsLabel={solo ? t("composer.commandsOf", { name: executor(solo.executor_id).label }) : t("composer.commands")}
             memberCount={members.length}
-            onPick={(s) => void pick(s, true)}
+            onPick={(s) => pick(s, true)}
             onHover={(i) => setMenu({ ...menu, index: i })}
           />
         )}
-        <div className="bg-background focus-within:border-ring/60 rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-colors">
+        {/* a container, so the toolbar can drop labels before it runs out of room */}
+        <div className="bg-background has-[textarea:focus]:border-ring/50 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-colors">
           {quote && (
             <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
               <span className="bg-border mt-0.5 w-0.5 shrink-0 self-stretch rounded-full" />
@@ -385,7 +383,9 @@ export function Composer({
             </div>
           )}
           {pending.length > 0 && <PendingTray items={pending} onRemove={remove} />}
-          <textarea
+          <MentionTextarea
+            // the names the transcript marks, so a mention looks the same before it is sent as after
+            names={conv.members.map((m) => m.bot.name)}
             ref={inputRef}
             value={draft}
             rows={1}
@@ -414,7 +414,7 @@ export function Composer({
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
                   e.preventDefault();
-                  void pick(suggestions[index]!, e.key === "Enter");
+                  pick(suggestions[index]!, e.key === "Enter");
                   return;
                 }
                 if (e.key === "Escape") {
@@ -437,36 +437,114 @@ export function Composer({
                   ? t("composer.placeholderGroup")
                   : t("composer.placeholderDirect", { name: members[0]?.bot.name ?? "" })
             }
-            className="placeholder:text-muted-foreground block max-h-60 min-h-12 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-message leading-relaxed outline-none field-sizing-content"
+            className="placeholder:text-muted-foreground block max-h-60 min-h-13 w-full resize-none bg-transparent px-4 pt-3 pb-1.5 text-message leading-relaxed outline-none field-sizing-content"
           />
-          <div className="flex items-center gap-0.5 px-2 pb-2">
-            <Tool label={t("composer.action.attach")} onClick={() => fileInput.current?.click()}>
-              <Paperclip />
-            </Tool>
-            <Tool label={group ? t("composer.mention") : t("composer.mentionInvite")} onClick={() => insert("@")}>
-              <AtSign />
-            </Tool>
-            <Tool label={t("composer.commands")} onClick={() => insert("/")}>
-              <Slash />
-            </Tool>
-            <span className={cn("min-w-0 flex-1 truncate px-1.5 text-[11px]", error ? "text-destructive" : "text-muted-foreground")}>
-              {error ?? hint}
-            </span>
-            {running && !draft.trim() && ready.length === 0 ? (
-              <Button size="icon" variant="secondary" className="size-8 rounded-lg" title={t("composer.action.stop")} onClick={() => void api.abort(conv.id)}>
-                <Square className="size-3 fill-current" />
-              </Button>
-            ) : (
-              <Button
-                size="icon"
-                className="size-8 rounded-lg"
-                title={uploading ? t("composer.uploading") : t("composer.send")}
-                onClick={() => void submit(draft)}
-                disabled={!canSend}
-              >
-                <SendHorizonal className="size-4" />
-              </Button>
-            )}
+          {/* only while there is something to say: a failure, or how the command just typed is used */}
+          {(error || typed?.hint) && (
+            <div className={cn("flex min-w-0 items-center gap-1.5 px-4 pb-1 text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+              {error ? (
+                <>
+                  <CircleAlert className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate" title={error}>
+                    {error}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("composer.dismiss")}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setError(null)}
+                    className="hover:bg-destructive/10 -mr-1 shrink-0 rounded p-0.5"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </>
+              ) : (
+                typed && (
+                  <span className="min-w-0 truncate">
+                    <span className="text-foreground/80 font-mono">
+                      /{typed.name} {typed.hint}
+                    </span>
+                    {typed.description && ` · ${typed.description}`}
+                  </span>
+                )
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-2 pb-2">
+            <div className="flex min-w-0 flex-1 items-center gap-0.5">
+              <AddMenu group={group} onAttach={() => fileInput.current?.click()} onInsert={insert} onClosed={focusInput} />
+              {to && (
+                <Recipients
+                  members={to.members}
+                  label={to.label}
+                  hint={`${t(`mode.${conv.mode}`)} · ${t(`mode.${conv.mode}.hint`)}`}
+                  onClick={() => insert("@")}
+                />
+              )}
+              <SessionPickers
+                // a level shown as picked before the session reports it belongs to that member alone
+                key={solo?.id}
+                conversationId={conv.id}
+                member={solo}
+                info={info}
+                choices={choices}
+                request={picker}
+                onError={setError}
+                onClosed={focusInput}
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <SessionUsage
+                conv={conv}
+                member={gauge}
+                info={gauge && sessions[gauge.id]}
+                choices={gauge && sessionOptions[gauge.id]}
+                quota={quota}
+                request={picker}
+                onError={setError}
+              />
+              {stoppable ? (
+                <Tooltip delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("composer.action.stop")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void api.abort(conv.id)}
+                      className={cn(ROUND, "bg-primary text-primary-foreground hover:bg-primary/90")}
+                    >
+                      <Square className="size-3 fill-current" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6}>
+                    {t("composer.action.stop")}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Tooltip delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={uploading ? t("composer.uploading") : t("composer.send")}
+                      disabled={!canSend}
+                      // mousedown, so the caret stays in the textarea for the next message
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void submit(draft)}
+                      className={cn(
+                        ROUND,
+                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                        "disabled:bg-muted-foreground/30 disabled:text-background disabled:pointer-events-none",
+                      )}
+                    >
+                      <ArrowUp className="size-4" strokeWidth={2.5} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6}>
+                    {t("composer.sendHint")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
         </div>
         <input
@@ -482,29 +560,88 @@ export function Composer({
           }}
         />
       </div>
-      <SessionBar conv={conv} sessions={sessions} options={sessionOptions} quota={quota} request={picker} />
     </footer>
   );
 }
 
-function Tool({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+/** What can go into a message besides text, behind one button; each also has a key of its own. */
+function AddMenu({
+  group,
+  onAttach,
+  onInsert,
+  onClosed,
+}: {
+  group: boolean;
+  onAttach: () => void;
+  onInsert: (trigger: "@" | "/") => void;
+  onClosed: () => void;
+}) {
+  const { t } = useI18n();
+  const rows: Array<{ icon: LucideIcon; label: string; key?: string; run: () => void }> = [
+    { icon: Paperclip, label: t("composer.action.attach"), run: onAttach },
+    // a direct conversation has no one else to @
+    ...(group ? [{ icon: AtSign, label: t("composer.mention"), key: "@", run: () => onInsert("@") }] : []),
+    { icon: Slash, label: t("composer.commands"), key: "/", run: () => onInsert("/") },
+  ];
   return (
-    <Tooltip>
+    <DropdownMenu>
+      <DropdownMenuTrigger className={cn(PILL, "w-8 justify-center px-0")} aria-label={t("composer.add")}>
+        <Plus className="size-[18px]" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        className="min-w-52 rounded-xl p-1.5"
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          onClosed();
+        }}
+      >
+        {rows.map((r) => (
+          <DropdownMenuItem key={r.label} onSelect={r.run} className="gap-2.5 rounded-lg px-2.5 py-2">
+            <r.icon />
+            <span className="flex-1">{r.label}</span>
+            {r.key && (
+              <kbd className="bg-muted text-muted-foreground min-w-5 rounded-md px-1 py-px text-center font-mono text-xs">{r.key}</kbd>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Who a group message goes to if sent now; clicking starts an @ to pick someone else. */
+function Recipients({ members, label, hint, onClick }: { members: Member[]; label: string; hint: string; onClick: () => void }) {
+  const { t } = useI18n();
+  const logos = useLogos();
+  return (
+    <Tooltip delayDuration={700}>
       <TooltipTrigger asChild>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={label}
-          className="text-muted-foreground hover:text-foreground size-8 rounded-lg [&_svg]:size-4"
-          // mousedown, so the textarea keeps its caret for what the button inserts
+          // who it goes to keeps its name when the toolbar runs short; the model beside it gives way instead
+          className={cn(PILL, "max-w-60 shrink-0")}
+          // mousedown, so the @ lands where the caret was
           onMouseDown={(e) => e.preventDefault()}
           onClick={onClick}
         >
-          {children}
-        </Button>
+          <span className="shrink-0">{t("composer.to")}</span>
+          {members.length > 0 && (
+            <span className="flex shrink-0 -space-x-1">
+              {members.slice(0, 3).map((m) => (
+                <LogoImage key={m.id} logo={logoOf(m.bot, logos)} className="ring-background size-4 ring-2" />
+              ))}
+            </span>
+          )}
+          <span className="text-foreground truncate">{label}</span>
+        </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
+      <TooltipContent side="top" sideOffset={6} className="max-w-72">
+        {hint}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -537,7 +674,6 @@ function SuggestionList({
 
   const headerOf = (s: Suggestion, prev: Suggestion | undefined) => {
     if (s.kind === prev?.kind) return null;
-    if (s.kind === "invite") return t("composer.invite");
     if (s.kind === "action") return t("composer.conversation");
     if (s.kind === "command") return commandsLabel;
     return null;
@@ -594,7 +730,6 @@ function SuggestionList({
                     {/* a head count here would read as the member count, which now counts you too */}
                     {s.kind === "all" ? t("composer.everyoneReplies", { count: memberCount }) : s.bot.title}
                   </span>
-                  {s.kind === "invite" && <UserPlus className="text-muted-foreground size-3.5" />}
                 </>
               )}
             </button>

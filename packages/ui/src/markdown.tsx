@@ -9,8 +9,11 @@ import { segments } from "./mentions";
 /** Member names in the current conversation, so @name renders as an address. */
 export const MentionNames = createContext<readonly string[]>([]);
 
+/** How a mention is marked, in a message and in the composer. */
+export const MENTION = "rounded bg-sky-500/10 text-sky-700 dark:text-sky-300";
+
 export function MentionChip({ children }: { children: React.ReactNode }) {
-  return <span className="rounded bg-sky-500/10 px-0.5 font-medium text-sky-700 dark:text-sky-300">{children}</span>;
+  return <span className={cn(MENTION, "px-0.5 font-medium")}>{children}</span>;
 }
 
 /** Highlights mentions in the plain-string children of a block; everything else passes through. */

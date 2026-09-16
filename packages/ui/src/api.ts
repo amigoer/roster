@@ -337,8 +337,23 @@ export interface Step {
   error?: string;
 }
 
+/** A stretch of thinking, listed where it fell among the calls; what it said is read with api.thought. */
+export interface Thought {
+  kind: "thought";
+  id: string;
+  /** its first line, once it is done */
+  title?: string;
+  /** how much of the turn's reply was written when it began */
+  at: number;
+  startedAt: number;
+  endedAt?: number;
+}
+
+export const isThought = (s: Step | Thought): s is Thought => (s as Thought).kind === "thought";
+
 export interface StepsBody {
-  steps: Step[];
+  /** calls and thoughts, in the order they began */
+  steps: Array<Step | Thought>;
   /** the seq of the latest event the card folded in */
   last?: number;
 }
@@ -355,6 +370,14 @@ export interface StepDetail {
   isError?: boolean;
   startedAt: number;
   endedAt?: number;
+}
+
+/** Everything a finished thought said. */
+export interface ThoughtDetail {
+  id: string;
+  text: string;
+  startedAt: number;
+  endedAt: number;
 }
 
 /** The passage a message replies to, carried with it rather than pasted into it. */
@@ -466,6 +489,7 @@ export interface Presence {
 export type ServerMsg =
   | { kind: "message"; conversationId: string; message: Message }
   | { kind: "delta"; conversationId: string; memberId: string; text: string }
+  | { kind: "thinking"; conversationId: string; memberId: string; id: string; text: string }
   | { kind: "conversations"; conversations: Conversation[] }
   | { kind: "bots"; bots: Bot[] }
   | { kind: "session"; conversationId: string; memberId: string; info: SessionInfo }
@@ -561,11 +585,20 @@ export const api = {
   deleteBot: (id: string) => j<{ ok: boolean }>(`/api/bots/${id}`, { method: "DELETE" }),
 
   messages: (id: string) =>
-    j<{ messages: Message[]; streams: Record<string, string> }>(`/api/conversations/${id}/messages`),
+    j<{
+      messages: Message[];
+      streams: Record<string, string>;
+      /** by thought id, for the thoughts still coming in */
+      thoughts?: Record<string, string>;
+    }>(`/api/conversations/${id}/messages`),
   step: (id: string, turnId: string, callId: string) =>
     j<{ step?: StepDetail }>(
       `/api/conversations/${id}/turns/${encodeURIComponent(turnId)}/steps/${encodeURIComponent(callId)}`,
     ).then((r) => r.step ?? null),
+  thought: (id: string, turnId: string, thoughtId: string) =>
+    j<{ thought?: ThoughtDetail }>(
+      `/api/conversations/${id}/turns/${encodeURIComponent(turnId)}/thoughts/${encodeURIComponent(thoughtId)}`,
+    ).then((r) => r.thought ?? null),
   status: (id: string) =>
     j<{
       sessions: Record<string, SessionInfo>;

@@ -284,15 +284,16 @@ function PermissionCard({
 }
 
 /**
- * One bot turn in the order it happened: what it wrote, the calls it made in
- * between, and whatever it is waiting on the human for. An answered permission
- * request folds into the call it was about.
+ * One bot turn in the order it happened: what it wrote, the calls it made and
+ * the thinking in between, and whatever it is waiting on the human for. An
+ * answered permission request folds into the call it was about.
  */
 export function TurnView({
   conversationId,
   turn,
   live,
   stream,
+  thinking,
   author,
   group,
   onQuote,
@@ -303,6 +304,8 @@ export function TurnView({
   live: boolean;
   /** the reply so far, while the turn is being written */
   stream?: string;
+  /** what each thought still coming in has said so far, by thought */
+  thinking: Readonly<Record<string, string>>;
   author?: Member;
   group: boolean;
   onQuote?: (quote: Quote) => void;
@@ -330,6 +333,7 @@ export function TurnView({
                 turnId={turn.id}
                 steps={part.steps}
                 live={live}
+                thinking={thinking}
                 decisions={decisions}
                 root={root}
               />

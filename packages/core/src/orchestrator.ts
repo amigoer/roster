@@ -86,6 +86,8 @@ interface Live {
   turnId: string | null;
   /** deltas are not rows; the finalized text is written when the turn ends */
   buffer: string;
+  /** the thinking still coming in, written whole once anything else happens in the turn */
+  thought: { id: string; at: number; startedAt: number; text: string } | null;
   asks: Set<Ask>;
   /** asks that arrived mid-turn; together they become the next turn */
   queued: Set<Ask>;
@@ -285,7 +287,7 @@ export class Orchestrator {
     if (live.running) throw new Error(t("error.compact.busy"));
 
     const turnId = randomUUID();
-    Object.assign(live, { running: true, asks: new Set(), turnId, buffer: "", aborted: false, errored: false });
+    Object.assign(live, { running: true, asks: new Set(), turnId, buffer: "", thought: null, aborted: false, errored: false });
     this.#setPresence(live, "compacting");
     this.#sync(conversationId);
     setImmediate(() => {
@@ -323,6 +325,13 @@ export class Orchestrator {
       this.#livesOf(conversationId)
         .filter((l) => l.running && l.buffer)
         .map((l) => [l.memberId, l.buffer]),
+    );
+  }
+
+  /** Thinking mid-stream right now, by thought, for the same reason. */
+  thoughts(conversationId: string): Record<string, string> {
+    return Object.fromEntries(
+      this.#livesOf(conversationId).flatMap((l) => (l.running && l.thought ? [[l.thought.id, l.thought.text]] : [])),
     );
   }
 
@@ -571,6 +580,7 @@ export class Orchestrator {
         running: false,
         turnId: null,
         buffer: "",
+        thought: null,
         asks: new Set(),
         queued: new Set(),
         aborted: false,
@@ -600,7 +610,7 @@ export class Orchestrator {
       g.failed = false;
     }
     const turnId = randomUUID();
-    Object.assign(live, { running: true, asks, turnId, buffer: "", aborted: false, errored: false });
+    Object.assign(live, { running: true, asks, turnId, buffer: "", thought: null, aborted: false, errored: false });
     this.#setPresence(live, live.runtime ? "thinking" : "starting");
     // off the current stack: this can be called from inside a backend's own
     // event dispatch, which is still unwinding the turn that just ended
@@ -699,6 +709,8 @@ export class Orchestrator {
 
   #onEvent(live: Live, e: NormalizedEvent): void {
     if (live.gone) return;
+    // a thought is over once the turn does anything else; a readout of the session is not the turn doing something
+    if (e.type !== "assistant.thinking" && e.type !== "session.info" && e.type !== "cost") this.#settle(live);
     switch (e.type) {
       case "assistant.text":
         if (e.final) break;
@@ -706,6 +718,7 @@ export class Orchestrator {
         this.#delta(live, e.delta);
         return;
       case "assistant.thinking":
+        this.#think(live, e.delta);
         this.#setPresence(live, "thinking");
         return;
       case "tool.start":
@@ -762,6 +775,7 @@ export class Orchestrator {
 
   #finish(live: Live, reason: Reason): void {
     if (!live.running) return;
+    this.#settle(live);
     const text = this.#flush(live);
     this.#releaseLease(live);
     const token = live.runtime?.resumeToken;
@@ -795,6 +809,34 @@ export class Orchestrator {
     live.buffer = "";
     if (text) this.#event(live, { type: "assistant.text", display: "message", delta: text, final: true });
     return text;
+  }
+
+  /** Streams thinking as it comes; the thought gets its row in the steps card with its first words. */
+  #think(live: Live, delta: string): void {
+    // a backend that hides its thinking still sends the blocks, with nothing in them
+    if (!live.running || (!live.thought && !delta.trim())) return;
+    if (!live.thought) {
+      live.thought = { id: randomUUID(), at: this.#written(live), startedAt: Date.now(), text: "" };
+      const { id, at, startedAt } = live.thought;
+      this.#event(live, { type: "assistant.thinking", display: "fold", id, at, startedAt, delta: "" });
+    }
+    live.thought.text += delta;
+    this.broadcast({
+      kind: "thinking",
+      conversationId: live.conversationId,
+      memberId: live.memberId,
+      id: live.thought.id,
+      text: delta,
+    });
+  }
+
+  /** Writes the thought that just ended, whole: its words to the log, its end to the steps card. */
+  #settle(live: Live): void {
+    const thought = live.thought;
+    if (!thought) return;
+    live.thought = null;
+    const { text, ...rest } = thought;
+    this.#event(live, { type: "assistant.thinking", display: "fold", ...rest, delta: text.trim(), final: true });
   }
 
   /** Leader mode's loop: the leader dispatches with @, reports come back, it decides again. */
@@ -848,6 +890,8 @@ export class Orchestrator {
    */
   async #gate(live: Live, call: ToolCall): Promise<ToolDecision> {
     if (live.gone || live.aborted) return { action: "deny", reason: t("deny.halted"), terminate: true };
+    // a backend can ask about a call before announcing it; the thinking that led to it is over either way
+    this.#settle(live);
     const conv = this.store.getConversation(live.conversationId);
     const member = this.store.getMember(live.memberId);
     const bot = member && this.store.getBot(member.bot_id);

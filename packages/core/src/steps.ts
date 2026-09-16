@@ -17,8 +17,21 @@ export interface Step {
   error?: string;
 }
 
+/** A stretch of thinking, listed where it fell among the calls. What it said stays in the log. */
+export interface Thought {
+  kind: "thought";
+  id: string;
+  /** its first line, once it is done */
+  title?: string;
+  /** how much of the turn's reply was written when it began */
+  at: number;
+  startedAt: number;
+  endedAt?: number;
+}
+
 export interface StepsBody {
-  steps: Step[];
+  /** calls and thoughts, in the order they began */
+  steps: Array<Step | Thought>;
   /** the seq of the latest event folded in, so a turn that ends without a reply still sorts where it ended */
   last?: number;
 }
@@ -37,7 +50,17 @@ export interface StepDetail {
   endedAt?: number;
 }
 
-export type StepEvent = Extract<CoreEvent, { type: "tool.start" | "tool.end" | "permission.request" }>;
+/** Everything a thought said, read back from the log. */
+export interface ThoughtDetail {
+  id: string;
+  text: string;
+  startedAt: number;
+  endedAt: number;
+}
+
+export type StepEvent = Extract<CoreEvent, { type: "tool.start" | "tool.end" | "permission.request" | "assistant.thinking" }>;
+
+export const isThought = (s: Step | Thought): s is Thought => (s as Thought).kind === "thought";
 
 const TITLE_MAX = 160;
 
@@ -97,10 +120,31 @@ function errorOf(content: string): string | undefined {
   return lineOf(last && /\bexit(ed)?\b.*\bcode\b/i.test(last) ? last : lines[0]);
 }
 
-/** Folds one call event into a turn's steps; false when it changes nothing. */
+/** A summary opens with its gist, often as a bold line; the markup is no part of the title. */
+function thoughtTitle(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find(Boolean);
+  return line && lineOf(line.replace(/^#+\s*/, "").replace(/^(\*\*|__)(.+)\1$/, "$2"));
+}
+
+/** Folds one call or thought event into a turn's steps; false when it changes nothing. */
 export function foldStep(body: StepsBody, event: StepEvent, seq: number | null, time: number): boolean {
-  if (event.type === "tool.end") {
-    const step = body.steps.find((s) => s.id === event.id);
+  if (event.type === "assistant.thinking") {
+    let thought = body.steps.find((s): s is Thought => isThought(s) && s.id === event.id);
+    if (thought && !event.final) return false;
+    if (!thought) {
+      thought = { kind: "thought", id: event.id, at: event.at, startedAt: event.startedAt };
+      body.steps.push(thought);
+    }
+    if (event.final) {
+      thought.endedAt = time;
+      const title = thoughtTitle(event.delta);
+      if (title) thought.title = title;
+    }
+  } else if (event.type === "tool.end") {
+    const step = body.steps.find((s): s is Step => !isThought(s) && s.id === event.id);
     if (!step) return false;
     step.ok = !event.isError;
     step.endedAt = time;

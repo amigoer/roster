@@ -1,5 +1,6 @@
-import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Brain,
   Check,
   ChevronRight,
   Circle,
@@ -13,9 +14,10 @@ import {
   ShieldX,
   X,
 } from "lucide-react";
-import { api, type Step, type StepDetail } from "./api";
+import { api, isThought, type Step, type StepDetail, type Thought, type ThoughtDetail } from "./api";
 import { CopyIcon, useCopy } from "./copy";
 import { useI18n, type Translate } from "./i18n";
+import { Markdown } from "./markdown";
 import { cn } from "@/lib/utils";
 
 /** How the human answered each call they were asked about, by call id: pending, allowed, denied or expired. */
@@ -61,50 +63,78 @@ function toolNames(steps: Step[]): string {
   return ranked.length > 3 ? `${named.join(" · ")} …` : named.join(" · ");
 }
 
+/** The bold or heading marks a summary line opens with are no part of what it says. */
+const plain = (line: string) => line.replace(/^#+\s*/, "").replace(/^(\*\*|__)/, "").replace(/(\*\*|__)$/, "");
+
+/** The line a thought is on as it streams, so a folded row still shows it moving. */
+function lastLine(text: string | undefined): string | undefined {
+  const line = text
+    ?.split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1);
+  return line && plain(line);
+}
+
 /**
- * Consecutive calls fold under one line saying how many, which tools and how
- * long; a lone call is its own row, since a header over it would only say "1".
+ * Consecutive calls and thoughts fold under one line saying how many, which
+ * tools and how long; a lone one is its own row, since a header over it would only say "1".
  */
 export function StepsGroup({
   conversationId,
   turnId,
   steps,
   live,
+  thinking,
   decisions,
   root,
 }: {
   conversationId: string;
   turnId: string;
-  steps: Step[];
+  steps: Array<Step | Thought>;
   /** the turn is still being written, so a call with no result yet is running rather than cut off */
   live: boolean;
+  /** what each thought still coming in has said so far, by thought */
+  thinking: Readonly<Record<string, string>>;
   decisions: Decisions;
   root: string;
 }) {
   const [open, setOpen] = useState(false);
   const { t } = useI18n();
-  const item = (s: Step) => (
-    <StepItem
-      key={s.id}
-      conversationId={conversationId}
-      turnId={turnId}
-      step={s}
-      live={live}
-      decision={decisions.get(s.id)}
-      root={root}
-    />
-  );
+  const item = (s: Step | Thought) =>
+    isThought(s) ? (
+      <ThoughtItem key={s.id} conversationId={conversationId} turnId={turnId} thought={s} live={live} text={thinking[s.id]} />
+    ) : (
+      <StepItem
+        key={s.id}
+        conversationId={conversationId}
+        turnId={turnId}
+        step={s}
+        live={live}
+        decision={decisions.get(s.id)}
+        root={root}
+      />
+    );
   if (steps.length === 1) return item(steps[0]!);
 
-  const running = live ? steps.find((s) => s.ok === undefined) : undefined;
+  const calls = steps.filter((s): s is Step => !isThought(s));
+  const running = live ? steps.find((s) => (isThought(s) ? s.endedAt === undefined : s.ok === undefined)) : undefined;
   const asking = running !== undefined && decisions.get(running.id) === "pending";
-  const failed = steps.filter((s) => s.ok === false).length;
+  const failed = calls.filter((s) => s.ok === false).length;
   const start = Math.min(...steps.map((s) => s.startedAt ?? Infinity));
   const end = steps.every((s) => s.endedAt !== undefined) ? Math.max(...steps.map((s) => s.endedAt ?? 0)) : undefined;
+  // thoughts are counted apart, so the count of calls still says how much was run
+  const counts = [
+    calls.length > 0 && t("steps.count", { count: calls.length }),
+    calls.length < steps.length && t("steps.thoughts", { count: steps.length - calls.length }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const meta = [
-    running ? t("steps.count", { count: steps.length }) : toolNames(steps),
+    running ? counts : calls.length > 0 && toolNames(calls),
     end !== undefined && Number.isFinite(start) ? duration(t, end - start) : null,
   ].filter(Boolean);
+  const thought = running && isThought(running) ? lastLine(thinking[running.id]) : undefined;
   return (
     <div className="min-w-0">
       <button
@@ -121,12 +151,19 @@ export function StepsGroup({
           ))}
         <span className="min-w-0 truncate">
           {running ? (
-            <>
-              <span className="font-mono text-xs">{toolLabel(running.name)}</span>
-              {running.title && ` ${relative(running.title, root)}`}
-            </>
+            isThought(running) ? (
+              <>
+                {t("steps.thinking")}
+                {thought && ` ${thought}`}
+              </>
+            ) : (
+              <>
+                <span className="font-mono text-xs">{toolLabel(running.name)}</span>
+                {running.title && ` ${relative(running.title, root)}`}
+              </>
+            )
           ) : (
-            t("steps.count", { count: steps.length })
+            counts
           )}
         </span>
         <span className="shrink-0 whitespace-nowrap">{meta.map((m) => ` · ${m}`)}</span>
@@ -220,33 +257,166 @@ const StepItem = memo(function StepItem({
   );
 });
 
+const ThoughtItem = memo(function ThoughtItem({
+  conversationId,
+  turnId,
+  thought,
+  live,
+  text,
+}: {
+  conversationId: string;
+  turnId: string;
+  thought: Thought;
+  live: boolean;
+  /** what it has said so far, while it is still coming in */
+  text: string | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const { t } = useI18n();
+  const running = live && thought.endedAt === undefined;
+  const now = useNow(running);
+  const end = thought.endedAt ?? (running ? now : undefined);
+  // while it streams, the line it is on; once done, the line it opened with
+  const title = running ? lastLine(text) : thought.title;
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "hover:bg-accent -ml-1.5 flex w-[calc(100%+0.375rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors",
+          open && "bg-accent/70",
+        )}
+      >
+        {running ? (
+          <LoaderCircle className="text-muted-foreground size-3.5 shrink-0 animate-spin" />
+        ) : thought.endedAt === undefined ? (
+          <span title={t("steps.unfinished")} className="shrink-0">
+            <Minus className="text-muted-foreground/60 size-3.5" />
+          </span>
+        ) : (
+          <Brain className="text-muted-foreground size-3.5 shrink-0" />
+        )}
+        <span className="text-muted-foreground shrink-0 text-xs">{t("steps.thinking")}</span>
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {end !== undefined && (
+          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{duration(t, end - thought.startedAt)}</span>
+        )}
+      </button>
+      {open && <ThoughtBody conversationId={conversationId} turnId={turnId} thought={thought} running={running} text={text} />}
+    </div>
+  );
+});
+
+/** Reads what a key names once, keeping the most recently read few; a null key reads nothing yet. */
+function useCached<T>(cache: Map<string, Promise<T | null>>, key: string | null, read: () => Promise<T | null>): T | null | undefined {
+  const [got, setGot] = useState<{ key: string; value: T | null }>();
+  // the key names everything read needs, so it is the only dependency
+  useEffect(() => {
+    if (key === null) return;
+    let alive = true;
+    let pending = cache.get(key);
+    if (!pending) {
+      pending = read().catch(() => {
+        cache.delete(key);
+        return null;
+      });
+      cache.set(key, pending);
+      const oldest = cache.keys().next().value;
+      if (cache.size > 40 && oldest !== undefined) cache.delete(oldest);
+    }
+    void pending.then((value) => {
+      if (alive) setGot({ key, value });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  return key !== null && got?.key === key ? got.value : undefined;
+}
+
 /** Outputs can be large, so only the most recently opened stay cached. */
 const details = new Map<string, Promise<StepDetail | null>>();
 
 function useDetail(conversationId: string, turnId: string, step: Step): StepDetail | null | undefined {
   // a call that was still running is read again once it has a result
   const key = `${conversationId}\n${turnId}\n${step.id}\n${step.ok ?? ""}`;
-  const [got, setGot] = useState<{ key: string; detail: StepDetail | null }>();
-  useEffect(() => {
-    let alive = true;
-    let pending = details.get(key);
-    if (!pending) {
-      pending = api.step(conversationId, turnId, step.id).catch(() => {
-        details.delete(key);
-        return null;
-      });
-      details.set(key, pending);
-      const oldest = details.keys().next().value;
-      if (details.size > 40 && oldest !== undefined) details.delete(oldest);
+  return useCached(details, key, () => api.step(conversationId, turnId, step.id));
+}
+
+const thoughts = new Map<string, Promise<ThoughtDetail | null>>();
+
+function ThoughtBody({
+  conversationId,
+  turnId,
+  thought,
+  running,
+  text,
+}: {
+  conversationId: string;
+  turnId: string;
+  thought: Thought;
+  running: boolean;
+  text: string | undefined;
+}) {
+  const { t } = useI18n();
+  // only a finished thought is in the log
+  const key = thought.endedAt === undefined ? null : `${conversationId}\n${turnId}\n${thought.id}`;
+  const detail = useCached(thoughts, key, () => api.thought(conversationId, turnId, thought.id));
+  // what streamed stands in while the finished thought is read back
+  const words = (running ? text : (detail?.text ?? text))?.trim();
+  if (!words) {
+    if (running || (key !== null && detail === undefined)) {
+      return <LoaderCircle className="text-muted-foreground my-1.5 ml-7 size-3.5 animate-spin" />;
     }
-    void pending.then((detail) => {
-      if (alive) setGot({ key, detail });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [key, conversationId, turnId, step.id]);
-  return got?.key === key ? got.detail : undefined;
+    return (
+      <p className="text-muted-foreground py-1 pl-7 text-xs">{key === null ? t("steps.unfinished") : t("steps.thoughtLoadFailed")}</p>
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-col pt-1 pb-2 pl-7">
+      <Block label={t("steps.thought")} copy={words}>
+        <Words text={words} running={running} />
+      </Block>
+    </div>
+  );
+}
+
+/** Keeps up with a thought as it streams unless the reader scrolls back; finished, it reads as the Markdown it is. */
+function Words({ text, running }: { text: string; running: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && running && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [text, running]);
+  return (
+    <div
+      ref={box}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16;
+      }}
+      className="text-muted-foreground max-h-80 overflow-y-auto px-3 py-2.5"
+    >
+      {running ? (
+        // half-written Markdown renders as garbage, the same as a reply being written; a summary's bold headings are safe once closed
+        <div className="text-message leading-message break-words whitespace-pre-wrap">
+          {text.split(/(\*\*[^*\n]+\*\*)/).map((part, i) =>
+            i % 2 === 1 ? (
+              <strong key={i} className="font-semibold">
+                {part.slice(2, -2)}
+              </strong>
+            ) : (
+              part
+            ),
+          )}
+        </div>
+      ) : (
+        <Markdown>{text}</Markdown>
+      )}
+    </div>
+  );
 }
 
 function StepBody({

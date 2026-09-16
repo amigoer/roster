@@ -422,7 +422,7 @@ export function startServer(opts: {
     if (msgs?.[1]) {
       const id = msgs[1];
       if (method === "GET") {
-        return json(res, { messages: store.listMessages(id), streams: orchestrator.streams(id) });
+        return json(res, { messages: store.listMessages(id), streams: orchestrator.streams(id), thoughts: orchestrator.thoughts(id) });
       }
       if (method === "POST") {
         const body = await readBody(req);
@@ -445,6 +445,13 @@ export function startServer(opts: {
     if (step?.[1] && step[2] && step[3]) {
       const detail = store.stepDetail(step[1], decodeURIComponent(step[2]), decodeURIComponent(step[3]));
       return detail ? json(res, { step: detail }) : json(res, { error: "not found" }, 404);
+    }
+
+    // likewise a thought, once it is done: while it runs its words are on the stream
+    const thought = route(/^\/api\/conversations\/([^/]+)\/turns\/([^/]+)\/thoughts\/([^/]+)$/, "GET");
+    if (thought?.[1] && thought[2] && thought[3]) {
+      const detail = store.thoughtDetail(thought[1], decodeURIComponent(thought[2]), decodeURIComponent(thought[3]));
+      return detail ? json(res, { thought: detail }) : json(res, { error: "not found" }, 404);
     }
 
     // the file's bytes are the body, so a large one never sits in memory as JSON

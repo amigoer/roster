@@ -145,8 +145,8 @@ async function until(pred, timeout = 5000) {
 }
 
 /**
- * A backend that plays one turn as written: a string is text, { start } announces
- * a call, { gate } takes it through the host, { end } returns its result.
+ * A backend that plays one turn as written: a string is text, { think } is thinking,
+ * { start } announces a call, { gate } takes it through the host, { end } returns its result.
  */
 function played(actions) {
   const scripted = scriptedFactory("pi", 1);
@@ -168,6 +168,7 @@ function played(actions) {
           void (async () => {
             for (const a of actions) {
               if (typeof a === "string") emit({ type: "assistant.text", display: "message", delta: a });
+              else if (a.think !== undefined) emit({ type: "assistant.thinking", display: "fold", delta: a.think });
               else if (a.start) emit({ type: "tool.start", display: "fold", call: a.start });
               else if (a.gate) await opts.onToolCall(a.gate);
               else if (a.end) emit({ type: "tool.end", display: "fold", ...a.end });
@@ -645,6 +646,64 @@ describe("session status", () => {
 
     const working = h.pushed.filter((m) => m.kind === "presence" && m.state !== "idle");
     assert.ok(working.length > 0 && working.every((m) => m.turnId === card.turn_id), "presence names the turn being written");
+  });
+
+  test("thinking streams as it comes, is listed among the calls where it began, and is written whole to the log", async () => {
+    const read = { id: "r1", name: "Read", effect: "read", input: { file_path: "/repo/notes.md" } };
+    const h = harness({
+      pi: played([
+        // a backend that hides its thinking still sends empty blocks; they are no thought
+        { think: "" },
+        { think: "  " },
+        { think: "**Planning the read**\n\nThe notes " },
+        { think: "decide it." },
+        "先看看说明。",
+        { start: read },
+        { gate: read },
+        { end: { id: "r1", isError: false, content: "ship it" } },
+        { think: "## Notes say ship\nSo answer yes." },
+        "可以发了。",
+      ]),
+    });
+    const conv = h.group([h.bot("甲")]);
+    await h.orch.send(conv.id, "能发吗");
+    await settle(h.store, conv.id);
+
+    const messages = h.store.listMessages(conv.id);
+    const reply = JSON.parse(messages.find((m) => m.card_kind === "text" && m.author_kind === "bot").body_json).text;
+    assert.equal(reply, "先看看说明。\n\n可以发了。", "thinking never leaks into the reply");
+    const card = messages.find((m) => m.card_kind === "steps");
+    const { steps } = JSON.parse(card.body_json);
+    assert.deepEqual(
+      steps.map((s) => [s.kind ?? "call", s.title, s.at]),
+      [
+        ["thought", "Planning the read", 0],
+        ["call", "/repo/notes.md", "先看看说明。\n\n".length],
+        ["thought", "Notes say ship", "先看看说明。\n\n".length],
+      ],
+    );
+    assert.ok(steps.every((s) => s.startedAt <= s.endedAt), "every thought is closed when the next thing happens");
+
+    const [first, , second] = steps;
+    assert.deepEqual(h.store.thoughtDetail(conv.id, card.turn_id, first.id).text, "**Planning the read**\n\nThe notes decide it.");
+    assert.equal(h.store.thoughtDetail(conv.id, card.turn_id, second.id).text, "## Notes say ship\nSo answer yes.");
+    assert.equal(h.store.thoughtDetail(conv.id, card.turn_id, "nope"), null);
+
+    const streamed = h.pushed.filter((m) => m.kind === "thinking" && m.id === first.id).map((m) => m.text).join("");
+    assert.equal(streamed, "**Planning the read**\n\nThe notes decide it.", "the words went out as they came");
+    assert.deepEqual(h.orch.thoughts(conv.id), {}, "nothing is mid-thought once the turn is over");
+  });
+
+  test("one member's thinking is never handed to another", async () => {
+    const h = harness({ pi: played([{ think: "secret reasoning" }, "我的结论。"]) });
+    const conv = h.group([h.bot("甲"), h.bot("乙")]);
+    await h.orch.send(conv.id, "@甲 你先说");
+    await settle(h.store, conv.id);
+
+    const other = h.store.activeMembers(conv.id).find((m) => h.store.getBot(m.bot_id).name === "乙");
+    const handed = h.store.backlog(other).items.map((i) => i.text).join("\n");
+    assert.match(handed, /我的结论。/);
+    assert.doesNotMatch(handed, /secret reasoning/);
   });
 
   test("a call the backend asks about before announcing it gets one step, placed where it asked", async () => {

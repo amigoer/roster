@@ -1,10 +1,11 @@
-import type { Message, Presence, Step, StepsBody } from "./api";
+import type { Message, Presence, Step, StepsBody, Thought } from "./api";
 
 /** One bot turn: its calls, its reply and what it asked the human, read as one piece. */
 export interface Turn {
   id: string;
   memberId: string | null;
-  steps: Step[];
+  /** its calls and thoughts, in the order they began */
+  steps: Array<Step | Thought>;
   /** the reply, once the turn has ended; while it runs, the stream stands in for it */
   text?: Message;
   permissions: Message[];
@@ -16,7 +17,7 @@ export type Row =
   | { kind: "message"; key: string; message: Message }
   | { kind: "turn"; key: string; turn: Turn; live: boolean };
 
-export type Part = { kind: "text"; text: string } | { kind: "steps"; steps: Step[] };
+export type Part = { kind: "text"; text: string } | { kind: "steps"; steps: Array<Step | Thought> };
 
 const IN_TURN = new Set<Message["card_kind"]>(["steps", "text", "permission"]);
 
@@ -90,11 +91,11 @@ export function transcript(messages: Message[], presence: Presence[], streams: R
  * Splits a reply at the calls made while it was being written. Calls from before
  * placements were kept have none, and come ahead of the reply as they used to.
  */
-export function interleave(text: string, steps: Step[]): Part[] {
+export function interleave(text: string, steps: Array<Step | Thought>): Part[] {
   const reply = text.trimStart();
   const parts: Part[] = [];
   let cursor = 0;
-  let group: Step[] = [];
+  let group: Array<Step | Thought> = [];
   for (const step of steps) {
     const at = Math.min(Math.max(step.at ?? 0, cursor), reply.length);
     const between = reply.slice(cursor, at).trim();

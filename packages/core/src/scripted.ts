@@ -27,7 +27,8 @@ import { list, t } from "./i18n/index.js";
  * dispatch -- with no credentials and no spend. Used by the tests and by
  * ROSTER_SCRIPTED=1 for working on the UI.
  *
- * Put #read, #write or #exec in a message to make the bot call a tool of that effect.
+ * Put #read, #write or #exec in a message to make the bot call a tool of that effect,
+ * and #think to have it think before each call and before it answers.
  * A message starting with one of its slash commands is answered as that command.
  */
 const CAPABILITIES: Capabilities = {
@@ -195,11 +196,16 @@ class ScriptedRuntime implements BotRuntime {
     const said = [...text.matchAll(human)].at(-1)?.[1] ?? text;
     try {
       const tools = Object.entries(TOOLS).filter(([tag]) => said.includes(tag));
+      const thinks = said.includes("#think");
+      if (thinks) await this.#ponder(t(tools.length > 0 ? "scripted.think.plan" : "scripted.think.answer"));
       // an agent says what it is about to do, so its calls have text to sit between
       if (tools.length > 0) await this.#say(t("scripted.lookFirst"));
       for (const [, tool] of tools) {
-        if (!this.#aborting) await this.#tool(tool);
+        if (this.#aborting) break;
+        if (thinks) await this.#ponder(t("scripted.think.call", { tool: tool.name }));
+        await this.#tool(tool);
       }
+      if (thinks && tools.length > 0 && !this.#aborting) await this.#ponder(t("scripted.think.done"));
       const named = attachments.map((a) => t("scripted.attachment", { name: a.name, mime: a.mime }));
       const files = attachments.length > 0 ? `\n\n${t("scripted.attachments", { files: list(named) })}` : "";
       await this.#say(this.#reply(text, said) + files);
@@ -215,6 +221,14 @@ class ScriptedRuntime implements BotRuntime {
     for (let i = 0; i < text.length && !this.#aborting; i += 4) {
       this.#emit({ type: "assistant.text", display: "message", delta: text.slice(i, i + 4) });
       await sleep(this.delayMs);
+    }
+  }
+
+  /** Thinks out loud a few characters at a time, slower than it speaks, the way a model's summary arrives. */
+  async #ponder(text: string): Promise<void> {
+    for (let i = 0; i < text.length && !this.#aborting; i += 3) {
+      this.#emit({ type: "assistant.thinking", display: "fold", delta: text.slice(i, i + 3) });
+      await sleep(this.delayMs * 2);
     }
   }
 

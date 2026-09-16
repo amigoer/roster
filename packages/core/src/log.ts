@@ -24,13 +24,31 @@ export interface Quote {
 type Placed<T extends NormalizedEvent["type"]> = Extract<NormalizedEvent, { type: T }> & { at?: number };
 
 /**
- * Backend events plus the two kinds core writes itself. Human lines and
+ * A stretch of thinking as core keeps it. Its row goes in the steps card when
+ * its first words arrive; the words stream on the wire and are written once,
+ * whole, when something else happens in the turn.
+ */
+export interface Thinking {
+  type: "assistant.thinking";
+  display: "fold";
+  id: string;
+  /** how much of the turn's reply was written when it began */
+  at: number;
+  startedAt: number;
+  /** everything it said, once final; empty when it has only begun */
+  delta: string;
+  final?: boolean;
+}
+
+/**
+ * Backend events plus the kinds core writes itself. Human lines and
  * membership notices go through the same log as everything else, so a member's
  * catch-up is one range scan over broadcast events.
  */
 export type CoreEvent =
-  | Exclude<NormalizedEvent, { type: "tool.start" | "permission.request" }>
+  | Exclude<NormalizedEvent, { type: "tool.start" | "permission.request" | "assistant.thinking" }>
   | Placed<"tool.start" | "permission.request">
+  | Thinking
   | {
       type: "human.text";
       display: "message";
@@ -83,7 +101,8 @@ export function routeOf(e: CoreEvent): Routing {
   if (e.type === "assistant.text" && e.final !== true) {
     return { persist: false, surface: true, broadcast: false };
   }
-  if (e.type === "assistant.thinking") {
+  // only a thought's start and its whole are appended; a start has no words to keep yet
+  if (e.type === "assistant.thinking" && e.final !== true) {
     return { persist: false, surface: true, broadcast: false };
   }
   return ROUTES[e.type];

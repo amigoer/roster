@@ -36,6 +36,7 @@ import type {
   Unsubscribe,
 } from "@roster/adapter-api";
 import { contextOf, detailOf } from "./context.js";
+import { listModels, modelLabel, wireModel } from "./models.js";
 import { planUsage, planUsageFromCredentials } from "./plan.js";
 import { resultText } from "./result.js";
 import { wordsFor, type Words } from "./words.js";
@@ -167,13 +168,6 @@ const isMode = (v: unknown): v is PermissionMode => MODES.some((m) => m.id === v
 const isEffort = (v: unknown): v is EffortLevel => typeof v === "string" && Object.hasOwn(EFFORT_LABEL, v);
 const isFastState = (v: unknown): v is "on" | "off" | "cooldown" => v === "on" || v === "off" || v === "cooldown";
 
-/** "claude-haiku-4-5-20251001" reads as "Haiku 4.5"; an id of any other shape is shown as it is. */
-function modelLabel(id: string): string {
-  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2})(?!\d))?/.exec(id);
-  if (!m?.[1]) return id;
-  return `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
-}
-
 /** What a model's effort picker lists: its own levels, then ultracode wherever xhigh is one of them. */
 function effortsOf(m: ModelInfo, ultracode: boolean): string[] {
   const levels = m.supportsEffort ? (m.supportedEffortLevels ?? []) : [];
@@ -304,6 +298,9 @@ class ClaudeRuntime implements BotRuntime {
       cwd: opts.cwd,
       // deltas are what make the reply feel live; the log stores only the final text
       includePartialMessages: true,
+      // an SDK session gets its thinking omitted, blocks with no words; this asks for the summary
+      // without pinning --thinking, so whether and how much to think stays the CLI's call
+      extraArgs: { "thinking-display": "summarized" },
       // On an endpoint, isolation mode. Without it the SDK loads the user's own
       // ~/.claude/settings.json, whose pre-approved tools never reach
       // canUseTool -- a session in Manual would silently run Bash because the
@@ -521,7 +518,10 @@ class ClaudeRuntime implements BotRuntime {
 
   /** Each turn's init restates what the session runs with. */
   #onInit(m: Record<string, any>): void {
-    const model = typeof m["model"] === "string" ? m["model"] : undefined;
+    const reported = typeof m["model"] === "string" ? m["model"] : undefined;
+    // an init names the model as the API does, so a session on a longer context would drop back to the shorter name
+    const known = this.#info.model;
+    const model = reported && known && wireModel(known) === reported ? known : reported;
     const patch: SessionInfo = {
       ...(model ? { model, modelLabel: modelLabel(model) } : {}),
       ...(typeof m["permissionMode"] === "string" ? { mode: m["permissionMode"] } : {}),
@@ -773,7 +773,7 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
       ? {
           async models(): Promise<ModelOption[]> {
             const { catalog, account } = await snapshot(CATALOG_REUSE_MS);
-            return catalog.map((m) => ({ id: m.value, label: m.displayName, available: signedIn(account) }));
+            return listModels(catalog).map(({ row, label }) => ({ id: row.value, label, available: signedIn(account) }));
           },
           // the host asks here only while no live session can answer, so this one starts a CLI of its own
           quota: (): Promise<Quota | null> => ask(launch, planUsage).catch(() => planUsageFromCredentials()),
@@ -808,10 +808,10 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
               return { id, label: id, efforts: row ? effortsOf(row, ultracode) : [], fast: row?.supportsFastMode === true };
             })
           : // the sign-in's catalog is the CLI's own, aliases and all
-            catalog.map((m) => ({
+            listModels(catalog).map(({ row: m, label }) => ({
               id: m.value,
               ...(m.resolvedModel ? { resolved: m.resolvedModel } : {}),
-              label: m.displayName,
+              label,
               ...(m.description ? { description: m.description } : {}),
               efforts: effortsOf(m, ultracode),
               fast: m.supportsFastMode === true,

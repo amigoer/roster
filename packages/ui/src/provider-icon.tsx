@@ -89,16 +89,26 @@ function GeminiMark({ className }: { className?: string }) {
 export function ProviderIcon({
   provider,
   className,
+  mono = false,
 }: {
   provider: Provider;
   className?: string;
+  /** drawn in currentColor, for a quiet control that should not carry brand colours */
+  mono?: boolean;
 }) {
-  if (provider === "google") return <GeminiMark className={className} />;
+  if (provider === "google") {
+    if (!mono) return <GeminiMark className={className} />;
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+        <path d={GEMINI} />
+      </svg>
+    );
+  }
   if (provider === "mistral") {
     return (
       <svg viewBox="0 0 24 24" className={className} aria-hidden>
         {MISTRAL.map(([d, fill]) => (
-          <path key={fill} d={d} fill={fill} />
+          <path key={fill} d={d} fill={mono ? "currentColor" : fill} />
         ))}
       </svg>
     );
@@ -106,7 +116,7 @@ export function ProviderIcon({
   const mark = MARKS[provider];
   if (!mark) return <Bot className={className} />;
   return (
-    <svg viewBox={mark.viewBox ?? "0 0 24 24"} fill={mark.fill ?? "currentColor"} className={className} aria-hidden>
+    <svg viewBox={mark.viewBox ?? "0 0 24 24"} fill={mono ? "currentColor" : (mark.fill ?? "currentColor")} className={className} aria-hidden>
       <path d={mark.d} />
     </svg>
   );

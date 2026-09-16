@@ -10,13 +10,25 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { activeMembers, api, type Bot, type Conversation, type Member, type Mode, type Presence } from "./api";
+import {
+  activeMembers,
+  api,
+  type Bot,
+  type Conversation,
+  type Member,
+  type Mode,
+  type Presence,
+  type Quota,
+  type SessionInfo,
+  type SessionOptions,
+} from "./api";
 import { BotAvatar, busyOf, HumanAvatar } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
 import { useMe } from "./me";
 import { leaderOf } from "./mentions";
 import { presenceLabel } from "./presence";
+import { SessionPickers, SessionUsage } from "./session-controls";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +41,13 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+
+/** What each member's session runs with and its agent's plan usage, as loaded for the open conversation. */
+export type MemberSessions = {
+  info: Record<string, SessionInfo>;
+  options: Record<string, SessionOptions>;
+  quota: Record<string, Quota | null>;
+};
 
 /** A mode answers exactly one question: who speaks next. What each is called is in the catalog, under mode.<id>. */
 export const MODES: Array<{ id: Mode; icon: typeof Hand }> = [
@@ -75,12 +94,14 @@ export function MembersPanel({
   conv,
   bots,
   presence,
+  sessions,
   onClose,
   onOpenBot,
 }: {
   conv: Conversation;
   bots: Bot[];
   presence: Record<string, Presence>;
+  sessions: MemberSessions;
   onClose: () => void;
   onOpenBot: (botId: string) => void;
 }) {
@@ -98,7 +119,7 @@ export function MembersPanel({
       </header>
       <Separator />
       <ScrollArea className="min-h-0 flex-1">
-        <MemberSections conv={conv} bots={bots} presence={presence} onOpenBot={onOpenBot} className="p-4" />
+        <MemberSections conv={conv} bots={bots} presence={presence} sessions={sessions} onOpenBot={onOpenBot} className="p-4" />
       </ScrollArea>
     </aside>
   );
@@ -109,12 +130,15 @@ export function MemberSections({
   conv,
   bots,
   presence,
+  sessions,
   onOpenBot,
   className,
 }: {
   conv: Conversation;
   bots: Bot[];
   presence: Record<string, Presence>;
+  /** absent where the conversation is not open, so its sessions are not loaded */
+  sessions?: MemberSessions;
   onOpenBot: (botId: string) => void;
   className?: string;
 }) {
@@ -186,8 +210,10 @@ export function MemberSections({
         {members.map((m) => (
           <MemberRow
             key={m.id}
+            conv={conv}
             member={m}
             presence={presence[m.id]}
+            sessions={sessions}
             isLeader={leader?.id === m.id}
             canLead={conv.mode === "leader" && leader?.id !== m.id}
             canRemove={members.length > 1}
@@ -195,6 +221,7 @@ export function MemberSections({
             onLead={() => void run(api.setMode(conv.id, "leader", m.id))}
             onSync={() => void run(api.syncMember(conv.id, m.id))}
             onRemove={() => void run(api.removeMember(conv.id, m.id))}
+            onError={setError}
           />
         ))}
         {error && <p className="text-destructive pt-1 text-xs">{error}</p>}
@@ -204,8 +231,10 @@ export function MemberSections({
 }
 
 function MemberRow({
+  conv,
   member,
   presence,
+  sessions,
   isLeader,
   canLead,
   canRemove,
@@ -213,9 +242,12 @@ function MemberRow({
   onLead,
   onSync,
   onRemove,
+  onError,
 }: {
+  conv: Conversation;
   member: Member;
   presence?: Presence;
+  sessions: MemberSessions | undefined;
   isLeader: boolean;
   canLead: boolean;
   canRemove: boolean;
@@ -223,12 +255,17 @@ function MemberRow({
   onLead: () => void;
   onSync: () => void;
   onRemove: () => void;
+  onError: (error: string | null) => void;
 }) {
   const { bot } = member;
   const { t } = useI18n();
   // what this member's session runs on, which can lag behind the bot until it is synced
   const executor = useExecutor()(member.executor_id);
   const model = member.model ?? executor.model;
+  const info = sessions?.info[member.id];
+  const choices = sessions?.options[member.id];
+  // a backend's own modes decide its tool calls; without them the tier still does
+  const modes = Boolean(info?.mode && choices?.modes.length);
   return (
     <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2">
       <button onClick={onOpen} title={t("members.viewProfile")} className="mt-0.5">
@@ -238,13 +275,29 @@ function MemberRow({
         <div className="flex items-center gap-1">
           <span className="truncate text-sm font-medium">{bot.name}</span>
           {isLeader && <Crown className="size-3.5 shrink-0 text-amber-500" aria-label={t("members.leader")} />}
+          {sessions && info && (
+            // beside the name, so the model below has the width; the negative margins keep the line its height
+            <span className="-my-1 -mr-1.5 ml-auto flex shrink-0">
+              <SessionUsage conv={conv} member={member} info={info} choices={choices} quota={sessions.quota} onError={onError} dense />
+            </span>
+          )}
         </div>
         <div className="text-muted-foreground truncate text-xs">
-          {presence ? presenceLabel(t, presence) : (bot.title ?? `${executor.label}${model ? ` · ${model}` : ""}`)}
+          {presence ? presenceLabel(t, presence) : (bot.title ?? executor.label)}
         </div>
-        <div className="text-muted-foreground/70 truncate text-[11px]">
-          {executor.label} · {model ?? t("common.defaultModel")} · {t(`tier.${bot.permission_tier}`)}
-        </div>
+        {sessions && info ? (
+          // the pills' padding hangs into the gutter, so their text lines up with the lines above
+          <div className="-ml-1.5 flex min-w-0 items-center pt-0.5">
+            <SessionPickers conversationId={conv.id} member={member} info={info} choices={choices} onError={onError} dense />
+            {!modes && (
+              <span className="text-muted-foreground/70 shrink-0 px-1 text-[11px]">{t(`tier.${bot.permission_tier}`)}</span>
+            )}
+          </div>
+        ) : (
+          <div className="text-muted-foreground/70 truncate text-[11px]">
+            {executor.label} · {model ?? t("common.defaultModel")} · {t(`tier.${bot.permission_tier}`)}
+          </div>
+        )}
         {member.stale && (
           <button
             onClick={onSync}

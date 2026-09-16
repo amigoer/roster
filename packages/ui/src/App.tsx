@@ -4,6 +4,7 @@ import {
   activeMembers,
   api,
   connect,
+  isThought,
   type Bot,
   type Capabilities,
   type Conversation,
@@ -19,6 +20,7 @@ import {
   type SessionInfo,
   type SessionOptions,
   type SourceRef,
+  type StepsBody,
 } from "./api";
 import { DRAG, NO_DRAG } from "./app-region";
 import { BotAvatar, busyOf, GroupAvatar, Logos, type Busy } from "./bot-avatar";
@@ -131,6 +133,8 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   /** text still being written, per member of the open conversation */
   const [streams, setStreams] = useState<Record<string, string>>({});
+  /** thinking still coming in, per thought of the open conversation; a finished one is read from the log */
+  const [thinking, setThinking] = useState<Record<string, string>>({});
   /** what every running member is doing, across all conversations */
   const [presence, setPresence] = useState<Record<string, Presence>>({});
   /** what each member's session runs with; kept across switches, so going back shows it at once */
@@ -248,6 +252,7 @@ export default function App() {
           if (activeRef.current !== id) return;
           setMessages(r.messages);
           setStreams(r.streams ?? {});
+          setThinking(r.thoughts ?? {});
         });
         void loadStatus(id);
       }
@@ -306,10 +311,20 @@ export default function App() {
             setStreams((s) => ({ ...s, [m.memberId]: (s[m.memberId] ?? "") + m.text }));
           }
           return;
+        case "thinking":
+          if (m.conversationId === activeRef.current) {
+            setThinking((s) => ({ ...s, [m.id]: (s[m.id] ?? "") + m.text }));
+          }
+          return;
         case "message": {
           if (m.conversationId !== activeRef.current) return;
           const author = m.message.author_member_id;
           if (m.message.card_kind === "text" && author) setStreams((s) => omit(s, author));
+          if (m.message.card_kind === "steps") {
+            // a thought that has ended is in the log whole; what streamed of it is no longer needed
+            const ended = (JSON.parse(m.message.body_json) as StepsBody).steps.filter((x) => isThought(x) && x.endedAt !== undefined);
+            if (ended.length > 0) setThinking((s) => ended.reduce((rest, x) => omit(rest, x.id), s));
+          }
           setMessages((prev) => {
             const i = prev.findIndex((x) => x.id === m.message.id);
             if (i === -1) return [...prev, m.message];
@@ -338,11 +353,13 @@ export default function App() {
   useEffect(() => {
     if (!active) return;
     setStreams({});
+    setThinking({});
     setMessages([]);
     setQuoting(null);
     void api.messages(active).then((r) => {
       setMessages(r.messages);
       setStreams(r.streams ?? {});
+      setThinking(r.thoughts ?? {});
       setLoadedFor(active);
     });
     void loadStatus(active);
@@ -390,12 +407,14 @@ export default function App() {
   }, [loadedFor, nav]);
 
   const streamed = Object.values(streams).reduce((n, s) => n + s.length, 0);
+  // a thought opened while it streams grows the transcript as much as a reply does
+  const thought = Object.values(thinking).reduce((n, s) => n + s.length, 0);
   // follow new content only when the reader was already at the bottom; a steps card grows in place
   useEffect(() => {
     if (!stick.current) return;
     const vp = viewport();
     vp?.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
-  }, [messages, streamed]);
+  }, [messages, streamed, thought]);
 
   const rows = useMemo(
     () => transcript(messages, Object.values(presence).filter((p) => p.conversationId === active), streams),
@@ -867,6 +886,7 @@ export default function App() {
                               turn={row.turn}
                               live={row.live}
                               stream={row.live && row.turn.memberId ? streams[row.turn.memberId] : undefined}
+                              thinking={thinking}
                               author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
                               group={group}
                               onQuote={quote}
@@ -884,7 +904,6 @@ export default function App() {
                   // pending uploads belong to one conversation
                   key={conv.id}
                   conv={conv}
-                  bots={bots}
                   sessions={sessions}
                   sessionOptions={sessionOptions}
                   quota={quota}
@@ -903,6 +922,7 @@ export default function App() {
                   conv={conv}
                   bots={bots}
                   presence={presence}
+                  sessions={{ info: sessions, options: sessionOptions, quota }}
                   onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
                   onOpenBot={(id) => {
                     setNav("contacts");

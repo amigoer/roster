@@ -213,6 +213,10 @@ export const zhCN = translation<typeof en>()({
   "scripted.echo": "收到：{text}",
   "scripted.files": "收到了你发的文件",
   "scripted.lookFirst": "我先看一下文件。",
+  "scripted.think.answer": "**理解问题**\n\n这个问题不用调工具，直接根据对方说的回答就行。回答简短一点，先说清楚理解到了什么。",
+  "scripted.think.plan": "**规划怎么看**\n\n问题跟文件有关，得先读文件再回答。先告诉对方要看文件，再一个一个调用。",
+  "scripted.think.call": "**决定调用 {tool}**\n\n下一步调用 {tool}：它的结果决定怎么回答，所以先调用，再写回复。",
+  "scripted.think.done": "**汇总结果**\n\n调用都返回了。按结果回答，不多加别的。",
 
   "logo.fox": "狐狸",
   "logo.puppy": "小白狗",

@@ -4,7 +4,15 @@ import type { SessionInfo, SessionSettings, SourceKind } from "@roster/adapter-a
 import { attachmentsPreview, type AttachmentRef } from "./attachments.js";
 import { everyLocale, stored, t } from "./i18n/index.js";
 import { routeOf, type CoreEvent, type Notice, type Quote } from "./log.js";
-import { foldStep, OUTPUT_MAX, outputText, type StepDetail, type StepEvent, type StepsBody } from "./steps.js";
+import {
+  foldStep,
+  OUTPUT_MAX,
+  outputText,
+  type StepDetail,
+  type StepEvent,
+  type StepsBody,
+  type ThoughtDetail,
+} from "./steps.js";
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
 export type Tier = "read" | "write" | "execute";
@@ -1115,6 +1123,7 @@ export class Store {
       }
       case "tool.start":
       case "tool.end":
+      case "assistant.thinking":
         return this.#foldStep(conversationId, memberId, turnId, event, seq, at);
       case "permission.request":
         return [
@@ -1166,7 +1175,7 @@ export class Store {
     this.db.prepare(`UPDATE conversations SET preview = ? WHERE id = ?`).run(preview, conversationId);
   }
 
-  /** One steps card per turn per member, updated in place. */
+  /** One steps card per turn per member, updated in place: its calls and its thoughts. */
   #foldStep(
     conversationId: string,
     memberId: string | null,
@@ -1204,7 +1213,7 @@ export class Store {
       .all(turnId, conversationId) as unknown as Array<{ payload_json: string; created_at: number }>;
     let detail: StepDetail | null = null;
     for (const r of rows) {
-      const e = JSON.parse(r.payload_json) as StepEvent;
+      const e = JSON.parse(r.payload_json) as Exclude<StepEvent, { type: "assistant.thinking" }>;
       if (e.type !== "tool.end") {
         if (!detail && e.call.id === callId) {
           detail = { id: callId, name: e.call.name, effect: e.call.effect, input: e.call.input, startedAt: r.created_at };
@@ -1218,6 +1227,22 @@ export class Store {
       }
     }
     return detail;
+  }
+
+  /** What one thought said. The steps card only lists it; the log has its words once it is done. */
+  thoughtDetail(conversationId: string, turnId: string, thoughtId: string): ThoughtDetail | null {
+    const rows = this.db
+      .prepare(
+        `SELECT payload_json, created_at FROM events
+          WHERE turn_id = ? AND conversation_id = ? AND type = 'assistant.thinking'
+          ORDER BY seq`,
+      )
+      .all(turnId, conversationId) as unknown as Array<{ payload_json: string; created_at: number }>;
+    for (const r of rows) {
+      const e = JSON.parse(r.payload_json) as Extract<StepEvent, { type: "assistant.thinking" }>;
+      if (e.id === thoughtId) return { id: e.id, text: e.delta, startedAt: e.startedAt, endedAt: r.created_at };
+    }
+    return null;
   }
 
   getMessage(id: string): MessageRow | undefined {

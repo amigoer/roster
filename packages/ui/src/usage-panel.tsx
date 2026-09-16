@@ -66,11 +66,11 @@ function slicesOf(context: ContextUse, t: Translate): Slice[] {
 }
 
 /** Filled by the share in use. */
-function Ring({ percent }: { percent: number }) {
+function Ring({ percent, className }: { percent: number; className?: string }) {
   const r = 6;
   const c = 2 * Math.PI * r;
   return (
-    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0 -rotate-90", STROKE[levelOf(percent)])} aria-hidden>
+    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0 -rotate-90", STROKE[levelOf(percent)], className)} aria-hidden>
       <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-current opacity-20" />
       <circle
         cx="8"
@@ -100,6 +100,7 @@ const ACTION = "hover:bg-foreground/[0.08] h-8 flex-1 rounded-lg font-normal [&_
 type ContextOwner = { conversationId: string; memberId: string };
 
 function ContextSection({
+  name,
   context,
   busy,
   member,
@@ -107,6 +108,7 @@ function ContextSection({
   onExpand,
   onCompact,
 }: {
+  name: string | undefined;
   context: ContextUse;
   busy: boolean;
   member: ContextOwner | undefined;
@@ -124,7 +126,9 @@ function ContextSection({
   return (
     <section className="flex min-h-0 flex-col px-2.5 pt-2 pb-2.5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-muted-foreground shrink-0 text-xs font-medium">{t("context.title")}</h3>
+        <h3 className="text-muted-foreground min-w-0 truncate text-xs font-medium">
+          {name ? `${t("context.title")} · ${name}` : t("context.title")}
+        </h3>
         <span className="text-muted-foreground min-w-0 truncate text-[11px]">
           {compactAt ? t("usage.autoCompact", { percent: compactAt }) : t("usage.noAutoCompact")}
         </span>
@@ -234,12 +238,13 @@ function PlanSection({ quota, owner, windows }: { quota: Quota | null | undefine
 }
 
 /**
- * The ring at the end of the composer bar and what sits behind it: how full the
+ * The ring by the send button and what sits behind it: how full the
  * context is, in Roster's own terms, and how much of the plan is left, in the
- * backend's. A group has no single context, so there the ring tracks the plan.
+ * backend's. With no context to show, the ring tracks the plan.
  */
 export function UsagePanel({
   owner,
+  name,
   context,
   quota,
   busy,
@@ -247,19 +252,24 @@ export function UsagePanel({
   openWhen,
   onOpen,
   onCompact,
+  dense = false,
 }: {
   /** whose plan this is, when the plan itself carries no name */
   owner: string | undefined;
+  /** whose context this is, where there is more than one it could be */
+  name?: string;
   context: ContextUse | undefined;
   quota: Quota | null | undefined;
   busy: boolean;
-  /** absent where no one session holds the context, as in a group */
+  /** absent where no one session holds the context */
   member: ContextOwner | undefined;
   /** a nonce: each new value opens the card with what is inside the context laid out */
   openWhen?: number;
   /** plan usage is only re-read when something asks for it, and opening the panel is the ask */
   onOpen: () => void;
   onCompact: (() => void) | undefined;
+  /** sized for a list row */
+  dense?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -278,14 +288,20 @@ export function UsagePanel({
   const windows = (quota?.windows ?? []).map(current);
   if (!context && windows.length === 0) return null;
   const tightest = windows.reduce<QuotaWindow | undefined>((a, b) => (!a || b.usedPercent > a.usedPercent ? b : a), undefined);
+  const percent = Math.round(context ? context.percent : (tightest?.usedPercent ?? 0));
 
   return (
     <Popover open={open} onOpenChange={show}>
       <PopoverTrigger
-        className="hover:bg-accent data-[state=open]:bg-accent focus-visible:ring-ring/50 inline-flex size-7 items-center justify-center rounded-lg outline-none focus-visible:ring-2"
-        aria-label={context ? t("usage.contextUsed", { percent: context.percent }) : t("usage.plan")}
+        className={cn(
+          "text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs tabular-nums outline-none transition-colors focus-visible:ring-2",
+          dense && "h-6 gap-1 rounded-md px-1.5 text-[11px]",
+        )}
+        aria-label={context ? t("usage.contextUsed", { percent: context.percent }) : t("usage.planUsed", { percent })}
       >
-        <Ring percent={context ? context.percent : (tightest?.usedPercent ?? 0)} />
+        <Ring percent={percent} className={dense ? "size-3.5" : undefined} />
+        {/* the figure goes first when the composer is narrow; the ring alone still reads as how full */}
+        <span className={cn(!dense && "@max-sm:hidden", TEXT[levelOf(percent)])}>{percent}%</span>
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -301,6 +317,7 @@ export function UsagePanel({
       >
         {context && (
           <ContextSection
+            name={name}
             context={context}
             busy={busy}
             member={member}

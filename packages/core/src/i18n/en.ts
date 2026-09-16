@@ -224,6 +224,13 @@ export const en = {
   "scripted.echo": "Got it: {text}",
   "scripted.files": "Got the files you sent",
   "scripted.lookFirst": "Let me look at the files first.",
+  "scripted.think.answer":
+    "**Reading the request**\n\nNothing here needs a tool, so the answer can come straight from what was said. Keep it short and say what was understood.",
+  "scripted.think.plan":
+    "**Planning the look around**\n\nThe question is about the files, so reading them comes before answering. Say so first, then make the calls one at a time.",
+  "scripted.think.call":
+    "**Deciding on {tool}**\n\n{tool} is the next call: what it returns decides the reply, so it goes before anything is written.",
+  "scripted.think.done": "**Putting it together**\n\nEvery call has come back. Answer with what they showed, nothing more.",
 
   "logo.fox": "Fox",
   "logo.puppy": "Puppy",

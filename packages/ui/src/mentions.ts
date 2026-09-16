@@ -51,19 +51,28 @@ export function leaderOf(conv: Conversation): Member | undefined {
 }
 
 /**
- * Who will answer if this draft is sent now. Mirrors core's routing, so the
- * composer can say it before you press Enter rather than after.
+ * Who will answer if this draft is sent now, and how to say it. Mirrors core's
+ * routing, so the composer can say it before you press Enter rather than after.
  */
-export function recipientLabel({ t, list }: Pick<I18n, "t" | "list">, conv: Conversation, draft: string, messages: Message[]): string {
+export function recipients(
+  { t, list }: Pick<I18n, "t" | "list">,
+  conv: Conversation,
+  draft: string,
+  messages: Message[],
+): { members: Member[]; label: string } {
   const members = activeMembers(conv);
-  if (members.length === 0) return t("recipient.none");
+  if (members.length === 0) return { members, label: t("recipient.none") };
   const hit = mentioned(draft, members);
-  if (hit.all) return t("recipient.all");
-  if (hit.members.length > 0) return list(hit.members.map((m) => m.bot.name));
-  if (conv.mode === "leader") return t("recipient.leader", { name: leaderOf(conv)?.bot.name ?? "" });
-  if (conv.mode === "discussion") return t("recipient.discussion");
+  if (hit.all) return { members, label: t("recipient.all") };
+  if (hit.members.length > 0) return { members: hit.members, label: list(hit.members.map((m) => m.bot.name)) };
+  if (conv.mode === "leader") {
+    const leader = leaderOf(conv);
+    return { members: leader ? [leader] : [], label: t("recipient.leader", { name: leader?.bot.name ?? "" }) };
+  }
+  if (conv.mode === "discussion") return { members, label: t("recipient.discussion") };
   const last = [...messages]
     .reverse()
     .find((m) => m.author_kind === "bot" && m.card_kind === "text" && members.some((x) => x.id === m.author_member_id));
-  return (members.find((m) => m.id === last?.author_member_id) ?? members[0]!).bot.name;
+  const next = members.find((m) => m.id === last?.author_member_id) ?? members[0]!;
+  return { members: [next], label: next.bot.name };
 }
