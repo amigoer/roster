@@ -114,7 +114,6 @@ export const zhCN = translation<typeof en>()({
   "settings.appearance": "外观",
   "settings.language": "语言",
   "settings.about": "关于",
-  "settings.aboutRoster": "关于 Roster",
   "settings.aboutStale": "core 在跑旧代码，要重启",
   "settings.aboutHint": "版本和数据目录",
   "settings.agentsAndModels": "Agent 与模型",

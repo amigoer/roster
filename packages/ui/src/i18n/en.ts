@@ -113,7 +113,6 @@ export const en = {
   "settings.appearance": "Appearance",
   "settings.language": "Language",
   "settings.about": "About",
-  "settings.aboutRoster": "About Roster",
   "settings.aboutStale": "core is running old code; restart it",
   "settings.aboutHint": "Version and data directory",
   "settings.agentsAndModels": "Agents & models",

@@ -117,7 +117,7 @@ export function SettingsList({
         />
         <Row
           icon={<Info />}
-          title={t("settings.aboutRoster")}
+          title={t("settings.about")}
           // a stale core is easy to miss, so the row says so without the page being opened
           line={outdated ? t("settings.aboutStale") : about && "version" in about ? t("about.version", { version: about.version }) : t("settings.aboutHint")}
           warn={outdated}
