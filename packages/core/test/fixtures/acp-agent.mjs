@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 const out = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 const notify = (method, params) => out({ jsonrpc: "2.0", method, params });
 const reply = (id, result) => out({ jsonrpc: "2.0", id, result });
-const fail = (id, code, message) => out({ jsonrpc: "2.0", id, error: { code, message } });
+const fail = (id, code, message, data) => out({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
 
 let nextId = 100;
 const pending = new Map();
@@ -34,9 +34,29 @@ let options = [
 const modes = { currentModeId: "ask", availableModes: [{ id: "ask", name: "Ask" }, { id: "yolo", name: "Yolo" }] };
 let cancelPrompt = null;
 
+// a real agent's log on the way down: colored, with one line carrying a whole response body
+const noise = `\x1b[2m2026-09-16T17:13:48Z\x1b[0m \x1b[31mERROR\x1b[0m models: failed to decode; body: {"models":[${'"x",'.repeat(50_000)}]}\n`;
+
+function failTurn(id, text) {
+  process.stderr.write(noise);
+  if (text.includes("#crash")) {
+    // no newline: the last words of a dying process are often an unfinished line
+    process.stderr.write("thread 'main' panicked: out of cheese", () => setTimeout(() => process.exit(3), 50));
+    return;
+  }
+  const data = text.includes("#fail-details")
+    ? { details: "spawn codex ENOENT" }
+    : {
+        message: JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'm9' model is not supported" } }),
+        codex_error_info: "other",
+      };
+  fail(id, -32603, "Internal error", data);
+}
+
 async function prompt(id, params) {
   const sessionId = params.sessionId;
   const text = params.prompt.map((b) => b.text ?? "").join("");
+  if (text.includes("#fail") || text.includes("#crash")) return failTurn(id, text);
   const update = (u) => notify("session/update", { sessionId, update: u });
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);

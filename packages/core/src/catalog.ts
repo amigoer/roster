@@ -55,7 +55,7 @@ export const CATALOG: readonly CatalogEntry[] = [
       return t("catalog.codex");
     },
     brand: "openai",
-    program: { npm: "@zed-industries/codex-acp", version: "0.16.0", bin: "codex-acp", versionArgs: ["--version"] },
+    program: { npm: "@agentclientprotocol/codex-acp", version: "1.12.0", bin: "codex-acp", versionArgs: ["--version"] },
   },
   {
     id: "gemini-cli",

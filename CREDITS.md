@@ -42,5 +42,5 @@ These are not part of this repository. When an agent is missing from your machin
 | Agent | npm package | License |
 |---|---|---|
 | Claude Code | `@anthropic-ai/claude-agent-sdk-{platform}` | [Anthropic terms](https://code.claude.com/docs/en/legal-and-compliance) |
-| Codex | [`@zed-industries/codex-acp`](https://github.com/zed-industries/codex-acp) | Apache-2.0 |
+| Codex | [`@agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp) | Apache-2.0 |
 | Gemini CLI | [`@google/gemini-cli`](https://github.com/google-gemini/gemini-cli) | Apache-2.0 |

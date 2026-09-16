@@ -1527,6 +1527,40 @@ describe("extensions", () => {
     }
   });
 
+  test("a failed turn reads as the agent's reason, not as the log it printed on the way", async () => {
+    const ext = new Extensions([{ dir: extensionRoot(), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const db = openDb(join(dir, "roster.db"));
+    const store = new Store(db);
+    const secrets = new Secrets(db, NO_VAULT);
+    const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+    const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
+    const sources = new Sources(store, secrets, () => registry, async () => []);
+    const orch = new Orchestrator(store, () => {}, registry, sources, new AttachmentStore(join(dir, "attachments")));
+    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: null, permission_tier: "read" });
+    const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
+    const errors = () => store.listMessages(conv.id).filter((m) => m.card_kind === "error").map((m) => JSON.parse(m.body_json).text);
+    try {
+      await orch.send(conv.id, "#fail");
+      await settle(store, conv.id, 15_000);
+      await orch.send(conv.id, "#fail-details");
+      await settle(store, conv.id, 15_000);
+      // an upstream API's JSON body is read for its message; either way the log stays out
+      assert.deepEqual(errors(), ["The 'm9' model is not supported", "spawn codex ENOENT"]);
+
+      await orch.send(conv.id, "#crash");
+      await settle(store, conv.id, 15_000);
+      const crash = errors().at(-1);
+      assert.doesNotMatch(crash, /\x1b/);
+      assert.match(crash, /panicked: out of cheese$/, "a dead process is still explained by its last words");
+      assert.ok(crash.length < 3_000, `a log line holding a whole response body is cut, not ${crash.length} chars`);
+    } finally {
+      await orch.disposeAll();
+    }
+  });
+
   test("a signed-out agent says so before any turn is tried", async () => {
     const ext = new Extensions([{ dir: extensionRoot(), origin: "linked" }]);
     await ext.load();

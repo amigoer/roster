@@ -99,6 +99,17 @@ const SNAPSHOT_REUSE_MS = 10 * 60_000;
 const AUTH_STATUS_METHOD = "_auth/status_update";
 /** JSON-RPC code an agent answers with when nobody is signed in */
 const AUTH_REQUIRED = -32000;
+/** what JSON-RPC calls a failure the agent did not name; the reason, if any, is in the error's data */
+const BARE_INTERNAL_ERROR = "Internal error";
+/** past this a detail is cut: one log line can carry a whole HTTP response body */
+const DETAIL_MAX = 500;
+const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+
+/** Text an agent wrote for a terminal, as it reads in a message: no color codes, and not all of it. */
+function readable(text: string): string {
+  const plain = text.replace(ANSI_ESCAPE, "").trim();
+  return plain.length > DETAIL_MAX ? `${plain.slice(0, DETAIL_MAX)}…` : plain;
+}
 
 const EFFECT_OF_KIND: Record<ToolKind, ToolEffect> = {
   read: "read",
@@ -278,14 +289,20 @@ class Link {
   readonly conn: ClientSideConnection;
   readonly child: ChildProcess;
   #stderr: string[] = [];
+  /** a line still being written, which a pipe can hand over across any number of chunks */
+  #partial = "";
   #exit: Promise<number | null>;
 
   constructor(launch: Launch, cwd: string, client: Client) {
     this.child = spawn(launch.command, launch.args, { cwd, env: launch.env, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr?.setEncoding("utf8");
     this.child.stderr?.on("data", (chunk: string) => {
-      for (const line of chunk.split("\n")) {
-        if (!line.trim()) continue;
+      const lines = (this.#partial + chunk).split("\n");
+      // only a line's head is shown, so a huge line is not held whole; the slack leaves room for color codes
+      this.#partial = (lines.pop() ?? "").slice(0, DETAIL_MAX * 4);
+      for (const raw of lines) {
+        const line = readable(raw);
+        if (!line) continue;
         this.#stderr.push(line);
         if (this.#stderr.length > 30) this.#stderr.shift();
         if (process.env["ROSTER_ACP_LOG"] === "1") console.error(`[acp] ${line}`);
@@ -305,7 +322,8 @@ class Link {
 
   /** The last thing the agent printed, which is the only explanation a dead process leaves. */
   tail(): string {
-    return this.#stderr.slice(-5).join("\n");
+    const partial = readable(this.#partial);
+    return [...this.#stderr, ...(partial ? [partial] : [])].slice(-5).join("\n");
   }
 
   close(): void {
@@ -598,10 +616,38 @@ class AcpRuntime implements BotRuntime {
   }
 }
 
+/**
+ * The reason an agent put in a JSON-RPC error's data. TypeScript agents write
+ * it under details and Rust ones under message, and either may pass an
+ * upstream API's JSON error body on as a string.
+ */
+function reasonOf(data: unknown, depth = 0): string | undefined {
+  if (depth > 4) return undefined;
+  if (typeof data === "string") {
+    const text = data.trim();
+    if (!text.startsWith("{")) return text || undefined;
+    try {
+      return reasonOf(JSON.parse(text), depth + 1) ?? text;
+    } catch {
+      return text;
+    }
+  }
+  if (!data || typeof data !== "object") return undefined;
+  const fields = data as Record<string, unknown>;
+  return reasonOf(fields["error"], depth + 1) ?? reasonOf(fields["message"], depth + 1) ?? reasonOf(fields["details"], depth + 1);
+}
+
 /** The message a person can act on, whatever shape the failure took. */
 function describe(err: unknown, label: string, link?: Link): string {
   if (err instanceof RequestError && err.code === AUTH_REQUIRED) return t("error.acp.signedOut", { label });
   const message = err instanceof Error ? err.message : String(err);
+  const reason = err instanceof RequestError ? reasonOf(err.data) : undefined;
+  // the agent's own account wins over its log, which is mostly about other things
+  if (reason) {
+    const detail = readable(reason);
+    if (message.includes(detail)) return message;
+    return message === BARE_INTERNAL_ERROR ? detail : `${message}: ${detail}`;
+  }
   const tail = link?.tail();
   return tail && !message.includes(tail) ? `${message}\n${tail}` : message;
 }

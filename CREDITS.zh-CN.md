@@ -42,5 +42,5 @@ pi 的品牌标来自 pi.dev 的媒体资料包。各品牌标的商标归各自
 | Agent | npm 包 | 许可协议 |
 |---|---|---|
 | Claude Code | `@anthropic-ai/claude-agent-sdk-{platform}` | [Anthropic 条款](https://code.claude.com/docs/en/legal-and-compliance) |
-| Codex | [`@zed-industries/codex-acp`](https://github.com/zed-industries/codex-acp) | Apache-2.0 |
+| Codex | [`@agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp) | Apache-2.0 |
 | Gemini CLI | [`@google/gemini-cli`](https://github.com/google-gemini/gemini-cli) | Apache-2.0 |

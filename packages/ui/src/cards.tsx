@@ -433,7 +433,7 @@ export function MessageCard({
       return (
         <div className="mx-auto max-w-[680px]">
           <Card className="border-destructive/40 px-3 py-2">
-            <span className="text-destructive text-xs">
+            <span className="text-destructive text-xs break-words whitespace-pre-wrap">
               {shownAuthor ? t("common.labelDetail", { label: shownAuthor.bot.name, detail: String(body["text"]) }) : body["text"]}
             </span>
           </Card>
