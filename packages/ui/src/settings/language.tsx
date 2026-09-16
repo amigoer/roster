@@ -1,7 +1,7 @@
 import { toast } from "sonner";
-import { api } from "./api";
-import { LOCALES, useI18n, type Locale, type LocalePreference } from "./i18n";
-import { Choice } from "./settings";
+import { api } from "../api";
+import { LOCALES, useI18n, type Locale, type LocalePreference } from "../i18n";
+import { Choice } from "./shared";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";

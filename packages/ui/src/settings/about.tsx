@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Check, Copy, TriangleAlert } from "lucide-react";
-import type { About } from "./api";
-import { LogoImage, useLogos } from "./bot-avatar";
-import { useI18n } from "./i18n";
+import type { About } from "../api";
+import { LogoImage, useLogos } from "../bot-avatar";
+import { useI18n } from "../i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

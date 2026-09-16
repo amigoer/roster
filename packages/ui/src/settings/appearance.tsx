@@ -1,6 +1,6 @@
-import { useI18n } from "./i18n";
-import { Choice } from "./settings";
-import { THEMES, type Theme } from "./theme";
+import { useI18n } from "../i18n";
+import { Choice } from "./shared";
+import { THEMES, type Theme } from "../theme";
 import {
   CUSTOM_FONT,
   FONT_OPTIONS,
@@ -12,7 +12,7 @@ import {
   installedFamily,
   type TextSize,
   type Typography,
-} from "./typography";
+} from "../typography";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup } from "@/components/ui/radio-group";

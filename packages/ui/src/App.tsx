@@ -21,8 +21,6 @@ import {
   type SourceRef,
 } from "./api";
 import { DRAG, NO_DRAG } from "./app-region";
-import { AboutPanel, type AboutState } from "./about";
-import { AppearancePanel } from "./appearance";
 import { BotAvatar, busyOf, GroupAvatar, Logos, type Busy } from "./bot-avatar";
 import { CapabilityBadge } from "./capabilities";
 import { MessageCard, TurnView, Who } from "./cards";
@@ -31,7 +29,6 @@ import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, Templat
 import { ConversationMenu, RenameInput } from "./conversation-menu";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
-import { LanguagePanel } from "./language";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
 import { MentionNames } from "./markdown";
 import { MembersPanel } from "./members-panel";
@@ -42,7 +39,8 @@ import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { ProfilePanel } from "./profile";
 import { Resizer, useColumnWidth } from "./resizable";
-import { AgentEditor, HarnessPanel, HarnessesPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
+import { SettingsList, SettingsPage, type SettingsRoute } from "./settings";
+import type { AboutState } from "./settings/about";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
 import { transcript, type Turn } from "./transcript";
@@ -122,10 +120,10 @@ export default function App() {
   const [harnessLabels, setHarnessLabels] = useState<Record<string, string>>({});
   /** agents, harnesses and model APIs as the settings page edits them; loaded when it is first opened */
   const [settingsView, setSettingsView] = useState<ExecutorSettings | null>(null);
-  const [settingsSel, setSettingsSel] = useState<SettingsSelection>(null);
+  /** null until a page is picked; the settings page then opens on whatever a fresh install needs first */
+  const [settingsRoute, setSettingsRoute] = useState<SettingsRoute | null>(null);
   /** what is installed and what could be; refreshed whenever core says extensions changed */
   const [extView, setExtView] = useState<ExtensionsView | null>(null);
-  const [extBump, setExtBump] = useState(0);
   const [about, setAbout] = useState<AboutState>(null);
   const [defaultDir, setDefaultDir] = useState("");
   const [convs, setConvs] = useState<Conversation[]>([]);
@@ -181,19 +179,22 @@ export default function App() {
   };
 
   /** The editor only moves on once the list it points into has the row: a new id looked up in the old list reads as "new". */
-  const reloadSettings = (next: SettingsSelection) =>
+  const reloadSettings = (next: SettingsRoute) =>
     void api.executorSettings().then((v) => {
       setSettingsView(v);
-      setSettingsSel(next);
+      setSettingsRoute(next);
     });
   const reloadExtensions = () => void api.extensions().then(setExtView).catch(() => {});
-  const settingsBack = (type: string | undefined): SettingsSelection =>
-    type && extView?.harnesses.some((h) => h.id === type) ? { kind: "harness", id: type } : null;
   const loadAbout = () =>
     void api
       .about()
       .then((r) => setAbout("version" in r ? r : { error: (r as { error?: string }).error ?? t("app.coreSilent") }))
       .catch((e: unknown) => setAbout({ error: String(e) }));
+  const openSettings = (r: SettingsRoute) => {
+    // re-read on open: whether core is stale can change while the app runs
+    if (r.page === "about") loadAbout();
+    setSettingsRoute(r);
+  };
 
   const loadStatus = (id: string) =>
     api.status(id).then((r) => {
@@ -275,7 +276,6 @@ export default function App() {
           if (settingsLoaded.current) void api.executorSettings().then(setSettingsView);
           return;
         case "extensions":
-          setExtBump((n) => n + 1);
           // a harness that came or went changes what the agent picker groups under
           void api.state(archivedRef.current).then((s) => setHarnessLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label]))));
           if (settingsLoaded.current) reloadExtensions();
@@ -541,19 +541,7 @@ export default function App() {
             )}
           </header>
           {nav === "settings" ? (
-            <SettingsList
-              view={settingsView}
-              ext={extView}
-              theme={theme}
-              typography={typography}
-              about={about}
-              selected={settingsSel}
-              onSelect={(s) => {
-                // re-read on open: whether core is stale can change while the app runs
-                if (s?.kind === "about") loadAbout();
-                setSettingsSel(s);
-              }}
-            />
+            <SettingsList view={settingsView} ext={extView} theme={theme} typography={typography} about={about} route={settingsRoute} onRoute={openSettings} />
           ) : nav === "contacts" ? (
             <ContactList
               bots={bots}
@@ -663,92 +651,24 @@ export default function App() {
         <main className="@container relative flex min-h-0 min-w-0 flex-1 gap-2" style={NO_DRAG}>
           {nav === "settings" ? (
             <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
-              <header className="flex h-13 shrink-0 items-center px-5" style={DRAG}>
-                <span className="text-sm font-semibold">
-                  {settingsSel?.kind === "appearance"
-                    ? t("settings.appearance")
-                    : settingsSel?.kind === "language"
-                      ? t("settings.language")
-                      : settingsSel?.kind === "about"
-                        ? t("settings.about")
-                        : settingsSel?.kind === "provider"
-                          ? t("source.endpoint")
-                          : settingsSel?.kind === "agent"
-                            ? "Agent"
-                            : settingsSel?.kind === "harness" ||
-                                settingsSel?.kind === "harnesses" ||
-                                (settingsView && settingsView.executors.length === 0)
-                              ? t("settings.harness")
-                              : t("nav.settings")}
-                </span>
-              </header>
-              {settingsSel?.kind === "appearance" ? (
-                <AppearancePanel
-                  theme={theme}
-                  onChange={setTheme}
-                  typography={typography}
-                  onFont={setFont}
-                  onCustomFont={setCustomFont}
-                  onSize={setSize}
-                />
-              ) : settingsSel?.kind === "language" ? (
-                <LanguagePanel />
-              ) : settingsSel?.kind === "about" ? (
-                <AboutPanel about={about} />
-              ) : !settingsView ? (
-                <Empty label="" />
-              ) : settingsSel?.kind === "harness" ? (
-                <HarnessPanel
-                  key={settingsSel.id}
-                  id={settingsSel.id}
-                  view={settingsView}
-                  ext={extView}
-                  onSaved={() => reloadSettings({ kind: "harness", id: settingsSel.id })}
-                  onChanged={() => {
-                    reloadExtensions();
-                    void api.executorSettings().then(setSettingsView);
-                  }}
-                  onCancel={() => setSettingsSel(null)}
-                  onSelect={setSettingsSel}
-                />
-              ) : settingsSel?.kind === "agent" ? (
-                <AgentEditor
-                  key={settingsSel.id ?? `new-${settingsSel.type ?? ""}`}
-                  view={settingsView}
-                  executor={settingsView.executors.find((e) => e.id === settingsSel.id) ?? null}
-                  type={settingsSel.type}
-                  ext={extView}
-                  bots={bots}
-                  onSaved={(e) => reloadSettings({ kind: "agent", id: e.id })}
-                  onCancel={() => setSettingsSel(settingsBack(settingsSel.type))}
-                  onDeleted={() => reloadSettings(null)}
-                  onSelect={setSettingsSel}
-                />
-              ) : settingsSel?.kind === "provider" ? (
-                <ProviderEditor
-                  key={settingsSel.id ?? "new"}
-                  view={settingsView}
-                  provider={settingsView.providers.find((p) => p.id === settingsSel.id) ?? null}
-                  env={extView?.environment ?? null}
-                  onSaved={(p) => reloadSettings({ kind: "provider", id: p.id })}
-                  onCancel={() => setSettingsSel(null)}
-                  onDeleted={() => reloadSettings(null)}
-                />
-              ) : settingsSel?.kind === "harnesses" || settingsView.executors.length === 0 ? (
-                <HarnessesPanel
-                  bump={extBump}
-                  view={settingsView}
-                  intro={settingsView.executors.length === 0}
-                  focus={settingsSel?.kind === "harnesses" ? settingsSel.id : undefined}
-                  onChanged={() => {
-                    reloadExtensions();
-                    void api.executorSettings().then(setSettingsView);
-                  }}
-                  onSelect={setSettingsSel}
-                />
-              ) : (
-                <Empty label={t("app.pickSetting")} />
-              )}
+              <SettingsPage
+                route={settingsRoute}
+                onRoute={openSettings}
+                view={settingsView}
+                ext={extView}
+                bots={bots}
+                about={about}
+                theme={theme}
+                onTheme={setTheme}
+                typography={typography}
+                onFont={setFont}
+                onCustomFont={setCustomFont}
+                onSize={setSize}
+                onReload={reloadSettings}
+                onRefresh={() => void api.executorSettings().then(setSettingsView)}
+                onExtensions={setExtView}
+                onReloadExtensions={reloadExtensions}
+              />
             </div>
           ) : nav === "contacts" ? (
             <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
@@ -774,7 +694,7 @@ export default function App() {
                   caps={caps}
                   onManageAgents={(id) => {
                     setNav("settings");
-                    setSettingsSel({ kind: "agent", id });
+                    setSettingsRoute({ page: "agent", id });
                   }}
                   onCancel={() => setEditing(null)}
                   onSaved={(b) => {
