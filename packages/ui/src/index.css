@@ -181,6 +181,21 @@
     -webkit-user-drag: none;
   }
 
+  /* jumped to: a tint that fades says which message the jump landed on, without moving anything */
+  @keyframes found {
+    from {
+      background-color: var(--selected);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+
+  .found {
+    animation: found 1.6s ease-out;
+    border-radius: var(--radius);
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);

@@ -15,6 +15,7 @@ import {
   type Message,
   type Presence,
   type Quota,
+  type Quote,
   type SessionInfo,
   type SessionOptions,
   type SourceRef,
@@ -44,7 +45,7 @@ import { Resizer, useColumnWidth } from "./resizable";
 import { AgentEditor, HarnessPanel, HarnessesPanel, ProviderEditor, SettingsList, type SettingsSelection } from "./settings";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
-import { transcript } from "./transcript";
+import { transcript, type Turn } from "./transcript";
 import { useTypography } from "./typography";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -53,6 +54,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+
+/** What a jump to a turn lands on: its reply once it has one, else the row it started with. */
+const anchorId = (turn: Turn) => {
+  const id = turn.text?.id ?? turn.anchor?.id;
+  return id ? `m-${id}` : undefined;
+};
 
 /** Every column past the rail floats on the chrome; gaps separate them, never lines. */
 const PANEL = "bg-background shadow-panel overflow-hidden rounded-xl";
@@ -135,6 +142,8 @@ export default function App() {
   /** what each member's session can be switched to */
   const [sessionOptions, setSessionOptions] = useState<Record<string, SessionOptions>>({});
   const [draft, setDraft] = useState("");
+  /** the message the next send replies to */
+  const [quoting, setQuoting] = useState<Quote | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
   const [editing, setEditing] = useState<{ botId: string | null; template: Template | null } | null>(null);
   const [starting, setStarting] = useState<{ open: boolean; botIds: string[] }>({ open: false, botIds: [] });
@@ -166,6 +175,9 @@ export default function App() {
     stick.current = false;
     const top = el.getBoundingClientRect().top - vp.getBoundingClientRect().top + vp.scrollTop - 12;
     vp.scrollTo({ top, behavior: "smooth" });
+    // a jump that lands mid-history needs to say where it landed
+    el.classList.add("found");
+    setTimeout(() => el.classList.remove("found"), 1800);
   };
 
   /** The editor only moves on once the list it points into has the row: a new id looked up in the old list reads as "new". */
@@ -327,6 +339,7 @@ export default function App() {
     if (!active) return;
     setStreams({});
     setMessages([]);
+    setQuoting(null);
     void api.messages(active).then((r) => {
       setMessages(r.messages);
       setStreams(r.streams ?? {});
@@ -442,12 +455,9 @@ export default function App() {
     openConversation(id);
   };
 
-  const quote = (text: string) => {
-    const body = text
-      .split("\n")
-      .map((l) => `> ${l}`)
-      .join("\n");
-    setDraft((d) => (d ? `${body}\n\n${d}` : `${body}\n\n`));
+  /** Replying puts the passage in the composer's reply bar, not into what you are typing. */
+  const quote = (q: Quote) => {
+    setQuoting(q);
     composer.current?.focus();
   };
 
@@ -928,10 +938,12 @@ export default function App() {
                               group={group}
                               author={row.message.author_member_id ? memberById.get(row.message.author_member_id) : undefined}
                               onQuote={quote}
+                              onJump={jump}
                             />
                           </div>
                         ) : (
-                          <div key={row.key} id={row.turn.anchor ? `m-${row.turn.anchor.id}` : undefined}>
+                          // a reply points at the turn's answer; before there is one, at where the turn starts
+                          <div key={row.key} id={anchorId(row.turn)}>
                             <TurnView
                               conversationId={conv.id}
                               turn={row.turn}
@@ -961,6 +973,8 @@ export default function App() {
                   messages={messages}
                   draft={draft}
                   setDraft={setDraft}
+                  quote={quoting}
+                  setQuote={setQuoting}
                   inputRef={composer}
                   handle={composerHandle}
                   onRename={() => setRenaming(conv.id)}

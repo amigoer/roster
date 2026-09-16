@@ -661,6 +661,21 @@ describe("session status", () => {
     assert.deepEqual(steps.map((s) => [s.id, s.title, s.at, s.ok]), [["e1", "notes.md", "我改一下。".length, true]]);
   });
 
+  test("a reply carries what it answers: the card keeps it apart, the bot is handed it as a quote", async () => {
+    const h = harness();
+    const conv = h.group([h.bot("甲")]);
+    await h.orch.send(conv.id, "先说说看");
+    await settle(h.store, conv.id);
+    await h.orch.send(conv.id, "第二点再说细一点", [], { messageId: "m1", name: "甲", text: "这是它说过的话" });
+    await settle(h.store, conv.id);
+
+    const asked = h.store.listMessages(conv.id).filter((m) => m.author_kind === "human");
+    const body = JSON.parse(asked.at(-1).body_json);
+    assert.equal(body.text, "第二点再说细一点", "what was typed stays what was typed");
+    assert.deepEqual(body.quote, { messageId: "m1", name: "甲", text: "这是它说过的话" });
+    assert.match(h.sent.at(-1).text, /回复 甲 的这段话：\n> 这是它说过的话\n\n第二点再说细一点/);
+  });
+
   test("plan usage is read in the background when first looked at, then served from cache", async () => {
     let reads = 0;
     const scripted = scriptedFactory("pi", 1);

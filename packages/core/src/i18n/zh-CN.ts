@@ -40,6 +40,7 @@ export const zhCN = translation<typeof en>()({
   "delivery.user": "用户",
   "delivery.userLine": "- 用户：提出任务、做最终决定的人",
   "delivery.departed": "已离开的成员",
+  "delivery.quoted": "回复 {name} 的这段话：",
   "delivery.history": "以下是这个会话此前的记录，供你接上上下文：",
   "delivery.continue": "请接着之前的内容继续。",
   "delivery.ask.reply": "以上是你上次发言之后群里的新消息，轮到你回复用户。你的回复群里所有人都能看到。",

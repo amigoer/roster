@@ -17,11 +17,11 @@ import type { AttachmentRef, AttachmentStore } from "./attachments.js";
 import { composeDelivery, type Ask } from "./delivery.js";
 import { t, type Key, type ParamsFor } from "./i18n/index.js";
 import type { ParamValue } from "./i18n/translate.js";
-import type { CoreEvent } from "./log.js";
+import type { CoreEvent, Quote } from "./log.js";
 import { findMentions } from "./mentions.js";
 import type { Registry } from "./registry.js";
 import type { Sources } from "./sources.js";
-import { titleFrom, UNTITLED } from "./store.js";
+import { cropQuote, titleFrom, UNTITLED } from "./store.js";
 import type { ConversationRow, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
 
 export type Broadcast = (msg: { kind: string; [k: string]: unknown }) => void;
@@ -328,7 +328,12 @@ export class Orchestrator {
 
   // ---- the human side ----
 
-  async send(conversationId: string, text: string, attachments: readonly AttachmentRef[] = []): Promise<void> {
+  async send(
+    conversationId: string,
+    text: string,
+    attachments: readonly AttachmentRef[] = [],
+    quote?: Quote,
+  ): Promise<void> {
     const conv = this.store.getConversation(conversationId);
     if (!conv) throw new Error(t("error.conversation.notFound"));
     const members = this.store.activeMembers(conversationId);
@@ -340,6 +345,7 @@ export class Orchestrator {
       text,
       mentions: mentioned.ids,
       ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+      ...(quote ? { quote: { ...quote, text: cropQuote(quote.text) } } : {}),
     });
 
     // the first thing asked is what the conversation is about; an untouched

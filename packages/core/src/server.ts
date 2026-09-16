@@ -12,6 +12,7 @@ import type { ExecutorSettings } from "./executors.js";
 import type { Extensions } from "./extensions.js";
 import { isPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import type { Installer } from "./installer.js";
+import type { Quote } from "./log.js";
 import type { Orchestrator } from "./orchestrator.js";
 import type { BotInput, MemberSettings, Mode, Store } from "./store.js";
 
@@ -44,6 +45,17 @@ const optText = (v: unknown, max: number): string | null => {
   const s = String(v).trim();
   return s ? s.slice(0, max) : null;
 };
+
+/** The passage a message replies to, as the window sends it; anything without text is no quote at all. */
+function quoteOf(v: unknown): Quote | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const q = v as Record<string, unknown>;
+  const text = typeof q["text"] === "string" ? q["text"].trim() : "";
+  if (!text) return undefined;
+  const messageId = optText(q["messageId"], 64);
+  const name = optText(q["name"], 64);
+  return { text, ...(messageId ? { messageId } : {}), ...(name ? { name } : {}) };
+}
 
 /** Validates a bot body. With partial, absent fields are left out rather than defaulted. */
 function botInput(
@@ -423,7 +435,7 @@ export function startServer(opts: {
           return ref;
         });
         if (!text && refs.length === 0) throw new Rejection(t("error.message.empty"));
-        await orchestrator.send(id, text, refs);
+        await orchestrator.send(id, text, refs, quoteOf(body["quote"]));
         return json(res, { ok: true });
       }
     }

@@ -357,6 +357,15 @@ export interface StepDetail {
   endedAt?: number;
 }
 
+/** The passage a message replies to, carried with it rather than pasted into it. */
+export interface Quote {
+  /** the message it came from, so a reply can point back at it */
+  messageId?: string;
+  /** who said it; absent when you quoted yourself */
+  name?: string;
+  text: string;
+}
+
 /** A file on a message, as core keeps it. */
 export interface AttachmentRef {
   id: string;
@@ -582,8 +591,11 @@ export const api = {
     mode?: Mode;
     leaderBotId?: string;
   }) => j<{ conversation?: Conversation; error?: string }>("/api/conversations", body("POST", input)),
-  send: (id: string, text: string, attachments: string[] = []) =>
-    j<{ ok?: boolean; error?: string }>(`/api/conversations/${id}/messages`, body("POST", { text, attachments })),
+  send: (id: string, text: string, attachments: string[] = [], quote?: Quote) =>
+    j<{ ok?: boolean; error?: string }>(
+      `/api/conversations/${id}/messages`,
+      body("POST", { text, attachments, ...(quote ? { quote } : {}) }),
+    ),
   /** XHR rather than fetch, for the upload progress fetch does not report */
   upload: (conversationId: string, file: Blob, name: string, onProgress: (fraction: number) => void) =>
     new Promise<{ attachment?: AttachmentRef; error?: string }>((resolve) => {

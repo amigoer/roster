@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { SessionInfo, SessionSettings, SourceKind } from "@roster/adapter-api";
 import { attachmentsPreview, type AttachmentRef } from "./attachments.js";
 import { everyLocale, stored, t } from "./i18n/index.js";
-import { routeOf, type CoreEvent, type Notice } from "./log.js";
+import { routeOf, type CoreEvent, type Notice, type Quote } from "./log.js";
 import { foldStep, OUTPUT_MAX, outputText, type StepDetail, type StepEvent, type StepsBody } from "./steps.js";
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
@@ -194,6 +194,21 @@ function shownTitle(title: string, members: readonly MemberView[]): string {
 /** A notice written as a key reads in the current language; one from before keys, as it was written. */
 const noticeText = (text: string, notice: Notice | undefined): string =>
   (notice && stored(notice.key, notice.params)) ?? text;
+
+/** The most of a quoted passage a bot is handed; past this it was never the point of the reply. */
+const QUOTE_MAX = 2_000;
+
+export const cropQuote = (text: string): string => (text.length > QUOTE_MAX ? `${text.slice(0, QUOTE_MAX)}…` : text);
+
+/** A reply reaches the bot with what it replies to, since the person pointed at it rather than retyping it. */
+function replied(text: string, quote?: Quote): string {
+  if (!quote?.text.trim()) return text;
+  const lines = cropQuote(quote.text)
+    .split("\n")
+    .map((l) => `> ${l}`)
+    .join("\n");
+  return `${t("delivery.quoted", { name: quote.name ?? t("delivery.user") })}\n${lines}\n\n${text}`.trim();
+}
 
 function localized(row: MessageRow): MessageRow {
   if (row.card_kind !== "system") return row;
@@ -981,7 +996,7 @@ export class Store {
         e.type === "assistant.text"
           ? e.delta
           : e.type === "human.text"
-            ? e.text
+            ? replied(e.text, e.quote)
             : e.type === "system.notice"
               ? noticeText(e.text, e.notice)
               : "";
@@ -1061,6 +1076,7 @@ export class Store {
             text: event.text,
             mentions: event.mentions,
             ...(event.attachments?.length ? { attachments: event.attachments } : {}),
+            ...(event.quote ? { quote: event.quote } : {}),
           },
         });
         this.#setPreview(conversationId, plainPreview(event.text) || attachmentsPreview(event.attachments ?? []));

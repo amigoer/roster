@@ -353,7 +353,8 @@ export const zhCN = translation<typeof en>()({
   "outline.title": "翻记录",
   "outline.asked": "你问过的",
 
-  "cards.quote": "引用到输入框（选中一段则只引用那段）",
+  "cards.quote": "回复这条（选中一段则只引用那段）",
+  "cards.quoted": "跳到被回复的那条",
   "cards.left": "· 已离开",
   "cards.decided.allowed": "已允许",
   "cards.decided.denied": "已拒绝",
@@ -406,6 +407,8 @@ export const zhCN = translation<typeof en>()({
   "composer.mentionInvite": "@ 拉人进群",
   "composer.uploading": "文件还在上传",
   "composer.send": "发送",
+  "composer.replyingTo": "回复 {name}",
+  "composer.cancelReply": "不回复了",
   "composer.invite": "邀请进群",
   "composer.conversation": "会话",
   "composer.everyoneReplies": "{count} 个 bot 都回复",

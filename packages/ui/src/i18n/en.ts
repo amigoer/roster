@@ -366,7 +366,8 @@ export const en = {
   "outline.title": "Browse history",
   "outline.asked": "What you asked",
 
-  "cards.quote": "Quote in the message box (just the selection, if there is one)",
+  "cards.quote": "Reply to this (just the selection, if there is one)",
+  "cards.quoted": "Go to the message this replies to",
   "cards.left": "· left",
   "cards.decided.allowed": "Allowed",
   "cards.decided.denied": "Denied",
@@ -419,6 +420,8 @@ export const en = {
   "composer.mentionInvite": "@ someone to start a group",
   "composer.uploading": "Files are still uploading",
   "composer.send": "Send",
+  "composer.replyingTo": "Replying to {name}",
+  "composer.cancelReply": "Don't reply to it",
   "composer.invite": "Invite to the group",
   "composer.conversation": "Conversation",
   "composer.everyoneReplies": "All {count} bots reply",

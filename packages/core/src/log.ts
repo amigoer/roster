@@ -8,6 +8,15 @@ export interface Notice {
   params?: Record<string, ParamValue>;
 }
 
+/** The passage a message replies to, carried with it rather than pasted into it. */
+export interface Quote {
+  /** the message it came from, so a reply can point back at it */
+  messageId?: string;
+  /** who said it, as they were called then; absent when the person quoted themselves */
+  name?: string;
+  text: string;
+}
+
 /**
  * A call with where it fell in its turn's reply: how much of the reply was
  * written by then. Deltas are not kept, so this is the only record of it.
@@ -22,7 +31,14 @@ type Placed<T extends NormalizedEvent["type"]> = Extract<NormalizedEvent, { type
 export type CoreEvent =
   | Exclude<NormalizedEvent, { type: "tool.start" | "permission.request" }>
   | Placed<"tool.start" | "permission.request">
-  | { type: "human.text"; display: "message"; text: string; mentions: string[]; attachments?: AttachmentRef[] }
+  | {
+      type: "human.text";
+      display: "message";
+      text: string;
+      mentions: string[];
+      attachments?: AttachmentRef[];
+      quote?: Quote;
+    }
   | { type: "system.notice"; display: "message"; text: string; notice?: Notice };
 
 /**

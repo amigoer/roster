@@ -1,6 +1,6 @@
 import { useContext, useMemo, useState } from "react";
-import { Bird, Bot, Quote, ShieldAlert, User } from "lucide-react";
-import { api, type AttachmentRef, type Member, type Message } from "./api";
+import { Bird, Bot, QuoteIcon, ShieldAlert, User } from "lucide-react";
+import { api, type AttachmentRef, type Member, type Message, type Quote } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
 import { useI18n, type I18n } from "./i18n";
@@ -92,7 +92,7 @@ function Actions({
           title={t("cards.quote")}
           className="hover:bg-accent hover:text-foreground rounded p-1"
         >
-          <Quote className="size-3.5" />
+          <QuoteIcon className="size-3.5" />
         </button>
       )}
       <span className="px-1 text-[11px]">{when(i18n, at)}</span>
@@ -120,6 +120,7 @@ function Bubble({
   at,
   onQuote,
   attachments,
+  quoted,
   children,
 }: {
   who: "human" | "bot";
@@ -131,6 +132,8 @@ function Bubble({
   onQuote?: (t: string) => void;
   /** above the text, the way a chat app sends a picture with a caption */
   attachments?: React.ReactNode;
+  /** the passage this message replies to, inside the bubble above what was typed */
+  quoted?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -140,7 +143,7 @@ function Bubble({
         {group && who === "bot" && author && <Byline author={author} />}
         {attachments}
         {/* files alone are a whole message; an empty bubble under them would read as a blank reply */}
-        {raw && (
+        {(raw || quoted) && (
           <div
             className={cn(
               // a bot's answer reads as a page rather than a box; only what the human said is a bubble
@@ -148,6 +151,7 @@ function Bubble({
                 "bg-muted rounded-xl px-3.5 py-2.5 text-message leading-message break-words whitespace-pre-wrap",
             )}
           >
+            {quoted}
             {children}
           </div>
         )}
@@ -170,6 +174,34 @@ function HumanText({ text }: { text: string }) {
         ),
       )}
     </>
+  );
+}
+
+/**
+ * What a message replies to, kept to a glance: who said it, the first lines of
+ * it, and a way back to where it was said.
+ */
+function Quoted({ quote, onJump }: { quote: Quote; onJump?: (messageId: string) => void }) {
+  const { t } = useI18n();
+  const id = quote.messageId;
+  const jump = id && onJump ? () => onJump(id) : undefined;
+  return (
+    <button
+      type="button"
+      disabled={!jump}
+      title={jump ? t("cards.quoted") : undefined}
+      onClick={jump}
+      className={cn(
+        "bg-foreground/5 mb-2 block w-full rounded-lg px-2.5 py-1.5 text-left",
+        jump && "hover:bg-foreground/10 transition-colors",
+      )}
+    >
+      <span className="text-[11px] font-medium opacity-70">{quote.name ?? t("members.you")}</span>
+      {/* two lines of it, normalised: the whole passage is a click away where it was said */}
+      <p className="text-muted-foreground line-clamp-2 text-xs leading-snug break-words whitespace-normal">
+        {quote.text.replace(/\s+/g, " ").trim()}
+      </p>
+    </button>
   );
 }
 
@@ -273,7 +305,7 @@ export function TurnView({
   stream?: string;
   author?: Member;
   group: boolean;
-  onQuote?: (text: string) => void;
+  onQuote?: (quote: Quote) => void;
   /** the conversation's repo, so paths inside it read as relative */
   root: string;
 }) {
@@ -320,7 +352,14 @@ export function TurnView({
             />
           ))}
         </div>
-        {turn.text && raw && <Actions text={raw} at={turn.text.created_at} align="start" onQuote={onQuote} />}
+        {turn.text && raw && (
+          <Actions
+            text={raw}
+            at={turn.text.created_at}
+            align="start"
+            onQuote={onQuote && ((text) => onQuote({ messageId: turn.text?.id, name: author?.bot.name, text }))}
+          />
+        )}
       </div>
     </div>
   );
@@ -332,13 +371,15 @@ export function MessageCard({
   group = false,
   author,
   onQuote,
+  onJump,
 }: {
   conversationId: string;
   message: Message;
   /** Only a group needs to say who is speaking. */
   group?: boolean;
   author?: Member;
-  onQuote?: (text: string) => void;
+  onQuote?: (quote: Quote) => void;
+  onJump?: (messageId: string) => void;
 }) {
   const { t } = useI18n();
   const body = JSON.parse(message.body_json) as Record<string, never>;
@@ -348,6 +389,7 @@ export function MessageCard({
       const human = message.author_kind === "human";
       const raw = String(body["text"] ?? "");
       const files = (body["attachments"] ?? []) as AttachmentRef[];
+      const quote = body["quote"] as Quote | undefined;
       return (
         <Bubble
           who={human ? "human" : "bot"}
@@ -355,12 +397,13 @@ export function MessageCard({
           group={group}
           raw={raw}
           at={message.created_at}
-          onQuote={onQuote}
+          onQuote={onQuote && ((text) => onQuote({ messageId: message.id, name: author?.bot.name, text }))}
           attachments={
             files.length > 0 ? (
               <MessageAttachments conversationId={conversationId} items={files} align={human ? "end" : "start"} />
             ) : undefined
           }
+          quoted={quote?.text ? <Quoted quote={quote} onJump={onJump} /> : undefined}
         >
           {/* what the human typed is shown verbatim; the bot answers in Markdown */}
           {human ? <HumanText text={raw} /> : <Markdown>{raw}</Markdown>}

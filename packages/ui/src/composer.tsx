@@ -13,6 +13,7 @@ import {
   Square,
   UserPlus,
   Users,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -22,6 +23,7 @@ import {
   type Conversation,
   type Message,
   type Quota,
+  type Quote,
   type SessionInfo,
   type SessionOptions,
   type SlashCommand,
@@ -85,6 +87,8 @@ export function Composer({
   messages,
   draft,
   setDraft,
+  quote,
+  setQuote,
   inputRef,
   handle,
   onRename,
@@ -97,6 +101,9 @@ export function Composer({
   messages: Message[];
   draft: string;
   setDraft: (v: string) => void;
+  /** the message being replied to, until it is sent or dropped */
+  quote: Quote | null;
+  setQuote: (q: Quote | null) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** how files dropped anywhere on the conversation reach this composer */
   handle?: RefObject<ComposerHandle | null>;
@@ -205,16 +212,21 @@ export function Composer({
     const batch = pendingRef.current.filter((p) => p.ref);
     if (!text && batch.length === 0) return;
     const keys = new Set(batch.map((p) => p.key));
+    const replyTo = quote;
     setSending(true);
     setError(null);
     setDraft("");
+    setQuote(null);
     setPending((list) => list.filter((p) => !keys.has(p.key)));
-    const r = await api.send(conv.id, text, batch.map((p) => p.ref!.id)).catch((e: unknown) => ({ error: String(e) }));
+    const r = await api
+      .send(conv.id, text, batch.map((p) => p.ref!.id), replyTo ?? undefined)
+      .catch((e: unknown) => ({ error: String(e) }));
     setSending(false);
     if (r.error) {
       setError(r.error);
       // nothing typed since: put it all back to try again
       if (!draftRef.current) setDraft(raw);
+      if (replyTo) setQuote(replyTo);
       setPending((list) => [...batch, ...list]);
       return;
     }
@@ -348,6 +360,30 @@ export function Composer({
           />
         )}
         <div className="bg-background focus-within:border-ring/60 rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-colors">
+          {quote && (
+            <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
+              <span className="bg-border mt-0.5 w-0.5 shrink-0 self-stretch rounded-full" />
+              <div className="min-w-0 flex-1">
+                <p className="text-muted-foreground text-[11px]">
+                  {t("composer.replyingTo", { name: quote.name ?? t("members.you") })}
+                </p>
+                {/* one line: the whole passage is already above, in the message being answered */}
+                <p className="text-muted-foreground/90 truncate text-xs">{quote.text.replace(/\s+/g, " ").trim()}</p>
+              </div>
+              <button
+                type="button"
+                title={t("composer.cancelReply")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setQuote(null);
+                  inputRef.current?.focus();
+                }}
+                className="text-muted-foreground hover:text-foreground rounded p-0.5"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
           {pending.length > 0 && <PendingTray items={pending} onRemove={remove} />}
           <textarea
             ref={inputRef}
