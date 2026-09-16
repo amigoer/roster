@@ -95,6 +95,8 @@
 @theme inline {
   /* text-message: the size of what people read and type in a conversation */
   --text-message: var(--message-size);
+  /* leading-message: Chinese text needs more room between lines than Latin does */
+  --leading-message: 1.75;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -899,7 +899,7 @@ export default function App() {
                     ref={scrollRoot}
                   >
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
-                    <div className="cursor-auto space-y-3 px-5 py-4 select-text">
+                    <div className="cursor-auto space-y-4 px-5 py-4 select-text">
                       {messages.length === 0 && streamed === 0 && (
                         // absolute against the scroll area root: the scrolled content is only as tall as its rows
                         <div className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">

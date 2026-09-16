@@ -35,17 +35,24 @@ function Mentions({ children }: { children?: React.ReactNode }) {
  */
 const COMPONENTS: Components = {
   p: ({ children }) => (
-    <p className="my-2 first:mt-0 last:mb-0">
+    <p className="my-3 first:mt-0 last:mb-0">
       <Mentions>{children}</Mentions>
     </p>
   ),
-  h1: ({ children }) => <h1 className="mt-4 mb-2 text-[1.15em] font-semibold first:mt-0">{children}</h1>,
-  h2: ({ children }) => <h2 className="mt-4 mb-2 text-[1em] font-semibold first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mt-3 mb-1.5 text-[1em] font-semibold first:mt-0">{children}</h3>,
-  ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
+  // a heading has to be seen as one at a glance, so each is a step above the text it opens
+  h1: ({ children }) => <h1 className="mt-6 mb-2.5 text-[1.28em] font-semibold tracking-tight first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mt-5 mb-2 text-[1.14em] font-semibold tracking-tight first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mt-4 mb-1.5 text-[1.04em] font-semibold first:mt-0">{children}</h3>,
+  h4: ({ children }) => <h4 className="mt-4 mb-1.5 font-semibold first:mt-0">{children}</h4>,
+  ul: ({ children }) => (
+    <ul className="marker:text-muted-foreground/70 my-3 list-disc space-y-1.5 pl-5 first:mt-0 last:mb-0">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="marker:text-muted-foreground my-3 list-decimal space-y-1.5 pl-5 first:mt-0 last:mb-0">{children}</ol>
+  ),
   li: ({ children }) => (
-    <li className="pl-0.5">
+    // a list inside a list keeps the outer rhythm rather than starting its own
+    <li className="pl-1 [&>ol]:my-1.5 [&>ul]:my-1.5 [&>p]:my-0">
       <Mentions>{children}</Mentions>
     </li>
   ),
@@ -53,14 +60,19 @@ const COMPONENTS: Components = {
   em: ({ children }) => <em className="italic">{children}</em>,
   a: ({ href, children }) => (
     // external links open in the user's browser, not inside the app shell
-    <a href={href} target="_blank" rel="noreferrer noopener" className="underline underline-offset-2">
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-primary decoration-primary/40 hover:decoration-primary underline underline-offset-2"
+    >
       {children}
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="text-muted-foreground my-2 border-l-2 pl-3">{children}</blockquote>
+    <blockquote className="text-muted-foreground my-3 border-l-2 pl-3.5">{children}</blockquote>
   ),
-  hr: () => <hr className="my-3" />,
+  hr: () => <hr className="my-5" />,
   code: ({ className, children, ...props }) => {
     // react-markdown gives inline code no language class; a fenced block gets one,
     // and multi-line content is a block even without a language
@@ -68,7 +80,7 @@ const COMPONENTS: Components = {
     const isBlock = /language-/.test(className ?? "") || text.includes("\n");
     if (!isBlock) {
       return (
-        <code className="bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]" {...props}>
+        <code className="bg-muted rounded-[5px] px-1.5 py-0.5 font-mono text-[0.86em] break-words" {...props}>
           {children}
         </code>
       );
@@ -80,13 +92,17 @@ const COMPONENTS: Components = {
     );
   },
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+  // rules between the rows, not around every cell: the columns line the table up on their own
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto">
-      <table className="w-full border-collapse text-[0.86em]">{children}</table>
+    <div className="my-3 overflow-x-auto rounded-lg border">
+      <table className="w-full border-collapse text-[0.9em]">{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border px-2 py-1 text-left font-medium">{children}</th>,
-  td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
+  th: ({ children }) => (
+    <th className="bg-muted/50 border-b px-2.5 py-1.5 text-left font-medium whitespace-nowrap">{children}</th>
+  ),
+  td: ({ children }) => <td className="border-b px-2.5 py-1.5 align-top last:border-b-0">{children}</td>,
+  tbody: ({ children }) => <tbody className="[&>tr:last-child>td]:border-b-0">{children}</tbody>,
 };
 
 /** Grabbing a snippet is the most common thing done with an agent's answer. */
@@ -95,9 +111,9 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   const { copied, copy } = useCopy();
   const { t } = useI18n();
   return (
-    <div className="group/code relative my-2">
+    <div className="group/code relative my-3">
       {/* its own scroller: a long line must not widen the bubble */}
-      <pre ref={ref} className="bg-muted overflow-x-auto rounded-md p-3 pr-10">
+      <pre ref={ref} className="bg-muted overflow-x-auto rounded-lg border p-3 pr-10">
         {children}
       </pre>
       <button
@@ -119,7 +135,7 @@ export const Markdown = memo(function Markdown({
   className?: string;
 }) {
   return (
-    <div className={cn("text-message leading-relaxed break-words", className)}>
+    <div className={cn("text-message leading-message break-words", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {children}
       </ReactMarkdown>

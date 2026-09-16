@@ -145,7 +145,7 @@ function Bubble({
             className={cn(
               // a bot's answer reads as a page rather than a box; only what the human said is a bubble
               who === "human" &&
-                "bg-muted rounded-xl px-3.5 py-2.5 text-message leading-relaxed break-words whitespace-pre-wrap",
+                "bg-muted rounded-xl px-3.5 py-2.5 text-message leading-message break-words whitespace-pre-wrap",
             )}
           >
             {children}
@@ -303,7 +303,7 @@ export function TurnView({
               />
             ) : !turn.text && i === parts.length - 1 ? (
               // still being written, and half-written Markdown renders as garbage
-              <div key={`text-${i}`} className="text-message leading-relaxed break-words whitespace-pre-wrap">
+              <div key={`text-${i}`} className="text-message leading-message break-words whitespace-pre-wrap">
                 {part.text}
               </div>
             ) : (
