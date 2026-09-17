@@ -118,8 +118,11 @@ app.whenReady().then(async () => {
     trafficLightPosition: { x: 6, y: 19 },
     // the UI's chrome colour; a hardcoded light one flashes white before the dark UI paints
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0b0d" : "#eef0f4",
+    // shown once the page has painted in the theme it picked, so no frame of the wrong one comes first
+    show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
+  win.once("ready-to-show", () => win.show());
   // a link out of the app belongs in the user's browser, not in a bare Electron window
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:\/\//.test(target)) void shell.openExternal(target);
@@ -146,6 +149,9 @@ app.whenReady().then(async () => {
     if (items.length > 0) Menu.buildFromTemplate(items).popup({ window: win });
   });
   await win.loadURL(url);
+  // the theme is the page's to pick; the colour behind it, seen while resizing, follows
+  const dark = await win.webContents.executeJavaScript('document.documentElement.classList.contains("dark")', true).catch(() => null);
+  if (dark !== null) win.setBackgroundColor(dark ? "#0a0b0d" : "#eef0f4");
 
   // desktop capability lives here and nowhere else: main subscribes to the same
   // SSE stream over plain HTTP, so the renderer needs no privileged bridge
