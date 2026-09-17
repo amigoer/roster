@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Circle,
   CircleDot,
   ExternalLink,
+  Folder,
   FolderInput,
   FolderOpen,
   FolderSearch,
@@ -13,8 +14,7 @@ import {
 import { api, type Conversation, type Location, type Locations } from "./api";
 import { desktop } from "./desktop";
 import { useI18n, type Translate } from "./i18n";
-import { FIELD } from "./list";
-import { ICON_IN } from "./motion";
+import { Collapse, ICON_IN } from "./motion";
 import { WARN_TEXT } from "./settings/shared";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,10 +70,15 @@ export function rememberLocation(location: Location): void {
 /** Where a conversation can work, fetched each time a picker opens: directories come and go. */
 export function useLocations(open: boolean): Locations | null {
   const [locations, setLocations] = useState<Locations | null>(null);
+  // cleared in the render that opens the picker: last time's list must not light a row for a frame
+  const [was, setWas] = useState(open);
+  if (was !== open) {
+    setWas(open);
+    setLocations(null);
+  }
   useEffect(() => {
     if (!open) return;
     let live = true;
-    setLocations(null);
     api
       .locations()
       .then((l) => live && setLocations({ chats: l.chats ?? "", recent: l.recent ?? [] }))
@@ -89,7 +94,11 @@ const CHAT = "chat";
 const OTHER = "other";
 const recentKey = (path: string) => `recent:${path}`;
 
-/** A chat space, a directory used before, or any other: one choice, as a list that takes one. */
+/** A field set into a tinted row: a slot in the surface, lit when it has focus. */
+const SLOT =
+  "bg-background placeholder:text-muted-foreground/70 rounded-lg border outline-none focus-visible:border-ring/60 focus-visible:ring-[3px] focus-visible:ring-ring/20 transition-[border-color,box-shadow]";
+
+/** A chat space, a directory used before, or any other: one choice, as a framed list that takes one. */
 export function LocationPicker({
   value,
   onChange,
@@ -112,16 +121,29 @@ export function LocationPicker({
   const bridge = desktop();
   const recent = locations?.recent ?? [];
   const inRecent = value.kind === "repo" && recent.includes(value.path);
+  // picked by hand, the other row keeps its field even when what is typed matches a row above
+  const [other, setOther] = useState(false);
   // what was typed stays while another row is tried, so coming back does not start over
-  const [typed, setTyped] = useState(value.kind === "repo" && !inRecent ? value.path : "");
-  const picked = value.kind === "chat" ? CHAT : inRecent ? recentKey(value.path) : OTHER;
+  const [typed, setTyped] = useState("");
+  useEffect(() => {
+    // the list arrives after the dialog opens: a remembered path that is not in it belongs in the field
+    if (locations && value.kind === "repo" && !locations.recent.includes(value.path)) {
+      setTyped(value.path);
+      setOther(true);
+    }
+    // once, when the list arrives
+  }, [locations]);
+  // until the list is here, a remembered path has no row to light
+  const picked = value.kind === "chat" ? CHAT : locations === null ? "" : other || !inRecent ? OTHER : recentKey(value.path);
   // the field takes focus when its row is picked by hand, not when a dialog opens on it
   const field = useRef<HTMLInputElement>(null);
   const pick = (v: string) => {
+    setOther(v === OTHER);
     if (v === CHAT) onChange({ kind: "chat" });
     else if (v === OTHER) {
       onChange({ kind: "repo", path: typed });
-      requestAnimationFrame(() => field.current?.focus());
+      // the field unfolds inside a clipped box; scrolling it into view would leave that box cut off
+      requestAnimationFrame(() => field.current?.focus({ preventScroll: true }));
     } else onChange({ kind: "repo", path: v.slice("recent:".length) });
   };
   const chosen = value.kind === "repo" ? value.path.trim() : "";
@@ -134,62 +156,68 @@ export function LocationPicker({
   };
 
   return (
-    <div className="grid gap-2">
-      {/* rows hang into the margin the way the sidebar's do, so their text lines up with the heading */}
-      <div className="-mx-2.5">
-        <RadioGroup value={picked} onValueChange={pick} className="gap-0.5">
-          <PlaceRow value={CHAT} selected={picked === CHAT} icon={MessageSquareDashed} title={t("location.chat")} line={t("location.chatHint")} />
-          {locations === null ? (
-            <Skeleton className="mx-1 my-0.5 h-10 rounded-lg" />
-          ) : (
-            recent.length > 0 && (
-              <>
-                <span className="text-muted-foreground px-2.5 pt-1.5 pb-0.5 text-[11px] font-medium">{t("location.recent")}</span>
-                {recent.map((path) => (
-                  <PlaceRow key={path} value={recentKey(path)} selected={picked === recentKey(path)} icon={FolderOpen} title={repoName(path)} line={path} mono />
-                ))}
-              </>
-            )
-          )}
-          <PlaceRow value={OTHER} selected={picked === OTHER} icon={FolderSearch} title={t("location.other")} />
-        </RadioGroup>
-        {/* the field stays in view under its row, so a path is never a click away; typing into it picks the row */}
-        <div className="flex gap-2 pt-1 pr-2.5 pb-1 pl-9">
-          <input
-            ref={field}
-            value={typed}
-            spellCheck={false}
-            onFocus={() => {
-              if (picked !== OTHER) onChange({ kind: "repo", path: typed });
-            }}
-            onChange={(e) => {
-              setTyped(e.target.value);
-              onChange({ kind: "repo", path: e.target.value });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit?.();
-            }}
-            placeholder="/path/to/repo"
-            className={cn(FIELD, "h-8 w-full min-w-0 px-2.5 font-mono text-xs")}
-          />
-          {bridge && (
-            <Button type="button" variant="secondary" size="sm" className="h-8 shrink-0" onClick={() => void browse()}>
-              {t("location.browse")}
-            </Button>
-          )}
-        </div>
-      </div>
-      {inUse.length > 0 && (
-        <p className={cn("flex items-start gap-1.5 text-xs leading-relaxed", WARN_TEXT)}>
+    <div className="overflow-hidden rounded-xl border">
+      <RadioGroup value={picked} onValueChange={pick} className="gap-0 divide-y">
+        <PlaceRow value={CHAT} selected={picked === CHAT} icon={MessageSquareDashed} title={t("location.chat")} line={t("location.chatHint")} />
+        {locations === null ? (
+          <div className="px-3 py-2">
+            <Skeleton className="h-9 rounded-lg" />
+          </div>
+        ) : (
+          recent.length > 0 && (
+            <>
+              <div className="bg-muted/70 text-muted-foreground px-3 py-1 text-[11px] font-medium">{t("location.recent")}</div>
+              {recent.map((path) => {
+                const on = picked === recentKey(path);
+                // the folder picked is the one standing open
+                return <PlaceRow key={path} value={recentKey(path)} selected={on} icon={on ? FolderOpen : Folder} title={repoName(path)} line={path} mono />;
+              })}
+            </>
+          )
+        )}
+        <PlaceRow value={OTHER} selected={picked === OTHER} icon={FolderSearch} title={t("location.other")}>
+          {/* the path goes in a slot under its row, which unfolds only once the row is picked */}
+          <Collapse open={picked === OTHER}>
+            <div className="flex gap-2 pt-0.5 pr-3 pb-2.5 pl-[52px]">
+              <input
+                ref={field}
+                value={typed}
+                spellCheck={false}
+                onChange={(e) => {
+                  setTyped(e.target.value);
+                  onChange({ kind: "repo", path: e.target.value });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit?.();
+                }}
+                placeholder="/path/to/repo"
+                className={cn(SLOT, "h-8 w-full min-w-0 px-2.5 font-mono text-xs")}
+              />
+              {bridge && (
+                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => void browse()}>
+                  {t("location.browse")}
+                </Button>
+              )}
+            </div>
+          </Collapse>
+        </PlaceRow>
+      </RadioGroup>
+      {/* the card carries its own caution at the foot: who else works in the place picked */}
+      <Collapse open={inUse.length > 0}>
+        <p className={cn("flex items-start gap-2 border-t bg-amber-500/[0.06] px-3 py-2 text-xs leading-relaxed", WARN_TEXT)}>
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span>{t("location.inUse", { titles: list(inUse.map((c) => c.title)) })}</span>
         </p>
-      )}
+      </Collapse>
     </div>
   );
 }
 
-/** One place to work, as a row: picked, it wears the tint a chosen member does, and a dot says the list takes one. */
+/**
+ * One place to work, as a row: its mark on a tile, its name, and a dot that
+ * says the list takes one. Picked, the tile lights and the row wears the
+ * tint a chosen member does; whatever hangs under the row shares it.
+ */
 function PlaceRow({
   value,
   selected,
@@ -197,6 +225,7 @@ function PlaceRow({
   title,
   line,
   mono,
+  children,
 }: {
   value: string;
   selected: boolean;
@@ -206,30 +235,42 @@ function PlaceRow({
   line?: string;
   /** the line is a path */
   mono?: boolean;
+  /** what hangs under the row, inside its tint */
+  children?: ReactNode;
 }) {
   return (
-    <label
-      className={cn(
-        "has-[:focus-visible]:ring-ring/60 flex cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 transition-colors duration-120 has-[:focus-visible]:ring-2",
-        selected ? "bg-selected" : "hover:bg-accent",
-      )}
-    >
-      <RadioGroupItem value={value} className="sr-only" />
-      <Icon className={cn("size-4 shrink-0", selected ? "text-primary" : "text-muted-foreground")} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{title}</span>
-        {line && (
-          <span title={mono ? line : undefined} className={cn("text-muted-foreground block truncate", mono ? "font-mono text-[11px]" : "text-xs")}>
-            {line}
-          </span>
+    <div className={cn("transition-colors duration-120", selected && "bg-selected")}>
+      <label
+        className={cn(
+          "has-[:focus-visible]:ring-ring/60 flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-120 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset",
+          !selected && "hover:bg-accent",
         )}
-      </span>
-      {selected ? (
-        <CircleDot className={cn("text-primary size-[18px] shrink-0", ICON_IN)} aria-hidden />
-      ) : (
-        <Circle className="text-foreground/30 size-[18px] shrink-0" strokeWidth={1.5} aria-hidden />
-      )}
-    </label>
+      >
+        <RadioGroupItem value={value} className="sr-only" />
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-[23%] transition-colors duration-120",
+            selected ? "bg-primary text-primary-foreground" : "bg-foreground/[0.06] text-muted-foreground",
+          )}
+        >
+          <Icon className="size-3.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{title}</span>
+          {line && (
+            <span title={mono ? line : undefined} className={cn("text-muted-foreground block truncate", mono ? "font-mono text-[11px]" : "text-xs")}>
+              {line}
+            </span>
+          )}
+        </span>
+        {selected ? (
+          <CircleDot className={cn("text-primary size-[18px] shrink-0", ICON_IN)} aria-hidden />
+        ) : (
+          <Circle className="text-foreground/30 size-[18px] shrink-0" strokeWidth={1.5} aria-hidden />
+        )}
+      </label>
+      {children}
+    </div>
   );
 }
 

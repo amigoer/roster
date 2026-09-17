@@ -107,7 +107,6 @@ export function MembersPanel({
   onClose: () => void;
   onOpenBot: (botId: string) => void;
 }) {
-  const group = conv.shape === "group";
   const { t } = useI18n();
   // settled: the move in the current direction has ended; only then is a closed panel hidden outright
   const [settled, setSettled] = useState(true);
@@ -164,7 +163,7 @@ export function MembersPanel({
         >
           <header className="flex h-13 shrink-0 items-center justify-between px-4">
             {/* you are in the room as much as they are, so every head count includes you */}
-            <span className="text-sm font-semibold">{group ? t("members.groupTitle", { count: activeMembers(conv).length + 1 }) : t("members.title")}</span>
+            <span className="text-sm font-semibold">{t("members.groupTitle", { count: activeMembers(conv).length + 1 })}</span>
             <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.collapse")}>
               <X className="size-4" />
             </Button>
@@ -201,7 +200,6 @@ export function MemberSections({
   const { t } = useI18n();
   const { profile: me } = useMe();
   const members = activeMembers(conv);
-  const group = conv.shape === "group";
   const leader = conv.mode === "leader" ? leaderOf(conv) : undefined;
   const outsiders = bots.filter((b) => !members.some((m) => m.bot.id === b.id));
 
@@ -212,12 +210,10 @@ export function MemberSections({
 
   return (
     <div className={cn("space-y-5", className)}>
-      {group && (
-        <section className="space-y-2">
-          <h3 className="text-muted-foreground text-xs font-medium">{t("members.whoAnswers")}</h3>
-          <ModePicker value={conv.mode} onChange={(m) => void run(api.setMode(conv.id, m))} />
-        </section>
-      )}
+      <section className="space-y-2">
+        <h3 className="text-muted-foreground text-xs font-medium">{t("members.whoAnswers")}</h3>
+        <ModePicker value={conv.mode} onChange={(m) => void run(api.setMode(conv.id, m))} />
+      </section>
 
       <section className="space-y-1">
         <div className="flex items-center justify-between pb-1">
@@ -226,7 +222,7 @@ export function MemberSections({
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="xs" className="text-muted-foreground">
                 <UserPlus />
-                {group ? t("members.add") : t("members.addToGroup")}
+                {t("members.add")}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">

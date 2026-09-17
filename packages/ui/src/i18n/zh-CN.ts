@@ -450,7 +450,6 @@ export const zhCN = translation<typeof en>()({
   "members.title": "成员",
   "members.whoAnswers": "谁来接话",
   "members.add": "拉人",
-  "members.addToGroup": "拉人建群",
   "members.fromContacts": "从通讯录添加",
   "members.allHere": "通讯录里的 bot 都在这了",
   "members.you": "你",
@@ -527,6 +526,10 @@ export const zhCN = translation<typeof en>()({
   "session.new": "新会话",
   "session.with": "和 {name} 的会话",
   "session.count": "{count} 个会话",
+  "session.group": "和 {name} 建群…",
+  "session.reveal": "在 Finder 中打开聊天空间",
+  "session.staleSync": "设定有更新 · 同步",
+  "session.staleHint": "这个会话还在用之前的设定；同步会开一个新的后端会话，并把聊天记录重新交给它",
 
   "newConversation.title": "发起会话",
   "newConversation.description": "一个 bot 加聊天空间是单聊；选了仓库或多个 bot 就是群。群里每个 bot 都是独立的会话。",

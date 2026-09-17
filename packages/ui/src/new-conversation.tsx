@@ -289,7 +289,7 @@ function RoomCard({
   return (
     <div className="flex items-center gap-4">
       {!one ? (
-        <span className="bg-muted text-muted-foreground flex size-14 shrink-0 items-center justify-center rounded-[23%]">
+        <span className="text-muted-foreground border-foreground/15 flex size-14 shrink-0 items-center justify-center rounded-[23%] border border-dashed">
           <Users className="size-6" />
         </span>
       ) : group ? (

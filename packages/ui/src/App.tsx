@@ -42,7 +42,7 @@ import { SelectionMenu } from "./selection";
 import { NavRail, RAIL, type Nav } from "./nav-rail";
 import { PlaceChip, repoName } from "./location";
 import { NewConversation, startDirect } from "./new-conversation";
-import { SessionSwitcher } from "./session-switcher";
+import { SessionSwitcher, StaleNote } from "./session-switcher";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { ProfilePanel } from "./profile";
@@ -91,13 +91,15 @@ const omit = <T,>(rec: Record<string, T>, key: string): Record<string, T> => {
   return next;
 };
 
-/** 1:1s read as a plain chat, so the members panel is remembered per shape. */
+/** The members panel is a group's alone; whether it stands open is remembered across groups and restarts. */
 function usePanelOpen() {
-  const [open, setOpen] = useState<Record<"direct" | "group", boolean>>(() => {
+  const [open, setOpen] = useState<boolean>(() => {
     try {
-      return { direct: false, group: true, ...JSON.parse(localStorage.getItem("roster.membersPanel") ?? "{}") };
+      const v: unknown = JSON.parse(localStorage.getItem("roster.membersPanel") ?? "true");
+      // remembered per shape before 1:1s lost their panel
+      return typeof v === "boolean" ? v : Boolean((v as { group?: boolean } | null)?.group ?? true);
     } catch {
-      return { direct: false, group: true };
+      return true;
     }
   });
   useEffect(() => {
@@ -562,6 +564,16 @@ export default function App() {
     openConversation(c.id);
   };
 
+  // the member being brought onto its bot's current setup, so the note that asked shows the wait
+  const [syncing, setSyncing] = useState<string | null>(null);
+  /** A 1:1's bot onto the setup it has now: a fresh backend session, handed the chat again. */
+  const syncMember = async (convId: string, memberId: string) => {
+    setSyncing(memberId);
+    const r = await api.syncMember(convId, memberId);
+    setSyncing(null);
+    if (r.error) toast.error(r.error);
+  };
+
   /** Another session with the same bot, in a chat space of its own, opened at once. */
   const newSession = async (bot: Bot) => {
     const r = await startDirect(bot);
@@ -619,7 +631,7 @@ export default function App() {
   };
   const mentionable = useMemo(() => (conv?.members ?? []).map((m) => m.bot), [conv]);
   const group = conv?.shape === "group";
-  const panelOpen = conv ? panel[conv.shape] : false;
+  const panelOpen = conv?.shape === "group" && panel;
   const selectedBot = contact?.kind === "bot" ? bots.find((b) => b.id === contact.id) : undefined;
   const selectedGroup = contact?.kind === "group" ? convs.find((c) => c.id === contact.id && !c.archived) : undefined;
 
@@ -1003,14 +1015,14 @@ export default function App() {
                           }`}
                         </span>
                         {/* the place by name, the way the list says it; the whole path waits in the tooltip */}
-                        <PlaceChip conv={conv} style={NO_DRAG} onOpen={() => setPanel((p) => ({ ...p, [conv.shape]: true }))} />
+                        <PlaceChip conv={conv} style={NO_DRAG} onOpen={() => setPanel(true)} />
                       </div>
                     ) : renaming === conv.id ? (
                       <div className="px-1.5">
                         <RenameInput conv={conv} style={NO_DRAG} className="text-[11px]" onDone={() => setRenaming(null)} />
                       </div>
                     ) : (
-                      <div className="text-muted-foreground flex min-w-0 px-1.5 text-[11px]">
+                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[11px]">
                         <SessionSwitcher
                           conv={conv}
                           sessions={members[0] ? sessionsOf(members[0].bot.id) : [conv]}
@@ -1020,9 +1032,15 @@ export default function App() {
                           onNew={() => {
                             if (members[0]) void newSession(members[0].bot);
                           }}
+                          onGroup={() => {
+                            if (members[0]) setStarting({ open: true, botIds: [members[0].bot.id] });
+                          }}
                           onRename={() => setRenaming(conv.id)}
                           style={NO_DRAG}
                         />
+                        {members[0]?.stale && (
+                          <StaleNote busy={syncing === members[0].id} onSync={() => void syncMember(conv.id, members[0]!.id)} style={NO_DRAG} />
+                        )}
                       </div>
                     )}
                   </div>
@@ -1031,16 +1049,19 @@ export default function App() {
                       <Outline messages={messages} onJump={jump} />
                     </span>
                   )}
-                  <Button
-                    variant={panelOpen ? "secondary" : "ghost"}
-                    size="sm"
-                    style={NO_DRAG}
-                    title={panelOpen ? t("app.hideMembers") : t("app.membersAndMode")}
-                    onClick={() => setPanel((p) => ({ ...p, [conv.shape]: !p[conv.shape] }))}
-                  >
-                    <Users className="size-4" />
-                    {members.length + 1}
-                  </Button>
+                  {/* a 1:1 has no members to speak of: what its panel held is in the session menu and a note beside it */}
+                  {group && (
+                    <Button
+                      variant={panelOpen ? "secondary" : "ghost"}
+                      size="sm"
+                      style={NO_DRAG}
+                      title={panelOpen ? t("app.hideMembers") : t("app.membersAndMode")}
+                      onClick={() => setPanel((p) => !p)}
+                    >
+                      <Users className="size-4" />
+                      {members.length + 1}
+                    </Button>
+                  )}
                 </header>
 
                 <MentionBots.Provider value={mentionable}>
@@ -1049,27 +1070,28 @@ export default function App() {
                     className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_1rem,black_calc(100%_-_1rem),transparent)]"
                     ref={scrollRoot}
                   >
+                    {/* only once the log is read: while it loads, an empty pane must not claim there is nothing in it */}
+                    {loadedFor === conv.id && messages.length === 0 && streamed === 0 && (
+                      // a sibling of the transcript, not a child: absolute against the scroll area root, which is as tall as the pane;
+                      // the transcript is only as tall as its rows, and it is positioned for the selection menu
+                      <div className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                        {group ? (
+                          <>
+                            <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} size="lg" />
+                            <p className="text-sm">{t("app.groupHas", { names: list(members.map((m) => m.bot.name)) })}</p>
+                            <p className="max-w-sm text-xs">{t(`mode.${conv.mode}.hint`)}</p>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquarePlus className="size-7 opacity-40" />
+                            <p className="text-sm">{t("app.noMessages")}</p>
+                            <p className="text-xs">{t("app.firstMessage")}</p>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
                     <div className="relative cursor-auto space-y-4 px-5 py-4 select-text" ref={transcriptRoot}>
-                      {/* only once the log is read: while it loads, an empty pane must not claim there is nothing in it */}
-                      {loadedFor === conv.id && messages.length === 0 && streamed === 0 && (
-                        // absolute against the scroll area root: the scrolled content is only as tall as its rows
-                        <div className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-                          {group ? (
-                            <>
-                              <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} size="lg" />
-                              <p className="text-sm">{t("app.groupHas", { names: list(members.map((m) => m.bot.name)) })}</p>
-                              <p className="max-w-sm text-xs">{t(`mode.${conv.mode}.hint`)}</p>
-                            </>
-                          ) : (
-                            <>
-                              <MessageSquarePlus className="size-7 opacity-40" />
-                              <p className="text-sm">{t("app.noMessages")}</p>
-                              <p className="text-xs">{t("app.firstMessage")}</p>
-                            </>
-                          )}
-                        </div>
-                      )}
                       {rows.map((row) =>
                         row.kind === "message" ? (
                           // the id is what the outline scrolls to
@@ -1123,21 +1145,23 @@ export default function App() {
                   onRename={() => setRenaming(conv.id)}
                 />
               </div>
-              <MembersPanel
-                open={panelOpen}
-                mode={wide ? "column" : "overlay"}
-                conv={conv}
-                bots={bots}
-                presence={presence}
-                sessions={{ info: sessions, options: sessionOptions, quota }}
-                convs={convs}
-                onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
-                onOpenBot={(id) => {
-                  setNav("contacts");
-                  setContact({ kind: "bot", id });
-                  setEditing(null);
-                }}
-              />
+              {group && (
+                <MembersPanel
+                  open={panelOpen}
+                  mode={wide ? "column" : "overlay"}
+                  conv={conv}
+                  bots={bots}
+                  presence={presence}
+                  sessions={{ info: sessions, options: sessionOptions, quota }}
+                  convs={convs}
+                  onClose={() => setPanel(false)}
+                  onOpenBot={(id) => {
+                    setNav("contacts");
+                    setContact({ kind: "bot", id });
+                    setEditing(null);
+                  }}
+                />
+              )}
             </div>
           )}
         </main>

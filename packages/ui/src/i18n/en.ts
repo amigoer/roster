@@ -462,7 +462,6 @@ export const en = {
   "members.title": "Members",
   "members.whoAnswers": "Who replies",
   "members.add": "Add people",
-  "members.addToGroup": "Add people for a group",
   "members.fromContacts": "Add from contacts",
   "members.allHere": "Every bot in your contacts is already here",
   "members.you": "You",
@@ -540,6 +539,10 @@ export const en = {
   "session.new": "New session",
   "session.with": "Sessions with {name}",
   "session.count": { one: "{count} session", other: "{count} sessions" },
+  "session.group": "Start a group with {name}…",
+  "session.reveal": "Open chat space in Finder",
+  "session.staleSync": "Setup changed · Sync",
+  "session.staleHint": "This session is still on the earlier setup. Syncing starts a new backend session and hands it the chat history again",
 
   "newConversation.title": "New conversation",
   "newConversation.description": "One bot in a chat space is a direct chat; a repository, or several bots, makes a group. Each bot in a group runs its own session.",
