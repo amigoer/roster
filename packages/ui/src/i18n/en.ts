@@ -340,6 +340,7 @@ export const en = {
 
   "presence.starting": "Starting",
   "presence.thinking": "Thinking",
+  "presence.writing": "Typing",
   "presence.toolNamed": "Running {tool}",
   "presence.tool": "Running a tool",
   "presence.permissionNamed": "Waiting for you to approve {tool}",

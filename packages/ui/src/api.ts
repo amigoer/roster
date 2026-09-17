@@ -475,7 +475,7 @@ export interface Quota {
   url?: string;
 }
 
-export type PresenceState = "starting" | "thinking" | "tool" | "waiting_permission" | "waiting_lock" | "compacting";
+export type PresenceState = "starting" | "thinking" | "writing" | "tool" | "waiting_permission" | "waiting_lock" | "compacting";
 
 export interface Presence {
   conversationId: string;
@@ -484,6 +484,8 @@ export interface Presence {
   detail?: string;
   /** the turn being written */
   turnId?: string;
+  /** when that turn began, epoch ms: members speaking at once take the floor in this order */
+  since?: number;
 }
 
 export type ServerMsg =

@@ -64,7 +64,7 @@ function stillOffered(settings: MemberSettings, options: SessionOptions): Member
   };
 }
 
-export type PresenceState = "starting" | "thinking" | "tool" | "waiting_permission" | "waiting_lock" | "compacting";
+export type PresenceState = "starting" | "thinking" | "writing" | "tool" | "waiting_permission" | "waiting_lock" | "compacting";
 
 export interface Presence {
   conversationId: string;
@@ -73,6 +73,8 @@ export interface Presence {
   detail?: string;
   /** the turn being worked on, so the transcript knows which one is still being written */
   turnId?: string;
+  /** when that turn began, epoch ms: members speaking at once are shown in this order */
+  since?: number;
 }
 
 type Reason = "done" | "aborted" | "error";
@@ -84,6 +86,8 @@ interface Live {
   starting: Promise<BotRuntime> | null;
   running: boolean;
   turnId: string | null;
+  /** when the running turn began */
+  since: number;
   /** deltas are not rows; the finalized text is written when the turn ends */
   buffer: string;
   /** the thinking still coming in, written whole once anything else happens in the turn */
@@ -579,6 +583,7 @@ export class Orchestrator {
         starting: null,
         running: false,
         turnId: null,
+        since: 0,
         buffer: "",
         thought: null,
         asks: new Set(),
@@ -610,7 +615,7 @@ export class Orchestrator {
       g.failed = false;
     }
     const turnId = randomUUID();
-    Object.assign(live, { running: true, asks, turnId, buffer: "", thought: null, aborted: false, errored: false });
+    Object.assign(live, { running: true, asks, turnId, since: Date.now(), buffer: "", thought: null, aborted: false, errored: false });
     this.#setPresence(live, live.runtime ? "thinking" : "starting");
     // off the current stack: this can be called from inside a backend's own
     // event dispatch, which is still unwinding the turn that just ended
@@ -715,6 +720,7 @@ export class Orchestrator {
       case "assistant.text":
         if (e.final) break;
         live.buffer += e.delta;
+        this.#setPresence(live, "writing");
         this.#delta(live, e.delta);
         return;
       case "assistant.thinking":
@@ -1112,7 +1118,7 @@ export class Orchestrator {
     const turnId = state && live.turnId ? live.turnId : undefined;
     const p = live.presence;
     if (p?.state === (state ?? undefined) && p?.detail === detail && p?.turnId === turnId) return;
-    const extra = { ...(detail ? { detail } : {}), ...(turnId ? { turnId } : {}) };
+    const extra = { ...(detail ? { detail } : {}), ...(turnId ? { turnId, since: live.since } : {}) };
     live.presence = state ? { conversationId: live.conversationId, memberId: live.memberId, state, ...extra } : null;
     this.broadcast({
       kind: "presence",

@@ -15,7 +15,8 @@ export interface Turn {
 
 export type Row =
   | { kind: "message"; key: string; message: Message }
-  | { kind: "turn"; key: string; turn: Turn; live: boolean };
+  // floor: the one live turn whose words are shown as they come; another live row is only there for its pending ask
+  | { kind: "turn"; key: string; turn: Turn; live: boolean; floor: boolean };
 
 export type Part = { kind: "text"; text: string } | { kind: "steps"; steps: Array<Step | Thought> };
 
@@ -33,13 +34,48 @@ function stepsOf(m: Message): StepsBody {
   return body;
 }
 
+interface Running {
+  turnId: string;
+  memberId: string;
+  since: number;
+  /** where core listed it, which settles ties: members asked in the same instant were asked in this order */
+  at: number;
+}
+
+/** The turns still being written, earliest begun first. */
+function running(presence: Presence[]): Running[] {
+  return presence
+    .flatMap((p, at) => (p.turnId ? [{ turnId: p.turnId, memberId: p.memberId, since: p.since ?? 0, at }] : []))
+    .sort((a, b) => a.since - b.since || a.at - b.at);
+}
+
+/**
+ * Who has the floor: the one live turn shown as it is written. Several members
+ * can be writing at once, but one stream is all a reader can follow, so the
+ * others wait their turn in the presence strip. The earliest begun turn with
+ * something to show takes it, and keeps it until its reply lands, even when
+ * one that began earlier catches up; a row must not vanish mid-sentence.
+ */
+export function pickFloor(messages: Message[], presence: Presence[], streams: Record<string, string>, held: string | null): string | null {
+  const rows = new Set<string>();
+  const ended = new Set<string>();
+  for (const m of messages) {
+    if (!m.turn_id || m.author_kind !== "bot" || !IN_TURN.has(m.card_kind)) continue;
+    rows.add(m.turn_id);
+    if (m.card_kind === "text") ended.add(m.turn_id);
+  }
+  const candidates = running(presence).filter((r) => !ended.has(r.turnId) && (rows.has(r.turnId) || streams[r.memberId]?.trim()));
+  return candidates.find((r) => r.turnId === held)?.turnId ?? candidates[0]?.turnId ?? null;
+}
+
 /**
  * The transcript as it reads. A turn's steps, reply and asks become one row, so
  * its calls can sit between the paragraphs they came between. A turn sorts where
  * it ended, which is where its reply always appeared; one still being written
- * stays at the bottom.
+ * stays at the bottom. Of the turns being written only the floor's is there,
+ * plus any that is waiting on the human to approve a call: that card cannot wait.
  */
-export function transcript(messages: Message[], presence: Presence[], streams: Record<string, string>): Row[] {
+export function transcript(messages: Message[], presence: Presence[], streams: Record<string, string>, floor: string | null): Row[] {
   const turns = new Map<string, { turn: Turn; seq: number; order: number }>();
   const placed: Array<{ seq: number; order: number; row: Row }> = [];
   messages.forEach((m, order) => {
@@ -65,24 +101,24 @@ export function transcript(messages: Message[], presence: Presence[], streams: R
     entry.seq = Math.max(entry.seq, end);
   });
 
-  const running = new Map(presence.flatMap((p) => (p.turnId ? [[p.turnId, p.memberId] as const] : [])));
+  const live = running(presence);
+  // the floor first, then the rest in the order they began: rows past the bottom never swap places
+  const rank = (turnId: string) => (turnId === floor ? -1 : live.findIndex((r) => r.turnId === turnId));
   for (const { turn, seq, order } of turns.values()) {
-    const live = !turn.text && running.has(turn.id);
-    placed.push({ seq: live ? Infinity : seq, order, row: { kind: "turn", key: `turn-${turn.id}`, turn, live } });
+    const writing = !turn.text && live.some((r) => r.turnId === turn.id);
+    if (!writing) {
+      placed.push({ seq, order, row: { kind: "turn", key: `turn-${turn.id}`, turn, live: false, floor: false } });
+      continue;
+    }
+    const floored = turn.id === floor;
+    if (!floored && !turn.permissions.some((p) => p.status === "pending")) continue;
+    placed.push({ seq: Infinity, order: rank(turn.id), row: { kind: "turn", key: `turn-${turn.id}`, turn, live: true, floor: floored } });
   }
-  let order = messages.length;
-  // a turn that has only written text so far has no rows yet
-  for (const [turnId, memberId] of running) {
-    if (turns.has(turnId) || !streams[memberId]?.trim()) continue;
-    const turn: Turn = { id: turnId, memberId, steps: [], permissions: [] };
-    placed.push({ seq: Infinity, order: order++, row: { kind: "turn", key: `turn-${turnId}`, turn, live: true } });
-  }
-  // text from a member whose presence has not arrived yet
-  const writing = new Set(running.values());
-  for (const [memberId, text] of Object.entries(streams)) {
-    if (writing.has(memberId) || !text.trim()) continue;
-    const turn: Turn = { id: "", memberId, steps: [], permissions: [] };
-    placed.push({ seq: Infinity, order: order++, row: { kind: "turn", key: `stream-${memberId}`, turn, live: true } });
+  // the floor may have only written text so far, which is no row yet
+  const bare = live.find((r) => r.turnId === floor && !turns.has(r.turnId));
+  if (bare && streams[bare.memberId]?.trim()) {
+    const turn: Turn = { id: bare.turnId, memberId: bare.memberId, steps: [], permissions: [] };
+    placed.push({ seq: Infinity, order: -1, row: { kind: "turn", key: `turn-${bare.turnId}`, turn, live: true, floor: true } });
   }
   return placed.sort((a, b) => (a.seq === b.seq ? a.order - b.order : a.seq - b.seq)).map((p) => p.row);
 }

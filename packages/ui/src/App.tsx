@@ -46,7 +46,7 @@ import { SettingsList, SettingsPage, type SettingsRoute } from "./settings";
 import type { AboutState } from "./settings/about";
 import type { Template } from "./templates";
 import { useTheme } from "./theme";
-import { transcript, type Turn } from "./transcript";
+import { pickFloor, transcript, type Row, type Turn } from "./transcript";
 import { useTypography } from "./typography";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -164,6 +164,8 @@ export default function App() {
   const focusComposer = useRef(false);
   /** whether the reader is parked at the bottom; if not, new messages must not yank them down */
   const stick = useRef(true);
+  /** the turn whose words are shown as they come, kept until it ends: see pickFloor */
+  const floorRef = useRef<{ conv: string | null; turnId: string | null }>({ conv: null, turnId: null });
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -437,20 +439,34 @@ export default function App() {
     return () => ro.disconnect();
   }, [loadedFor, nav]);
 
-  const streamed = Object.values(streams).reduce((n, s) => n + s.length, 0);
+  /** who is doing what in the open conversation */
+  const present = useMemo(() => Object.values(presence).filter((p) => p.conversationId === active), [presence, active]);
+  // one live speaker on screen at a time; the rest wait in the presence strip
+  const floor = useMemo(() => {
+    if (floorRef.current.conv !== active) floorRef.current = { conv: active, turnId: null };
+    floorRef.current.turnId = pickFloor(messages, present, streams, floorRef.current.turnId);
+    return floorRef.current.turnId;
+  }, [messages, present, streams, active]);
+  const rows = useMemo(() => transcript(messages, present, streams, floor), [messages, present, streams, floor]);
+  const floorRow = rows.find((r): r is Extract<Row, { kind: "turn" }> => r.kind === "turn" && r.floor);
+  // only the floor's words move the page: a member writing off screen must not scroll it
+  const streamed = floorRow?.turn.memberId ? (streams[floorRow.turn.memberId]?.length ?? 0) : 0;
   // a thought opened while it streams grows the transcript as much as a reply does
-  const thought = Object.values(thinking).reduce((n, s) => n + s.length, 0);
-  // follow new content only when the reader was already at the bottom; a steps card grows in place
+  const thought = floorRow?.turn.steps.reduce((n, s) => n + (isThought(s) ? (thinking[s.id]?.length ?? 0) : 0), 0) ?? 0;
+  const rowKeys = rows.map((r) => r.key).join("\n");
+  // a row landing or moving, such as a reply settling above the one being written, snaps before paint: the reader parked
+  // at the bottom sees the bottom stay put and the older rows shift up, never the row they are reading pushed down
+  useLayoutEffect(() => {
+    if (!stick.current) return;
+    const vp = viewport();
+    if (vp) vp.scrollTop = vp.scrollHeight;
+  }, [rowKeys]);
+  // words arriving a few at a time are followed smoothly; a steps card grows in place
   useEffect(() => {
     if (!stick.current) return;
     const vp = viewport();
     vp?.scrollTo({ top: vp.scrollHeight, behavior: "smooth" });
   }, [messages, streamed, thought]);
-
-  const rows = useMemo(
-    () => transcript(messages, Object.values(presence).filter((p) => p.conversationId === active), streams),
-    [messages, presence, streams, active],
-  );
   // the rows the log had when it was read; only what lands after them arrives with motion
   const settledRows = useMemo(() => new Set(rows.map((r) => r.key)), [loadedFor]);
 
@@ -926,7 +942,7 @@ export default function App() {
                               conversationId={conv.id}
                               turn={row.turn}
                               live={row.live}
-                              stream={row.live && row.turn.memberId ? streams[row.turn.memberId] : undefined}
+                              stream={row.floor && row.turn.memberId ? streams[row.turn.memberId] : undefined}
                               thinking={thinking}
                               author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
                               group={group}

@@ -401,6 +401,42 @@ describe("orchestrator", () => {
     assert.ok(h.sent.every((s) => s.text.includes("现在是讨论模式")));
   });
 
+  test("members speaking at once say when their turns began, and that they are writing before the reply lands", async () => {
+    const a = h.bot("甲");
+    const b = h.bot("乙");
+    const conv = h.group([a, b], { mode: "discussion" });
+    const ids = h.store.activeMembers(conv.id).map((m) => m.id);
+
+    await h.orch.send(conv.id, "各说各的");
+    await settle(h.store, conv.id);
+
+    const presence = h.pushed.filter((m) => m.kind === "presence");
+    const working = presence.filter((m) => m.state !== "idle");
+    assert.ok(working.length > 0);
+    assert.ok(working.every((m) => m.turnId && Number.isFinite(m.since)), "a running member says when its turn began");
+    assert.ok(presence.filter((m) => m.state === "idle").every((m) => m.since === undefined && m.turnId === undefined));
+    // the members were asked in roster order, and a turn's reports all name the same beginning
+    const since = (id) => new Set(working.filter((m) => m.memberId === id).map((m) => m.since));
+    assert.equal(since(ids[0]).size, 1);
+    assert.equal(since(ids[1]).size, 1);
+    assert.ok([...since(ids[0])][0] <= [...since(ids[1])][0]);
+
+    for (const id of ids) {
+      const own = h.pushed
+        .map((m, i) => ({ m, i }))
+        .filter(({ m }) =>
+          m.kind === "presence" || m.kind === "delta"
+            ? m.memberId === id
+            : m.kind === "message" && m.message.author_member_id === id && m.message.card_kind === "text",
+        );
+      const writing = own.find(({ m }) => m.kind === "presence" && m.state === "writing");
+      const delta = own.find(({ m }) => m.kind === "delta");
+      const reply = own.find(({ m }) => m.kind === "message");
+      assert.ok(writing && delta && reply);
+      assert.ok(writing.i < delta.i && delta.i < reply.i, "writing is reported as the first words go out, ahead of the finished reply");
+    }
+  });
+
   test("a read-only bot asks before writing, and proceeds once allowed", async () => {
     const pi = h.bot("Pi");
     const conv = h.group([pi]);

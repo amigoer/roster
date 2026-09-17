@@ -332,6 +332,7 @@ export const zhCN = translation<typeof en>()({
 
   "presence.starting": "正在启动",
   "presence.thinking": "正在思考",
+  "presence.writing": "正在输入",
   "presence.toolNamed": "正在执行 {tool}",
   "presence.tool": "正在执行工具",
   "presence.permissionNamed": "等你批准 {tool}",

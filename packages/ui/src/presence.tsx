@@ -9,6 +9,8 @@ export function presenceLabel(t: Translate, p: Presence): string {
       return t("presence.starting");
     case "thinking":
       return t("presence.thinking");
+    case "writing":
+      return t("presence.writing");
     case "tool":
       return p.detail ? t("presence.toolNamed", { tool: p.detail }) : t("presence.tool");
     case "waiting_permission":
@@ -59,7 +61,7 @@ export function PresenceStrip({
               <span className={p.state === "waiting_permission" ? "text-amber-600 dark:text-amber-400" : undefined}>
                 {presenceLabel(t, p)}
               </span>
-              {(p.state === "thinking" || p.state === "starting" || p.state === "compacting") && <Dots />}
+              {(p.state === "thinking" || p.state === "writing" || p.state === "starting" || p.state === "compacting") && <Dots />}
             </span>
           ))}
         </div>
