@@ -47,7 +47,7 @@ import type {
   ToolEffect,
   Unsubscribe,
 } from "@roster/adapter-api";
-import { t } from "./i18n/index.js";
+import { locale, stored, t } from "./i18n/index.js";
 
 /**
  * Any agent that speaks the Agent Client Protocol, driven over stdio. The
@@ -230,17 +230,45 @@ function infoOf(options: readonly SessionConfigOption[], modes: SessionModeState
   };
 }
 
-const commandsOf = (list: readonly AvailableCommand[]): SlashCommand[] =>
-  list.map((c) => ({ name: c.name, ...(c.description ? { description: c.description } : {}), ...(c.input?.hint ? { hint: c.input.hint } : {}) }));
+/**
+ * What an agent wrote in English for a person -- a mode, a command, a level --
+ * said in Roster's language when the catalog knows it by the agent's type and
+ * id. In English, and for anything unknown, the agent's own words stand.
+ */
+const say = (key: string, original: string): string => (locale() === "en" ? original : (stored(key) ?? original));
 
-function optionsOf(options: readonly SessionConfigOption[], modes: SessionModeState | null, commands: readonly AvailableCommand[]): SessionOptions {
+/** Codex describes each reasoning level in words of its own; the ones seen so far, by their text. */
+const CODEX_EFFORT_DESCRIPTIONS: Record<string, string> = {
+  "Fast responses with lighter reasoning": "acp.codex.effort.fast",
+  "Balances speed with some reasoning": "acp.codex.effort.some",
+  "Balances speed and reasoning depth for everyday tasks": "acp.codex.effort.everyday",
+};
+
+const commandsOf = (type: string, list: readonly AvailableCommand[]): SlashCommand[] =>
+  list.map((c) => ({
+    name: c.name,
+    ...(c.description ? { description: say(`acp.${type}.command.${c.name}`, c.description) } : {}),
+    ...(c.input?.hint ? { hint: c.input.hint } : {}),
+  }));
+
+function optionsOf(
+  type: string,
+  options: readonly SessionConfigOption[],
+  modes: SessionModeState | null,
+  commands: readonly AvailableCommand[],
+): SessionOptions {
   const model = byCategory(options, "model");
   const effort = byCategory(options, "thought_level");
   const mode = byCategory(options, "mode");
   const efforts = effort ? selectOptions(effort) : [];
+  const modeOf = (id: string, name: string, description: string | null | undefined) => ({
+    id,
+    label: say(`acp.${type}.mode.${id}`, name),
+    ...(description ? { description: say(`acp.${type}.mode.${id}.description`, description) } : {}),
+  });
   const modeList = mode
-    ? selectOptions(mode).map((o) => ({ id: o.value, label: o.name, ...(o.description ? { description: o.description } : {}) }))
-    : (modes?.availableModes ?? []).map((m) => ({ id: m.id, label: m.name, ...(m.description ? { description: m.description } : {}) }));
+    ? selectOptions(mode).map((o) => modeOf(o.value, o.name, o.description))
+    : (modes?.availableModes ?? []).map((m) => modeOf(m.id, m.name, m.description));
   const fast = fastOption(options);
   return {
     models: (model ? selectOptions(model) : []).map((o) => ({
@@ -250,11 +278,16 @@ function optionsOf(options: readonly SessionConfigOption[], modes: SessionModeSt
       efforts: efforts.map((e) => e.value),
       ...(fast ? { fast: true } : {}),
     })),
-    efforts: efforts.map((e) => ({ id: e.value, label: e.name, ...(e.description ? { description: e.description } : {}) })),
+    efforts: efforts.map((e) => ({
+      id: e.value,
+      // levels go by the same ids everywhere; the name is only the id capitalised
+      label: say(`effort.${e.value}`, e.name),
+      ...(e.description ? { description: say(CODEX_EFFORT_DESCRIPTIONS[e.description] ?? "", e.description) } : {}),
+    })),
     modes: modeList,
     ...(fast ? { fast: { available: true } } : {}),
     compact: commands.some((c) => c.name === "compact"),
-    ...(commands.length > 0 ? { commands: commandsOf(commands) } : {}),
+    ...(commands.length > 0 ? { commands: commandsOf(type, commands) } : {}),
   };
 }
 
@@ -337,6 +370,8 @@ class AcpRuntime implements BotRuntime {
   constructor(
     private launch: Launch,
     private label: string,
+    /** the agent's type from its manifest, which is what its English is catalogued under */
+    private type: string,
   ) {}
 
   #handlers = new Set<(e: NormalizedEvent) => void>();
@@ -539,7 +574,7 @@ class AcpRuntime implements BotRuntime {
       ...infoOf(this.#options, this.#modes, {}),
       ...patch,
       ...(context ? { context } : {}),
-      ...(this.#commands.length > 0 ? { commands: commandsOf(this.#commands) } : {}),
+      ...(this.#commands.length > 0 ? { commands: commandsOf(this.type, this.#commands) } : {}),
     };
     this.#emit({ type: "session.info", display: "status", info: this.#info });
   }
@@ -766,7 +801,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     snapshot = entry;
     entry.value.then(
       (s) => {
-        lastModes = optionsOf(s.options, s.modes, s.commands).modes;
+        lastModes = optionsOf(spec.type, s.options, s.modes, s.commands).modes;
       },
       () => {
         if (snapshot === entry) snapshot = null;
@@ -780,7 +815,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     type: spec.type,
     label: instance.label,
     capabilities: ACP_CAPABILITIES,
-    create: () => new AcpRuntime(launch(), instance.label),
+    create: () => new AcpRuntime(launch(), instance.label, spec.type),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");
@@ -792,7 +827,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     },
     async sessionOptions() {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
-      return optionsOf(s.options, s.modes, s.commands);
+      return optionsOf(spec.type, s.options, s.modes, s.commands);
     },
     modeForTier: (tier) => modeForTier(lastModes, tier) ?? "default",
     async check() {

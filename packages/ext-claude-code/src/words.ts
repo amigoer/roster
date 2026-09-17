@@ -9,6 +9,9 @@ export const WORDS = {
       bypassPermissions: "Asks nothing and just does it",
     } as Record<string, string>,
     ultracode: "xHigh + multi-agent orchestration; uses the most quota",
+    // the CLI's own names for its modes and efforts, kept as it spells them; a locale can say them its own way
+    modeLabels: {} as Record<string, string>,
+    efforts: {} as Record<string, string>,
     categories: {} as Record<string, string>,
     deferred: (name: string) => `${name} (deferred)`,
     reserved: "Autocompact buffer",
@@ -40,6 +43,14 @@ export const WORDS = {
       bypassPermissions: "什么都不问，直接做",
     } as Record<string, string>,
     ultracode: "xHigh + 多 agent 编排，最耗额度",
+    modeLabels: {
+      default: "手动",
+      acceptEdits: "自动接受编辑",
+      plan: "计划",
+      auto: "自动",
+      bypassPermissions: "跳过权限",
+    } as Record<string, string>,
+    efforts: { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" } as Record<string, string>,
     // the CLI's category names, said the way the rest of Roster says things; an unknown one passes through
     categories: {
       Messages: "消息",

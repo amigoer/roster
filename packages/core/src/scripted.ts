@@ -76,12 +76,12 @@ const options = (): SessionOptions => ({
     { id: "scripted-plain", resolved: "scripted-plain", label: t("scripted.modelPlain"), efforts: [] },
   ],
   efforts: [
-    { id: "low", label: "Low" },
-    { id: "high", label: "High" },
+    { id: "low", label: t("effort.low") },
+    { id: "high", label: t("effort.high") },
   ],
   modes: [
-    { id: "default", label: "Manual" },
-    { id: "plan", label: "Plan" },
+    { id: "default", label: t("scripted.mode.default") },
+    { id: "plan", label: t("scripted.mode.plan") },
   ],
   fast: { available: true },
   compact: true,

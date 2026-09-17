@@ -47,6 +47,11 @@
 
   --selection: hsl(221 100% 60% / 0.2);
 
+  /* an identifier in running text: a brick red on a faint, hairlined pill, so it reads as a token without weight */
+  --code-foreground: hsl(4 56% 43%);
+  --code-background: hsl(220 14% 96%);
+  --code-border: hsl(220 12% 89%);
+
   /* native scrollbars and form controls follow the picked theme, not the OS */
   color-scheme: light;
 }
@@ -88,6 +93,10 @@
   --selected: hsl(221 100% 68% / 0.16);
 
   --selection: hsl(221 100% 68% / 0.3);
+
+  --code-foreground: hsl(8 72% 76%);
+  --code-background: hsl(222 12% 13%);
+  --code-border: hsl(222 10% 20%);
 }
 
 /* what Settings > Appearance sets on the root: typography.ts writes --app-font and --message-size over these */
@@ -95,7 +104,7 @@
   --font-default:
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     system-ui, sans-serif;
-  --message-size: 14px;
+  --message-size: 16px;
 }
 
 /*
@@ -118,8 +127,8 @@
 @theme inline {
   /* text-message: the size of what people read and type in a conversation */
   --text-message: var(--message-size);
-  /* leading-message: Chinese text needs more room between lines than Latin does */
-  --leading-message: 1.75;
+  /* leading-message: Chinese text needs more room between lines than Latin does, but not so much that paragraphs blur together */
+  --leading-message: 1.7;
 
   /*
    * One motion scale for the whole window: duration-120 for colour, 150 for
@@ -159,6 +168,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-selected: var(--selected);
+  --color-code-foreground: var(--code-foreground);
+  --color-code-background: var(--code-background);
+  --color-code-border: var(--code-border);
 
   --shadow-panel: var(--panel-shadow);
 
@@ -181,6 +193,15 @@
     margin: 0;
     /* the window is the frame: panes scroll, the document never does */
     overflow: hidden;
+  }
+
+  /*
+   * clip, not hidden: hidden still scrolls under a text selection dragged past
+   * the window edge or a scrollIntoView, and a panel slid off-canvas gives it
+   * room to; there is then no way back. clip cannot be scrolled at all.
+   */
+  #root {
+    overflow: clip;
   }
 
   /*

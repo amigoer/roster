@@ -17,7 +17,7 @@ import {
 import { Collapsible } from "radix-ui";
 import { api, isThought, type Step, type StepDetail, type Thought, type ThoughtDetail } from "./api";
 import { CopyIcon, useCopy } from "./copy";
-import { useI18n, type Translate } from "./i18n";
+import { useI18n, type Translate, type Key } from "./i18n";
 import { Markdown, StreamingMarkdown } from "./markdown";
 import { ICON_IN } from "./motion";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,8 +36,26 @@ export function relative(text: string, root: string): string {
   return base === "/" ? text : text.split(base).join("");
 }
 
+/** Titles an ACP agent gives its own steps, in English; said in the interface's language when one is known. */
+const STEP_TITLES = {
+  "Compact conversation": "tool.compact",
+  "Edit files": "tool.editFiles",
+  "Editing files": "tool.editingFiles",
+  "Image generation": "tool.imageGeneration",
+  "Guardian Review": "tool.guardianReview",
+  "Implement this plan?": "tool.implementPlan",
+  "Additional sandbox permissions": "tool.sandboxPermissions",
+  "Additional answer or note": "tool.additionalAnswer",
+  "MCP server requests to open a URL": "tool.openUrl",
+} as const satisfies Record<string, Key>;
+type StepTitleKey = (typeof STEP_TITLES)[keyof typeof STEP_TITLES];
+
 /** An MCP tool is known by its own name; the server's is in the tooltip. */
-const toolLabel = (name: string) => (name.startsWith("mcp__") ? name.split("__").slice(2).join("__") || name : name);
+export function toolLabel(t: Translate, name: string): string {
+  const key = (STEP_TITLES as Record<string, StepTitleKey | undefined>)[name];
+  if (key) return t(key);
+  return name.startsWith("mcp__") ? name.split("__").slice(2).join("__") || name : name;
+}
 
 function duration(t: Translate, ms: number): string {
   const s = Math.max(ms, 0) / 1000;
@@ -60,9 +78,9 @@ function useNow(on: boolean): number {
 }
 
 /** Which tools a group used: the one name, or the most used few with counts. */
-function toolNames(steps: Step[]): string {
+function toolNames(t: Translate, steps: Step[]): string {
   const counts = new Map<string, number>();
-  for (const s of steps) counts.set(toolLabel(s.name), (counts.get(toolLabel(s.name)) ?? 0) + 1);
+  for (const s of steps) counts.set(toolLabel(t, s.name), (counts.get(toolLabel(t, s.name)) ?? 0) + 1);
   const ranked = [...counts].sort((a, b) => b[1] - a[1]);
   if (ranked.length === 1) return ranked[0]![0];
   const named = ranked.slice(0, 3).map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
@@ -137,7 +155,7 @@ export function StepsGroup({
     .filter(Boolean)
     .join(" · ");
   const meta = [
-    running ? counts : calls.length > 0 && toolNames(calls),
+    running ? counts : calls.length > 0 && toolNames(t, calls),
     end !== undefined && Number.isFinite(start) ? duration(t, end - start) : null,
   ].filter(Boolean);
   const thought = running && isThought(running) ? lastLine(thinking[running.id]) : undefined;
@@ -164,7 +182,7 @@ export function StepsGroup({
                 </>
               ) : (
                 <>
-                  <span className="font-mono text-xs">{toolLabel(running.name)}</span>
+                  <span className="font-mono text-xs">{toolLabel(t, running.name)}</span>
                   {running.title && ` ${relative(running.title, root)}`}
                 </>
               )
@@ -253,7 +271,7 @@ const StepItem = memo(function StepItem({
           )}
         >
           <Status step={step} live={live} asking={asking} />
-          <span className="text-muted-foreground shrink-0 font-mono text-xs">{toolLabel(step.name)}</span>
+          <span className="text-muted-foreground shrink-0 font-mono text-xs">{toolLabel(t, step.name)}</span>
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {/* a long command must not push out why it failed */}
           {step.error && <span className="text-destructive max-w-1/2 shrink-0 truncate text-xs">{step.error}</span>}
@@ -424,7 +442,8 @@ function Words({ text, running }: { text: string; running: boolean }) {
         const el = e.currentTarget;
         pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16;
       }}
-      className="text-muted-foreground max-h-80 overflow-y-auto px-3 py-2.5"
+      // a thought is read in grey, so the identifiers in it are too; the pill alone marks them
+      className="text-muted-foreground max-h-80 overflow-y-auto px-3 py-2.5 [--code-foreground:var(--muted-foreground)]"
     >
       {running ? <StreamingMarkdown text={text} /> : <Markdown>{text}</Markdown>}
     </div>

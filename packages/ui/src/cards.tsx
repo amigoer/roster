@@ -4,7 +4,7 @@ import { api, type AttachmentRef, type Member, type Message, type Quote } from "
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
 import { useI18n, type I18n } from "./i18n";
-import { Markdown, MentionChip, MentionNames, StreamingMarkdown } from "./markdown";
+import { Markdown, MentionChip, MentionNames, plain, StreamingMarkdown } from "./markdown";
 import { segments } from "./mentions";
 import { ProviderIcon, type Provider } from "./provider-icon";
 import { CopyIcon, useCopy } from "./copy";
@@ -136,7 +136,7 @@ function Bubble({
 }) {
   return (
     <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")}>
-      {group && (who === "human" ? <HumanAvatar /> : author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />)}
+      {who === "human" ? <HumanAvatar /> : author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />}
       <div className={cn("flex max-w-[min(680px,78%)] min-w-0 flex-col gap-1", who === "human" && "items-end")}>
         {group && who === "bot" && author && <Byline author={author} />}
         {attachments}
@@ -197,7 +197,7 @@ function Quoted({ quote, onJump }: { quote: Quote; onJump?: (messageId: string) 
       <span className="text-[11px] font-medium opacity-70">{quote.name ?? t("members.you")}</span>
       {/* two lines of it, normalised: the whole passage is a click away where it was said */}
       <p className="text-muted-foreground line-clamp-2 text-xs leading-snug break-words whitespace-normal">
-        {quote.text.replace(/\s+/g, " ").trim()}
+        {plain(quote.text)}
       </p>
     </button>
   );
@@ -321,7 +321,7 @@ export function TurnView({
   if (parts.length === 0 && pending.length === 0) return null;
   return (
     <div className="group/msg flex gap-3">
-      {group && (author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />)}
+      {author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />}
       <div className="flex w-full max-w-[min(680px,78%)] min-w-0 flex-col gap-1">
         {group && author && <Byline author={author} />}
         <div className="flex min-w-0 flex-col gap-2">
@@ -379,7 +379,7 @@ export function MessageCard({
 }: {
   conversationId: string;
   message: Message;
-  /** Only a group needs to say who is speaking. */
+  /** Every chat shows the speaker's face; only a group also names them above the bubble. */
   group?: boolean;
   author?: Member;
   onQuote?: (quote: Quote) => void;
@@ -419,7 +419,7 @@ export function MessageCard({
       return null;
     case "permission":
       return (
-        <div className={cn("max-w-[min(680px,78%)]", group && "ml-12")}>
+        <div className="ml-12 max-w-[min(680px,78%)]">
           <PermissionCard
             conversationId={conversationId}
             message={message}

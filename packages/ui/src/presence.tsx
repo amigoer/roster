@@ -2,6 +2,7 @@ import { activeMembers, type Conversation, type Presence } from "./api";
 import { BotAvatar, busyOf } from "./bot-avatar";
 import { useI18n, type Translate } from "./i18n";
 import { Collapse } from "./motion";
+import { toolLabel } from "./steps";
 
 export function presenceLabel(t: Translate, p: Presence): string {
   switch (p.state) {
@@ -12,9 +13,9 @@ export function presenceLabel(t: Translate, p: Presence): string {
     case "writing":
       return t("presence.writing");
     case "tool":
-      return p.detail ? t("presence.toolNamed", { tool: p.detail }) : t("presence.tool");
+      return p.detail ? t("presence.toolNamed", { tool: toolLabel(t, p.detail) }) : t("presence.tool");
     case "waiting_permission":
-      return p.detail ? t("presence.permissionNamed", { tool: p.detail }) : t("presence.permission");
+      return p.detail ? t("presence.permissionNamed", { tool: toolLabel(t, p.detail) }) : t("presence.permission");
     case "waiting_lock":
       return p.detail ? t("presence.lockNamed", { name: p.detail }) : t("presence.lock");
     case "compacting":

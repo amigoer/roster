@@ -35,6 +35,7 @@ import { BotAvatar, LogoImage, logoOf, useLogos } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
 import { MentionTextarea } from "./mention-textarea";
+import { plain } from "./markdown";
 import { Collapse, ICON_IN, Pop } from "./motion";
 import { ALL_ALIASES, recipients } from "./mentions";
 import { PILL, SessionPickers, SessionUsage, type Picker, type PickerRequest } from "./session-controls";
@@ -371,7 +372,7 @@ export function Composer({
                     {t("composer.replyingTo", { name: quote.name ?? t("members.you") })}
                   </p>
                   {/* one line: the whole passage is already above, in the message being answered */}
-                  <p className="text-muted-foreground/90 truncate text-xs">{quote.text.replace(/\s+/g, " ").trim()}</p>
+                  <p className="text-muted-foreground/90 truncate text-xs">{plain(quote.text)}</p>
                 </div>
                 <Button
                   type="button"
@@ -383,7 +384,7 @@ export function Composer({
                     setQuote(null);
                     inputRef.current?.focus();
                   }}
-                  className="text-muted-foreground hover:text-foreground -my-1 -mr-1.5"
+                  className="text-muted-foreground hover:text-foreground -my-1 -mr-1.5 shrink-0"
                 >
                   <X className="size-3.5" />
                 </Button>
@@ -430,6 +431,12 @@ export function Composer({
                   setMenu(null);
                   return;
                 }
+              }
+              // Escape with nothing else to close backs out of the reply
+              if (e.key === "Escape" && quote) {
+                e.preventDefault();
+                setQuote(null);
+                return;
               }
               // Enter also confirms an IME candidate; that must not send half-typed Chinese
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

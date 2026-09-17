@@ -826,10 +826,10 @@ function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
       return {
         models,
         efforts: [
-          ...Object.entries(EFFORT_LABEL).map(([id, label]) => ({ id, label })),
+          ...Object.entries(EFFORT_LABEL).map(([id, label]) => ({ id, label: words.efforts[id] ?? label })),
           ...(ultracode ? [{ id: ULTRACODE, label: "Ultracode", description: words.ultracode }] : []),
         ],
-        modes: MODES.map(({ id, label }) => ({ id, label, description: words.modes[id] ?? "" })),
+        modes: MODES.map(({ id, label }) => ({ id, label: words.modeLabels[id] ?? label, description: words.modes[id] ?? "" })),
         ...(fast ? { fast } : {}),
         compact: true,
         ...(commands.length > 0 ? { commands: commandsOf(commands) } : {}),

@@ -106,6 +106,16 @@ function usePanelOpen() {
   return [open, setOpen] as const;
 }
 
+const REMEMBERED_CONVERSATION = "roster.activeConversation";
+
+function rememberedConversation(): string | null {
+  try {
+    return localStorage.getItem(REMEMBERED_CONVERSATION);
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const i18n = useI18n();
   const { t, list, sync } = i18n;
@@ -131,6 +141,14 @@ export default function App() {
   const [defaultDir, setDefaultDir] = useState("");
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [active, setActive] = useState<string | null>(null);
+  // the open chat survives a reload; it is adopted once the list confirms it still exists
+  useEffect(() => {
+    try {
+      if (active) localStorage.setItem(REMEMBERED_CONVERSATION, active);
+    } catch {
+      // a chat that cannot be remembered still opens
+    }
+  }, [active]);
   const [messages, setMessages] = useState<Message[]>([]);
   /** text still being written, per member of the open conversation */
   const [streams, setStreams] = useState<Record<string, string>>({});
@@ -248,7 +266,11 @@ export default function App() {
         setDefaultDir(s.defaultDir ?? "");
         setPresence(Object.fromEntries((s.presence ?? []).map((p) => [p.memberId, p])));
         if (s.preferences) sync(s.preferences.locale);
-        if (!activeRef.current && s.conversations[0]) setActive(s.conversations[0].id);
+        if (!activeRef.current) {
+          const kept = rememberedConversation();
+          const open = (kept && s.conversations.find((c) => c.id === kept)) ?? s.conversations[0];
+          if (open) setActive(open.id);
+        }
       });
     /** Everything core wrote for this window to read, fetched again: after a dropped stream, or once it writes in another language. */
     const reload = () => {

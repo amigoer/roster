@@ -386,6 +386,16 @@ export const en = {
   "cards.allow": "Allow",
   "cards.deny": "Deny",
 
+  // what a Codex step is called over ACP, as the agent titles it
+  "tool.compact": "Compact conversation",
+  "tool.editFiles": "Edit files",
+  "tool.editingFiles": "Editing files",
+  "tool.imageGeneration": "Image generation",
+  "tool.guardianReview": "Guardian Review",
+  "tool.implementPlan": "Implement this plan?",
+  "tool.sandboxPermissions": "Additional sandbox permissions",
+  "tool.additionalAnswer": "Additional answer or note",
+  "tool.openUrl": "MCP server requests to open a URL",
   "steps.count": { one: "{count} tool call", other: "{count} tool calls" },
   "steps.thoughts": { one: "{count} thought", other: "{count} thoughts" },
   "steps.thinking": "Thinking",

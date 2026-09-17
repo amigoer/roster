@@ -42,7 +42,8 @@ export function Collapse({ open, className, children }: { open: boolean; classNa
       )}
     >
       {/* clipped only while moving: a focus ring on a field inside must not be cut once it is open */}
-      <div className={cn("min-h-0", !(open && settled) && "overflow-hidden", !open && settled && "invisible")}>
+      {/* min-w-0: a grid item is otherwise as wide as its widest unbreakable line, and a truncated one is unbreakable */}
+      <div className={cn("min-h-0 min-w-0", !(open && settled) && "overflow-hidden", !open && settled && "invisible")}>
         {open ? children : last.current}
       </div>
     </div>

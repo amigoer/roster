@@ -1,4 +1,4 @@
-import { Children, createContext, memo, useContext, useRef } from "react";
+import { Children, createContext, isValidElement, memo, useContext, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,6 +6,22 @@ import { cn } from "@/lib/utils";
 import { CopyIcon, useCopy } from "./copy";
 import { useI18n } from "./i18n";
 import { segments } from "./mentions";
+
+/**
+ * A Markdown passage as one line of plain text, for a preview: fences, block
+ * markers, bold, inline code and link syntax off, whitespace folded. Italics
+ * are left alone, since _ also spells snake_case.
+ */
+export function plain(md: string): string {
+  return md
+    .replace(/^\s{0,3}(```|~~~)[^\n]*$/gm, "")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /** Member names in the current conversation, so @name renders as an address. */
 export const MentionNames = createContext<readonly string[]>([]);
@@ -32,6 +48,22 @@ function Mentions({ children }: { children?: React.ReactNode }) {
   );
 }
 
+function Strong({ children }: { children?: React.ReactNode }) {
+  return <strong className="font-semibold">{children}</strong>;
+}
+
+/** A paragraph that is one bold run and nothing else: a model's section label, spaced like a heading. */
+function isLabel(children: React.ReactNode): boolean {
+  const parts = Children.toArray(children).filter((c) => !(typeof c === "string" && c.trim() === ""));
+  return parts.length === 1 && isValidElement(parts[0]) && parts[0].type === Strong;
+}
+
+/**
+ * The vertical rhythm is in em, so it scales with the text size picked in
+ * settings: a block gap of 0.85em, headings further above than below.
+ */
+const BLOCK = "mt-[0.85em] mb-[0.85em] first:mt-0 last:mb-0";
+
 /**
  * A coding agent answers in Markdown, so rendering it raw shows the reader
  * literal ** and backticks. Elements are styled here rather than through a
@@ -39,28 +71,33 @@ function Mentions({ children }: { children?: React.ReactNode }) {
  */
 const COMPONENTS: Components = {
   p: ({ children }) => (
-    <p className="my-3 first:mt-0 last:mb-0">
+    <p className={cn(BLOCK, isLabel(children) && "mt-[1.4em] mb-[0.5em]")}>
       <Mentions>{children}</Mentions>
     </p>
   ),
   // a heading has to be seen as one at a glance, so each is a step above the text it opens
-  h1: ({ children }) => <h1 className="mt-6 mb-2.5 text-[1.28em] font-semibold tracking-tight first:mt-0">{children}</h1>,
-  h2: ({ children }) => <h2 className="mt-5 mb-2 text-[1.14em] font-semibold tracking-tight first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mt-4 mb-1.5 text-[1.04em] font-semibold first:mt-0">{children}</h3>,
-  h4: ({ children }) => <h4 className="mt-4 mb-1.5 font-semibold first:mt-0">{children}</h4>,
+  h1: ({ children }) => (
+    <h1 className="mt-[1.5em] mb-[0.55em] text-[1.3em] leading-[1.35] font-semibold tracking-tight first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-[1.45em] mb-[0.5em] text-[1.18em] leading-[1.4] font-semibold tracking-tight first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }) => <h3 className="mt-[1.4em] mb-[0.45em] text-[1.06em] leading-[1.5] font-semibold first:mt-0">{children}</h3>,
+  h4: ({ children }) => <h4 className="mt-[1.3em] mb-[0.4em] font-semibold first:mt-0">{children}</h4>,
+  // markers in the text colour: grey dots vanish and the list reads as ragged paragraphs
   ul: ({ children }) => (
-    <ul className="marker:text-muted-foreground/70 my-3 list-disc space-y-1.5 pl-5 first:mt-0 last:mb-0">{children}</ul>
+    <ul className={cn(BLOCK, "marker:text-foreground/70 list-disc space-y-[0.4em] pl-[1.6em]")}>{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="marker:text-muted-foreground my-3 list-decimal space-y-1.5 pl-5 first:mt-0 last:mb-0">{children}</ol>
+    <ol className={cn(BLOCK, "marker:text-foreground/70 list-decimal space-y-[0.4em] pl-[1.6em]")}>{children}</ol>
   ),
   li: ({ children }) => (
     // a list inside a list keeps the outer rhythm rather than starting its own
-    <li className="pl-1 [&>ol]:my-1.5 [&>ul]:my-1.5 [&>p]:my-0">
+    <li className="pl-[0.25em] [&>ol]:my-[0.4em] [&>ul]:my-[0.4em] [&>p]:my-0">
       <Mentions>{children}</Mentions>
     </li>
   ),
-  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  strong: Strong,
   em: ({ children }) => <em className="italic">{children}</em>,
   a: ({ href, children }) => (
     // external links open in the user's browser, not inside the app shell
@@ -68,15 +105,15 @@ const COMPONENTS: Components = {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-primary decoration-primary/40 hover:decoration-primary underline underline-offset-2"
+      className="text-primary decoration-primary/35 hover:decoration-primary underline decoration-1 underline-offset-[3px] transition-colors"
     >
       {children}
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="text-muted-foreground my-3 border-l-2 pl-3.5">{children}</blockquote>
+    <blockquote className={cn(BLOCK, "border-foreground/15 text-muted-foreground border-l-2 pl-[0.9em]")}>{children}</blockquote>
   ),
-  hr: () => <hr className="my-5" />,
+  hr: () => <hr className="my-[1.5em]" />,
   code: ({ className, children, ...props }) => {
     // react-markdown gives inline code no language class; a fenced block gets one,
     // and multi-line content is a block even without a language
@@ -84,13 +121,17 @@ const COMPONENTS: Components = {
     const isBlock = /language-/.test(className ?? "") || text.includes("\n");
     if (!isBlock) {
       return (
-        <code className="bg-muted rounded-[5px] px-1.5 py-0.5 font-mono text-[0.86em] break-words" {...props}>
+        // an identifier reads as one by its colour, so it keeps a regular weight even inside a bold run
+        <code
+          className="text-code-foreground bg-code-background border-code-border box-decoration-clone rounded-[0.35em] border px-[0.4em] py-[0.1em] font-mono text-[0.88em] font-normal break-words whitespace-pre-wrap"
+          {...props}
+        >
           {children}
         </code>
       );
     }
     return (
-      <code className="font-mono text-[0.86em] leading-relaxed" {...props}>
+      <code className="font-mono text-[0.875em] leading-[1.6]" {...props}>
         {children}
       </code>
     );
@@ -98,7 +139,7 @@ const COMPONENTS: Components = {
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   // rules between the rows, not around every cell: the columns line the table up on their own
   table: ({ children }) => (
-    <div className="my-3 overflow-x-auto rounded-lg border">
+    <div className={cn(BLOCK, "overflow-x-auto rounded-lg border")}>
       <table className="w-full border-collapse text-[0.9em]">{children}</table>
     </div>
   ),
@@ -115,7 +156,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   const { copied, copy } = useCopy();
   const { t } = useI18n();
   return (
-    <div className="group/code relative my-3">
+    <div className={cn(BLOCK, "group/code relative")}>
       {/* its own scroller: a long line must not widen the bubble */}
       <pre ref={ref} className="bg-muted overflow-x-auto rounded-lg border p-3 pr-10">
         {children}
@@ -161,7 +202,9 @@ export function StreamingMarkdown({ text }: { text: string }) {
   return (
     <>
       {settled && <Markdown>{settled}</Markdown>}
-      {tail && <div className={cn("text-message leading-message break-words whitespace-pre-wrap", settled && "mt-3")}>{tail}</div>}
+      {tail && (
+        <div className={cn("text-message leading-message break-words whitespace-pre-wrap", settled && "mt-[0.85em]")}>{tail}</div>
+      )}
     </>
   );
 }

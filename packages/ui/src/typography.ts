@@ -25,10 +25,10 @@ export const FONT_OPTIONS: FontOption[] = [
 
 export type TextSize = "small" | "normal" | "large" | "xlarge";
 export const TEXT_SIZES: { id: TextSize; px: number }[] = [
-  { id: "small", px: 13 },
-  { id: "normal", px: 14 },
-  { id: "large", px: 16 },
-  { id: "xlarge", px: 18 },
+  { id: "small", px: 14 },
+  { id: "normal", px: 16 },
+  { id: "large", px: 18 },
+  { id: "xlarge", px: 20 },
 ];
 
 export type Typography = { font: string; customFont: string; size: TextSize };
@@ -112,7 +112,7 @@ function apply(t: Typography): void {
   // the default stack stays behind the chosen family for the glyphs it lacks
   if (family) root.setProperty("--app-font", `"${family}", var(--font-default)`);
   else root.removeProperty("--app-font");
-  root.setProperty("--message-size", `${TEXT_SIZES.find((s) => s.id === t.size)?.px ?? 14}px`);
+  root.setProperty("--message-size", `${TEXT_SIZES.find((s) => s.id === t.size)?.px ?? 16}px`);
 }
 
 /** Font and text size, applied as CSS variables on the root. Call it once, at the root, like useTheme. */
