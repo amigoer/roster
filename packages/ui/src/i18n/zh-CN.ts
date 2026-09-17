@@ -366,6 +366,7 @@ export const zhCN = translation<typeof en>()({
   "outline.asked": "你问过的",
 
   "cards.quote": "回复这条（选中一段则只引用那段）",
+  "selection.quote": "引用",
   "cards.quoted": "跳到被回复的那条",
   "cards.left": "· 已离开",
   "cards.decided.allowed": "已允许",

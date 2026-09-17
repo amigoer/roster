@@ -377,6 +377,7 @@ export const en = {
   "outline.asked": "What you asked",
 
   "cards.quote": "Reply to this (just the selection, if there is one)",
+  "selection.quote": "Quote",
   "cards.quoted": "Go to the message this replies to",
   "cards.left": "· left",
   "cards.decided.allowed": "Allowed",

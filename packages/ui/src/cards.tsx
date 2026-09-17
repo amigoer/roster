@@ -112,6 +112,7 @@ function Byline({ author }: { author: Member }) {
 }
 
 function Bubble({
+  id,
   who,
   author,
   group,
@@ -122,6 +123,8 @@ function Bubble({
   quoted,
   children,
 }: {
+  /** the message, which a passage highlighted in here is quoted from */
+  id: string;
   who: "human" | "bot";
   author?: Member;
   group: boolean;
@@ -136,7 +139,7 @@ function Bubble({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")}>
+    <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")} data-message={id}>
       {who === "human" ? (
         <HumanAvatar />
       ) : author ? (
@@ -317,11 +320,12 @@ export function TurnView({
   thinking: Readonly<Record<string, string>>;
   author?: Member;
   group: boolean;
-  onQuote?: (quote: Quote) => void;
+  onQuote?: (messageId: string, text: string) => void;
   /** the conversation's repo, so paths inside it read as relative */
   root: string;
 }) {
-  const raw = turn.text ? String((JSON.parse(turn.text.body_json) as { text?: unknown }).text ?? "") : (stream ?? "");
+  const reply = turn.text;
+  const raw = reply ? String((JSON.parse(reply.body_json) as { text?: unknown }).text ?? "") : (stream ?? "");
   const parts = useMemo(() => interleave(raw, turn.steps), [raw, turn.steps]);
   const decisions = new Map(
     turn.permissions.map((p) => [(JSON.parse(p.body_json) as PermissionBody).requestId, p.status ?? "pending"]),
@@ -329,7 +333,8 @@ export function TurnView({
   const pending = turn.permissions.filter((p) => p.status === "pending");
   if (parts.length === 0 && pending.length === 0) return null;
   return (
-    <div className="group/msg flex gap-3">
+    // a passage is quotable once the reply has landed; while it is being written there is no message to point back at
+    <div className="group/msg flex gap-3" data-message={reply?.id}>
       {author ? (
         <BotCardTrigger bot={author.bot} className="self-start">
           <BotAvatar bot={author.bot} />
@@ -371,13 +376,8 @@ export function TurnView({
             />
           ))}
         </div>
-        {turn.text && raw && (
-          <Actions
-            text={raw}
-            at={turn.text.created_at}
-            align="start"
-            onQuote={onQuote && ((text) => onQuote({ messageId: turn.text?.id, name: author?.bot.name, text }))}
-          />
+        {reply && raw && (
+          <Actions text={raw} at={reply.created_at} align="start" onQuote={onQuote && ((text) => onQuote(reply.id, text))} />
         )}
       </div>
     </div>
@@ -397,7 +397,7 @@ export function MessageCard({
   /** Every chat shows the speaker's face; only a group also names them above the bubble. */
   group?: boolean;
   author?: Member;
-  onQuote?: (quote: Quote) => void;
+  onQuote?: (messageId: string, text: string) => void;
   onJump?: (messageId: string) => void;
 }) {
   const { t } = useI18n();
@@ -411,12 +411,13 @@ export function MessageCard({
       const quote = body["quote"] as Quote | undefined;
       return (
         <Bubble
+          id={message.id}
           who={human ? "human" : "bot"}
           author={author}
           group={group}
           raw={raw}
           at={message.created_at}
-          onQuote={onQuote && ((text) => onQuote({ messageId: message.id, name: author?.bot.name, text }))}
+          onQuote={onQuote && ((text) => onQuote(message.id, text))}
           attachments={
             files.length > 0 ? (
               <MessageAttachments conversationId={conversationId} items={files} align={human ? "end" : "start"} />

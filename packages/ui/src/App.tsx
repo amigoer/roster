@@ -37,6 +37,7 @@ import { MentionNames } from "./markdown";
 import { MembersPanel } from "./members-panel";
 import { leaderOf } from "./mentions";
 import { PAGE_IN, useAtLeast } from "./motion";
+import { SelectionMenu } from "./selection";
 import { NavRail, RAIL, type Nav } from "./nav-rail";
 import { locationLabel, repoName } from "./location";
 import { NewConversation, startDirect } from "./new-conversation";
@@ -185,6 +186,7 @@ export default function App() {
   const list_ = useColumnWidth("roster.w.list", 300, 240, 520);
   const activeRef = useRef<string | null>(null);
   const scrollRoot = useRef<HTMLDivElement>(null);
+  const transcriptRoot = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const composerHandle = useRef<ComposerHandle | null>(null);
   /** a file is being dragged over the conversation */
@@ -577,12 +579,6 @@ export default function App() {
     openConversation(id);
   };
 
-  /** Replying puts the passage in the composer's reply bar, not into what you are typing. */
-  const quote = (q: Quote) => {
-    setQuoting(q);
-    composer.current?.focus();
-  };
-
   const waiting = convs.filter((c) => c.attention !== "none").length;
   const q = query.trim().toLowerCase();
   const shownConvs = q
@@ -613,6 +609,13 @@ export default function App() {
   }
   const members = activeMembers(conv);
   const memberById = useMemo(() => new Map<string, Member>((conv?.members ?? []).map((m) => [m.id, m])), [conv]);
+  /** Replying puts the passage in the composer's reply bar, not into what you are typing; who said it is read off the message. */
+  const quote = (messageId: string, text: string) => {
+    const said = messages.find((m) => m.id === messageId);
+    const author = said?.author_member_id ? memberById.get(said.author_member_id) : undefined;
+    setQuoting({ messageId, name: author?.bot.name, text });
+    composer.current?.focus();
+  };
   const names = useMemo(() => (conv?.members ?? []).map((m) => m.bot.name), [conv]);
   const group = conv?.shape === "group";
   const panelOpen = conv ? panel[conv.shape] : false;
@@ -1043,7 +1046,7 @@ export default function App() {
                     ref={scrollRoot}
                   >
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
-                    <div className="cursor-auto space-y-4 px-5 py-4 select-text">
+                    <div className="relative cursor-auto space-y-4 px-5 py-4 select-text" ref={transcriptRoot}>
                       {/* only once the log is read: while it loads, an empty pane must not claim there is nothing in it */}
                       {loadedFor === conv.id && messages.length === 0 && streamed === 0 && (
                         // absolute against the scroll area root: the scrolled content is only as tall as its rows
@@ -1093,6 +1096,7 @@ export default function App() {
                           </div>
                         ),
                       )}
+                      <SelectionMenu host={transcriptRoot} onQuote={quote} />
                     </div>
                   </ScrollArea>
                 </MentionNames.Provider>
