@@ -70,8 +70,9 @@ function Ring({ percent, className }: { percent: number; className?: string }) {
   const r = 6;
   const c = 2 * Math.PI * r;
   return (
-    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0 -rotate-90", STROKE[levelOf(percent)], className)} aria-hidden>
+    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0 -rotate-90 transition-colors duration-300", STROKE[levelOf(percent)], className)} aria-hidden>
       <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-current opacity-20" />
+      {/* the arc sweeps to its new share rather than jumping */}
       <circle
         cx="8"
         cy="8"
@@ -79,7 +80,7 @@ function Ring({ percent, className }: { percent: number; className?: string }) {
         fill="none"
         strokeWidth="2.5"
         strokeLinecap="round"
-        className="stroke-current"
+        className="stroke-current transition-[stroke-dasharray] duration-300 ease-soft"
         strokeDasharray={`${(clamp(percent) / 100) * c} ${c}`}
       />
     </svg>
@@ -89,7 +90,7 @@ function Ring({ percent, className }: { percent: number; className?: string }) {
 function Meter({ percent, className }: { percent: number; className?: string }) {
   return (
     <div className={cn("bg-muted h-1.5 w-full overflow-hidden rounded-full", className)}>
-      <div className={cn("h-full rounded-full", FILL[levelOf(percent)])} style={{ width: `${clamp(percent)}%` }} />
+      <div className={cn("h-full rounded-full transition-[width,background-color] duration-300 ease-soft", FILL[levelOf(percent)])} style={{ width: `${clamp(percent)}%` }} />
     </div>
   );
 }
@@ -153,7 +154,7 @@ function ContextSection({
           conversationId={member.conversationId}
           memberId={member.memberId}
           // the fade covers only the padding at rest, so rows soften only while they scroll past the edges
-          className="-mx-2.5 mt-1 max-h-80 min-h-0 overflow-y-auto px-2.5 py-2 [mask-image:linear-gradient(to_bottom,transparent,black_0.5rem,black_calc(100%_-_0.5rem),transparent)]"
+          className="animate-in fade-in-0 -mx-2.5 mt-1 max-h-80 min-h-0 overflow-y-auto px-2.5 py-2 duration-200 [mask-image:linear-gradient(to_bottom,transparent,black_0.5rem,black_calc(100%_-_0.5rem),transparent)]"
         />
       ) : (
         slices.length > 0 && (

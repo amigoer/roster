@@ -39,7 +39,7 @@ export type PickerRequest = { picker: Picker; nonce: number };
 
 /** A control in the composer's toolbar: as quiet as the placeholder until pointed at. */
 export const PILL =
-  "text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[13px] whitespace-nowrap outline-none transition-colors focus-visible:ring-2 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+  "text-muted-foreground hover:bg-accent hover:text-foreground active:bg-foreground/[0.07] aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:ring-ring/50 inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[13px] whitespace-nowrap outline-none transition-colors focus-visible:ring-2 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
 /** The same control in a list row, among lines of small text. */
 const DENSE = "h-6 gap-1 rounded-md px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3.5";
@@ -280,6 +280,11 @@ export function SessionPickers({
   const more: Model[] = [];
   for (const m of models) (primary.some((p) => familyOf(p) === familyOf(m)) ? more : primary).push(m);
   primary.sort((a, b) => rankOf(a) - rankOf(b));
+  // the one in use is never out of sight under More models: it takes the row after its family's lead
+  if (model && more.includes(model)) {
+    more.splice(more.indexOf(model), 1);
+    primary.splice(primary.findIndex((p) => familyOf(p) === familyOf(model)) + 1, 0, model);
+  }
   // named as its row in the list, so the pill and the list never disagree
   const modelName = model?.label ?? info.modelLabel ?? info.model;
 

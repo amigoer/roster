@@ -27,6 +27,7 @@ export const zhCN = translation<typeof en>()({
   "common.unknown": "未知",
   "common.deleteTitle": "删除「{name}」？",
   "common.example": "比如 {example}",
+  "common.undo": "撤销",
 
   "time.justNow": "刚刚",
   "time.minutesAgo": "{count} 分钟前",
@@ -63,6 +64,7 @@ export const zhCN = translation<typeof en>()({
   "app.groupHas": "群里有 {names}",
   "app.noMessages": "还没有消息",
   "app.firstMessage": "发第一条消息开始。它会成为这个会话的标题。",
+  "app.offline": "连接已断开，正在重连…",
 
   "theme.system": "跟随系统",
   "theme.light": "浅色",
@@ -563,6 +565,7 @@ export const zhCN = translation<typeof en>()({
   "me.locationPlaceholder": "比如：上海",
 
   "group.leader": " · 群主 {name}",
+  "group.archived": "已归档“{title}”",
   "bot.instructions": "设定",
   "bot.new": "新建 Bot",
 

@@ -1,10 +1,10 @@
 import { useContext, useMemo, useState } from "react";
-import { Bird, Bot, QuoteIcon, ShieldAlert, User } from "lucide-react";
+import { Bird, Bot, Loader, QuoteIcon, ShieldAlert, User } from "lucide-react";
 import { api, type AttachmentRef, type Member, type Message, type Quote } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
 import { useI18n, type I18n } from "./i18n";
-import { Markdown, MentionChip, MentionNames } from "./markdown";
+import { Markdown, MentionChip, MentionNames, StreamingMarkdown } from "./markdown";
 import { segments } from "./mentions";
 import { ProviderIcon, type Provider } from "./provider-icon";
 import { CopyIcon, useCopy } from "./copy";
@@ -78,22 +78,20 @@ function Actions({
       )}
     >
       {text && (
-        <button
-          onClick={() => void copy(text)}
-          title={t("common.copy")}
-          className="hover:bg-accent hover:text-foreground rounded p-1"
-        >
+        <Button variant="ghost" size="icon-xs" onClick={() => void copy(text)} title={t("common.copy")} className="hover:text-foreground">
           <CopyIcon copied={copied} />
-        </button>
+        </Button>
       )}
       {onQuote && text && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={(e) => onQuote(selectionWithin(e.currentTarget) ?? text)}
           title={t("cards.quote")}
-          className="hover:bg-accent hover:text-foreground rounded p-1"
+          className="hover:text-foreground"
         >
           <QuoteIcon className="size-3.5" />
-        </button>
+        </Button>
       )}
       <span className="px-1 text-[11px]">{when(i18n, at)}</span>
     </div>
@@ -243,11 +241,11 @@ function PermissionCard({
   author?: Member;
   root: string;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"allow" | "deny" | null>(null);
   const { t } = useI18n();
   const decided = message.status && message.status !== "pending";
   const act = async (allow: boolean) => {
-    setBusy(true);
+    setBusy(allow ? "allow" : "deny");
     await api.resolvePermission(conversationId, body.requestId, allow);
   };
   return (
@@ -266,15 +264,17 @@ function PermissionCard({
       </div>
       <Separator />
       {decided ? (
-        <div className="text-muted-foreground px-3.5 py-2 text-sm">
+        <div className="text-muted-foreground animate-in fade-in-0 px-3.5 py-2 text-sm duration-200">
           {isDecided(message.status) ? t(`cards.decided.${message.status}`) : message.status}
         </div>
       ) : (
         <div className="flex gap-2 px-3.5 py-2.5">
-          <Button size="sm" disabled={busy} onClick={() => act(true)}>
+          <Button size="sm" disabled={busy !== null} onClick={() => act(true)}>
+            {busy === "allow" && <Loader className="animate-spin" />}
             {t("cards.allow")}
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => act(false)}>
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => act(false)}>
+            {busy === "deny" && <Loader className="animate-spin" />}
             {t("cards.deny")}
           </Button>
         </div>
@@ -338,9 +338,9 @@ export function TurnView({
                 root={root}
               />
             ) : !turn.text && i === parts.length - 1 ? (
-              // still being written, and half-written Markdown renders as garbage
-              <div key={`text-${i}`} className="text-message leading-message break-words whitespace-pre-wrap">
-                {part.text}
+              // still being written: only the block under the caret stays plain
+              <div key={`text-${i}`} className="min-w-0">
+                <StreamingMarkdown text={part.text} />
               </div>
             ) : (
               <Markdown key={`text-${i}`}>{part.text}</Markdown>

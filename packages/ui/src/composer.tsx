@@ -35,8 +35,10 @@ import { BotAvatar, LogoImage, logoOf, useLogos } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
 import { MentionTextarea } from "./mention-textarea";
+import { Collapse, ICON_IN, Pop } from "./motion";
 import { ALL_ALIASES, recipients } from "./mentions";
 import { PILL, SessionPickers, SessionUsage, type Picker, type PickerRequest } from "./session-controls";
+import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -53,7 +55,7 @@ const OWN = new Set(["attach", "model", "effort", "mode", "compact", "context", 
 
 /** The send and stop buttons: round, so the one thing that fires stands apart from the pills beside it. */
 const ROUND =
-  "inline-flex size-8 shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50";
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,scale] duration-120 focus-visible:ring-2 focus-visible:ring-ring/50";
 
 /** The @ being typed right before the caret, if any. */
 function mentionAt(value: string, caret: number): Trigger | null {
@@ -345,44 +347,50 @@ export function Composer({
   return (
     <footer className="shrink-0 px-5 pt-2.5 pb-4">
       <div className="relative">
-        {menu && suggestions.length > 0 && (
-          <SuggestionList
-            items={suggestions}
-            index={index}
-            wide={menu.type === "/"}
-            commandsLabel={solo ? t("composer.commandsOf", { name: executor(solo.executor_id).label }) : t("composer.commands")}
-            memberCount={members.length}
-            onPick={(s) => pick(s, true)}
-            onHover={(i) => setMenu({ ...menu, index: i })}
-          />
-        )}
-        {/* a container, so the toolbar can drop labels before it runs out of room */}
-        <div className="bg-background has-[textarea:focus]:border-ring/50 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-colors">
-          {quote && (
-            <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
-              <span className="bg-border mt-0.5 w-0.5 shrink-0 self-stretch rounded-full" />
-              <div className="min-w-0 flex-1">
-                <p className="text-muted-foreground text-[11px]">
-                  {t("composer.replyingTo", { name: quote.name ?? t("members.you") })}
-                </p>
-                {/* one line: the whole passage is already above, in the message being answered */}
-                <p className="text-muted-foreground/90 truncate text-xs">{quote.text.replace(/\s+/g, " ").trim()}</p>
-              </div>
-              <button
-                type="button"
-                title={t("composer.cancelReply")}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setQuote(null);
-                  inputRef.current?.focus();
-                }}
-                className="text-muted-foreground hover:text-foreground rounded p-0.5"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
+        <Pop open={menu !== null && suggestions.length > 0} className="absolute bottom-full left-0 z-30 mb-2 origin-bottom-left">
+          {menu && suggestions.length > 0 && (
+            <SuggestionList
+              items={suggestions}
+              index={index}
+              wide={menu.type === "/"}
+              commandsLabel={solo ? t("composer.commandsOf", { name: executor(solo.executor_id).label }) : t("composer.commands")}
+              memberCount={members.length}
+              onPick={(s) => pick(s, true)}
+              onHover={(i) => setMenu({ ...menu, index: i })}
+            />
           )}
-          {pending.length > 0 && <PendingTray items={pending} onRemove={remove} />}
+        </Pop>
+        {/* a container, so the toolbar can drop labels before it runs out of room */}
+        <div className="bg-background has-[textarea:focus]:border-ring/60 has-[textarea:focus]:ring-[3px] has-[textarea:focus]:ring-ring/20 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow]">
+          <Collapse open={quote !== null}>
+            {quote && (
+              <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
+                <span className="bg-border mt-0.5 w-0.5 shrink-0 self-stretch rounded-full" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-muted-foreground text-[11px]">
+                    {t("composer.replyingTo", { name: quote.name ?? t("members.you") })}
+                  </p>
+                  {/* one line: the whole passage is already above, in the message being answered */}
+                  <p className="text-muted-foreground/90 truncate text-xs">{quote.text.replace(/\s+/g, " ").trim()}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t("composer.cancelReply")}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setQuote(null);
+                    inputRef.current?.focus();
+                  }}
+                  className="text-muted-foreground hover:text-foreground -my-1 -mr-1.5"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            )}
+          </Collapse>
+          <Collapse open={pending.length > 0}>{pending.length > 0 && <PendingTray items={pending} onRemove={remove} />}</Collapse>
           <MentionTextarea
             // the names the transcript marks, so a mention looks the same before it is sent as after
             names={conv.members.map((m) => m.bot.name)}
@@ -440,36 +448,40 @@ export function Composer({
             className="placeholder:text-muted-foreground block max-h-60 min-h-13 w-full resize-none bg-transparent px-4 pt-3 pb-1.5 text-message leading-relaxed outline-none field-sizing-content"
           />
           {/* only while there is something to say: a failure, or how the command just typed is used */}
-          {(error || typed?.hint) && (
-            <div className={cn("flex min-w-0 items-center gap-1.5 px-4 pb-1 text-xs", error ? "text-destructive" : "text-muted-foreground")}>
-              {error ? (
-                <>
-                  <CircleAlert className="size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate" title={error}>
-                    {error}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t("composer.dismiss")}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setError(null)}
-                    className="hover:bg-destructive/10 -mr-1 shrink-0 rounded p-0.5"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </>
-              ) : (
-                typed && (
-                  <span className="min-w-0 truncate">
-                    <span className="text-foreground/80 font-mono">
-                      /{typed.name} {typed.hint}
+          <Collapse open={Boolean(error || typed?.hint)}>
+            {(error || typed?.hint) && (
+              <div className={cn("flex min-w-0 items-center gap-1.5 px-4 pb-1 text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+                {error ? (
+                  <>
+                    <CircleAlert className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate" title={error}>
+                      {error}
                     </span>
-                    {typed.description && ` · ${typed.description}`}
-                  </span>
-                )
-              )}
-            </div>
-          )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={t("composer.dismiss")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setError(null)}
+                      className="hover:bg-destructive/10 hover:text-destructive -my-1 -mr-1.5 shrink-0"
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  </>
+                ) : (
+                  typed && (
+                    <span className="min-w-0 truncate">
+                      <span className="text-foreground/80 font-mono">
+                        /{typed.name} {typed.hint}
+                      </span>
+                      {typed.description && ` · ${typed.description}`}
+                    </span>
+                  )
+                )}
+              </div>
+            )}
+          </Collapse>
           <div className="flex items-center gap-2 px-2 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-0.5">
               <AddMenu group={group} onAttach={() => fileInput.current?.click()} onInsert={insert} onClosed={focusInput} />
@@ -511,9 +523,9 @@ export function Composer({
                       aria-label={t("composer.action.stop")}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => void api.abort(conv.id)}
-                      className={cn(ROUND, "bg-primary text-primary-foreground hover:bg-primary/90")}
+                      className={cn(ROUND, "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95")}
                     >
-                      <Square className="size-3 fill-current" />
+                      <Square className={cn("size-3 fill-current", ICON_IN)} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" sideOffset={6}>
@@ -532,11 +544,11 @@ export function Composer({
                       onClick={() => void submit(draft)}
                       className={cn(
                         ROUND,
-                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                        "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95",
                         "disabled:bg-muted-foreground/30 disabled:text-background disabled:pointer-events-none",
                       )}
                     >
-                      <ArrowUp className="size-4" strokeWidth={2.5} />
+                      <ArrowUp className={cn("size-4", ICON_IN)} strokeWidth={2.5} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" sideOffset={6}>
@@ -683,7 +695,7 @@ function SuggestionList({
     <div
       ref={list}
       className={cn(
-        "bg-popover text-popover-foreground absolute bottom-full left-0 z-30 mb-2 max-h-80 overflow-y-auto rounded-xl border p-1 shadow-lg",
+        "bg-popover text-popover-foreground max-h-80 overflow-y-auto rounded-xl border p-1 shadow-lg",
         wide ? "w-[26rem] max-w-full" : "w-72",
       )}
     >
@@ -701,7 +713,7 @@ function SuggestionList({
                 onPick(s);
               }}
               onMouseEnter={() => onHover(i)}
-              className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm", i === index && "bg-accent")}
+              className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-120", i === index && "bg-accent")}
             >
               {s.kind === "action" || s.kind === "command" ? (
                 <>

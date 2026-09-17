@@ -5,6 +5,7 @@ import { DRAG } from "./app-region";
 import { HumanAvatar } from "./bot-avatar";
 import { Section } from "./contacts";
 import { useI18n } from "./i18n";
+import { PAGE_IN } from "./motion";
 import { COLORS, colorOf, photoFrom, useMe, type ColorId, type Profile } from "./me";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +24,9 @@ export function ProfilePanel() {
       <header className="flex h-13 shrink-0 items-center px-5" style={DRAG}>
         <span className="text-sm font-semibold">{editing ? t("app.editProfile") : t("nav.profile")}</span>
       </header>
-      {editing ? <ProfileEditor onDone={() => setEditing(false)} /> : <ProfileView onEdit={() => setEditing(true)} />}
+      <div key={editing ? "edit" : "view"} className={cn("flex min-h-0 flex-1 flex-col", PAGE_IN)}>
+        {editing ? <ProfileEditor onDone={() => setEditing(false)} /> : <ProfileView onEdit={() => setEditing(true)} />}
+      </div>
     </>
   );
 }

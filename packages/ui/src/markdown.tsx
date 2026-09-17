@@ -1,4 +1,5 @@
 import { Children, createContext, memo, useContext, useRef } from "react";
+import { Button } from "@/components/ui/button";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -119,14 +120,49 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
       <pre ref={ref} className="bg-muted overflow-x-auto rounded-lg border p-3 pr-10">
         {children}
       </pre>
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onClick={() => void copy(ref.current?.innerText ?? "")}
         title={t("markdown.copyCode")}
-        className="text-muted-foreground hover:bg-background hover:text-foreground absolute top-2 right-2 rounded p-1 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100"
+        className="text-muted-foreground hover:bg-background hover:text-foreground absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100"
       >
         <CopyIcon copied={copied} />
-      </button>
+      </Button>
     </div>
+  );
+}
+
+/**
+ * Where a text still being written can be cut: after the last blank line
+ * outside a code fence. Everything before it is a block that is done.
+ */
+function settledEnd(text: string): number {
+  let fenced = false;
+  let cut = 0;
+  let at = 0;
+  for (const line of text.split("\n")) {
+    if (/^\s{0,3}(```|~~~)/.test(line)) fenced = !fenced;
+    else if (!fenced && at > 0 && line.trim() === "") cut = at + line.length + 1;
+    at += line.length + 1;
+  }
+  return Math.min(cut, text.length);
+}
+
+/**
+ * A reply as it streams: the blocks that are done read as Markdown already,
+ * and only the one still being written stays plain, since half-written
+ * Markdown renders as garbage. Finishing then changes one block, not the page.
+ */
+export function StreamingMarkdown({ text }: { text: string }) {
+  const cut = settledEnd(text);
+  const settled = text.slice(0, cut);
+  const tail = text.slice(cut);
+  return (
+    <>
+      {settled && <Markdown>{settled}</Markdown>}
+      {tail && <div className={cn("text-message leading-message break-words whitespace-pre-wrap", settled && "mt-3")}>{tail}</div>}
+    </>
   );
 }
 

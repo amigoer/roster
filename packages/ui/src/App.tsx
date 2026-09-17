@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Archive, Loader, MessageSquarePlus, Plus, Users } from "lucide-react";
+import { Archive, Loader, MessageSquarePlus, Plus, Users, WifiOff } from "lucide-react";
 import {
   activeMembers,
   api,
@@ -35,6 +35,7 @@ import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
 import { MentionNames } from "./markdown";
 import { MembersPanel } from "./members-panel";
 import { leaderOf } from "./mentions";
+import { PAGE_IN, useAtLeast } from "./motion";
 import { NavRail, RAIL, type Nav } from "./nav-rail";
 import { NewConversation, startDirect } from "./new-conversation";
 import { Outline } from "./outline";
@@ -150,6 +151,8 @@ export default function App() {
   const [editing, setEditing] = useState<{ botId: string | null; template: Template | null } | null>(null);
   const [starting, setStarting] = useState<{ open: boolean; botIds: string[] }>({ open: false, botIds: [] });
   const [panel, setPanel] = usePanelOpen();
+  /** room for the members panel as a column beside the chat, rather than a sheet over it */
+  const [wide, detailRef] = useAtLeast(768);
   const list_ = useColumnWidth("roster.w.list", 300, 240, 520);
   const activeRef = useRef<string | null>(null);
   const scrollRoot = useRef<HTMLDivElement>(null);
@@ -165,6 +168,8 @@ export default function App() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
+  /** the event stream is down and has been for more than a blip */
+  const [offline, setOffline] = useState(false);
 
   const viewport = () =>
     scrollRoot.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null;
@@ -258,7 +263,18 @@ export default function App() {
       }
     };
     void load();
-    return connect((m) => {
+    // a reconnect that lands within a second is not news; one that does not is
+    let downSince: ReturnType<typeof setTimeout> | null = null;
+    const onLink = (up: boolean) => {
+      if (up) {
+        if (downSince) clearTimeout(downSince);
+        downSince = null;
+        setOffline(false);
+      } else {
+        downSince ??= setTimeout(() => setOffline(true), 1500);
+      }
+    };
+    const stop = connect((m) => {
       switch (m.kind) {
         case "conversations": {
           // the push carries the default view; while showing archived, refetch instead
@@ -335,7 +351,11 @@ export default function App() {
           return;
         }
       }
-    }, reload);
+    }, reload, onLink);
+    return () => {
+      if (downSince) clearTimeout(downSince);
+      stop();
+    };
   }, []);
 
   useEffect(() => {
@@ -406,6 +426,17 @@ export default function App() {
     return () => vp.removeEventListener("scroll", onScroll);
   }, [loadedFor, nav]);
 
+  // a pane that changes height under a reader parked at the bottom keeps them there: the presence strip unfolding, the window resizing
+  useEffect(() => {
+    const vp = viewport();
+    if (!vp) return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) vp.scrollTop = vp.scrollHeight;
+    });
+    ro.observe(vp);
+    return () => ro.disconnect();
+  }, [loadedFor, nav]);
+
   const streamed = Object.values(streams).reduce((n, s) => n + s.length, 0);
   // a thought opened while it streams grows the transcript as much as a reply does
   const thought = Object.values(thinking).reduce((n, s) => n + s.length, 0);
@@ -420,6 +451,8 @@ export default function App() {
     () => transcript(messages, Object.values(presence).filter((p) => p.conversationId === active), streams),
     [messages, presence, streams, active],
   );
+  // the rows the log had when it was read; only what lands after them arrives with motion
+  const settledRows = useMemo(() => new Set(rows.map((r) => r.key)), [loadedFor]);
 
   const busyByBot = useMemo(() => {
     const out: Record<string, Busy> = {};
@@ -511,7 +544,7 @@ export default function App() {
         <div className="text-foreground flex min-w-0 flex-1 py-2 pr-2" style={DRAG}>
         {nav === "profile" ? (
           // one person has nothing to list, so the page takes the list's width too
-          <main className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")} style={NO_DRAG}>
+          <main className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col", PAGE_IN)} style={NO_DRAG}>
             <ProfilePanel />
           </main>
         ) : (
@@ -559,117 +592,119 @@ export default function App() {
               </Button>
             )}
           </header>
-          {nav === "settings" ? (
-            <SettingsList view={settingsView} ext={extView} theme={theme} typography={typography} about={about} route={settingsRoute} onRoute={openSettings} />
-          ) : nav === "contacts" ? (
-            <ContactList
-              bots={bots}
-              convs={convs}
-              busyByBot={busyByBot}
-              selected={editing ? (editing.botId ? { kind: "bot", id: editing.botId } : null) : contact}
-              onSelect={(c) => {
-                setContact(c);
-                setEditing(null);
-              }}
-            />
-          ) : (
-            <>
-              <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
-              <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.375rem)]">
-                <div className={cn(LIST_BODY, "pt-1.5")}>
-                  {convs.length === 0 ? (
-                    <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noConversations")}</p>
-                  ) : (
-                    shownConvs.length === 0 && (
-                      <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
-                    )
-                  )}
-                  {shownConvs.map((c) => {
-                    const waiting = isWaiting(c.attention) ? t(`attention.${c.attention}`) : null;
-                    const people = activeMembers(c);
-                    const face = people[0] ?? c.members[0];
-                    return (
-                      <div
-                        key={c.id}
-                        role="button"
-                        tabIndex={0}
-                        aria-current={c.id === active || undefined}
-                        onClick={() => setActive(c.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setActive(c.id);
-                          }
-                        }}
-                        // a div, not a button: the row holds a menu button and nesting buttons is invalid markup
-                        className={cn(ROW, "group/item cursor-default py-2.5", c.archived && "opacity-60", rowState(c.id === active))}
-                      >
-                        {c.shape === "group" ? (
-                          <GroupAvatar bots={people.map((m) => m.bot)} busy={busyOfConv(c)} />
-                        ) : face ? (
-                          <BotAvatar bot={face.bot} busy={busyOfConv(c)} />
-                        ) : (
-                          <Who kind="bot" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            {/* weight is the unread mark: it stays heavy exactly as long as the conversation waits on you */}
-                            <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>{c.title}</span>
-                            {c.shape === "group" && (
-                              <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
-                                {t("conversation.groupBadge")}
-                              </span>
-                            )}
-                            {c.archived && (
-                              <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-[14px]">
-                                {t("app.archived")}
-                              </span>
-                            )}
-                            {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
-                            <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
-                              {listTime(i18n, c.last_activity_at)}
-                            </span>
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-2">
-                            <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-                              {c.preview ?? repoName(c.repo_path)}
-                            </span>
-                            {waiting ? (
-                              // opaque, so it keeps its colour on a selected row instead of mixing with the blue
-                              <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 text-[10px] leading-4 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                                {waiting}
-                              </span>
-                            ) : (
-                              // running is deliberately quiet: it does not need you
-                              c.run_state === "running" && <Loader className="text-muted-foreground/50 size-3 shrink-0 animate-spin" />
-                            )}
-                          </div>
-                        </div>
-                        <ConversationMenu
-                          conv={c}
-                          className="absolute top-2 right-1.5"
-                          onRename={() => {
-                            setActive(c.id);
-                            setRenaming(c.id);
+          <div key={nav} className={cn("flex min-h-0 flex-1 flex-col", PAGE_IN)}>
+            {nav === "settings" ? (
+              <SettingsList view={settingsView} ext={extView} theme={theme} typography={typography} about={about} route={settingsRoute} onRoute={openSettings} />
+            ) : nav === "contacts" ? (
+              <ContactList
+                bots={bots}
+                convs={convs}
+                busyByBot={busyByBot}
+                selected={editing ? (editing.botId ? { kind: "bot", id: editing.botId } : null) : contact}
+                onSelect={(c) => {
+                  setContact(c);
+                  setEditing(null);
+                }}
+              />
+            ) : (
+              <>
+                <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
+                <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.375rem)]">
+                  <div className={cn(LIST_BODY, "pt-1.5")}>
+                    {convs.length === 0 ? (
+                      <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noConversations")}</p>
+                    ) : (
+                      shownConvs.length === 0 && (
+                        <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
+                      )
+                    )}
+                    {shownConvs.map((c) => {
+                      const waiting = isWaiting(c.attention) ? t(`attention.${c.attention}`) : null;
+                      const people = activeMembers(c);
+                      const face = people[0] ?? c.members[0];
+                      return (
+                        <div
+                          key={c.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-current={c.id === active || undefined}
+                          onClick={() => setActive(c.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setActive(c.id);
+                            }
                           }}
-                          onGone={dropConversation}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </>
-          )}
+                          // a div, not a button: the row holds a menu button and nesting buttons is invalid markup
+                          className={cn(ROW, "group/item cursor-default py-2.5", c.archived && "opacity-60", rowState(c.id === active))}
+                        >
+                          {c.shape === "group" ? (
+                            <GroupAvatar bots={people.map((m) => m.bot)} busy={busyOfConv(c)} />
+                          ) : face ? (
+                            <BotAvatar bot={face.bot} busy={busyOfConv(c)} />
+                          ) : (
+                            <Who kind="bot" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              {/* weight is the unread mark: it stays heavy exactly as long as the conversation waits on you */}
+                              <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>{c.title}</span>
+                              {c.shape === "group" && (
+                                <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
+                                  {t("conversation.groupBadge")}
+                                </span>
+                              )}
+                              {c.archived && (
+                                <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-[14px]">
+                                  {t("app.archived")}
+                                </span>
+                              )}
+                              {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
+                              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
+                                {listTime(i18n, c.last_activity_at)}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-2">
+                              <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+                                {c.preview ?? repoName(c.repo_path)}
+                              </span>
+                              {waiting ? (
+                                // opaque, so it keeps its colour on a selected row instead of mixing with the blue
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 text-[10px] leading-4 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                                  {waiting}
+                                </span>
+                              ) : (
+                                // running is deliberately quiet: it does not need you
+                                c.run_state === "running" && <Loader className="text-muted-foreground/50 size-3 shrink-0 animate-spin" />
+                              )}
+                            </div>
+                          </div>
+                          <ConversationMenu
+                            conv={c}
+                            className="absolute top-2 right-1.5"
+                            onRename={() => {
+                              setActive(c.id);
+                              setRenaming(c.id);
+                            }}
+                            onGone={dropConversation}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              </>
+            )}
+          </div>
         </section>
 
         {/* the list starts at the rail and the gap's centre is 4px past its edge, so its width is what is left of x */}
         <Resizer label={t("app.resizeList")} onDrag={(x) => list_.set(x - RAIL - 4)} onReset={list_.reset} />
 
         {/* 3. The detail */}
-        <main className="@container relative flex min-h-0 min-w-0 flex-1 gap-2" style={NO_DRAG}>
+        <main ref={detailRef} className="relative flex min-h-0 min-w-0 flex-1" style={NO_DRAG}>
           {nav === "settings" ? (
-            <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
+            <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col", PAGE_IN)}>
               <SettingsPage
                 route={settingsRoute}
                 onRoute={openSettings}
@@ -690,7 +725,7 @@ export default function App() {
               />
             </div>
           ) : nav === "contacts" ? (
-            <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col")}>
+            <div className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col", PAGE_IN)}>
               <header className="flex h-13 shrink-0 items-center px-5" style={DRAG}>
                 <span className="text-sm font-semibold">
                   {editing
@@ -704,62 +739,67 @@ export default function App() {
                         : t("app.roles")}
                 </span>
               </header>
-              {editing ? (
-                <BotEditor
-                  key={editing.botId ?? `new-${editing.template?.id ?? "blank"}`}
-                  bot={editing.botId ? (bots.find((b) => b.id === editing.botId) ?? null) : null}
-                  template={editing.template}
-                  bots={bots}
-                  caps={caps}
-                  onManageAgents={(id) => {
-                    setNav("settings");
-                    setSettingsRoute({ page: "agent", id });
-                  }}
-                  onCancel={() => setEditing(null)}
-                  onSaved={(b) => {
-                    setBots((prev) => (prev.some((x) => x.id === b.id) ? prev.map((x) => (x.id === b.id ? b : x)) : [...prev, b]));
-                    setContact({ kind: "bot", id: b.id });
-                    setEditing(null);
-                  }}
-                />
-              ) : selectedBot ? (
-                <BotProfile
-                  key={selectedBot.id}
-                  bot={selectedBot}
-                  caps={caps}
-                  convs={convs}
-                  busy={busyByBot[selectedBot.id] ?? null}
-                  onEdit={() => setEditing({ botId: selectedBot.id, template: null })}
-                  onMessage={() => messageBot(selectedBot)}
-                  onGroup={() => setStarting({ open: true, botIds: [selectedBot.id] })}
-                  onOpenConversation={openConversation}
-                  onDeleted={() => setContact(null)}
-                />
-              ) : selectedGroup ? (
-                <GroupProfile
-                  key={selectedGroup.id}
-                  conv={selectedGroup}
-                  bots={bots}
-                  presence={presence}
-                  busy={busyOfConv(selectedGroup)}
-                  onMessage={() => {
-                    focusComposer.current = true;
-                    openConversation(selectedGroup.id);
-                  }}
-                  onOpenBot={(id) => setContact({ kind: "bot", id })}
-                  onGone={(id) => {
-                    dropConversation(id);
-                    setContact(null);
-                  }}
-                />
-              ) : (
-                <TemplateGallery onPick={(template) => setEditing({ botId: null, template })} />
-              )}
+              <div
+                key={editing ? `edit:${editing.botId ?? "new"}` : selectedBot ? `bot:${selectedBot.id}` : selectedGroup ? `group:${selectedGroup.id}` : "gallery"}
+                className={cn("flex min-h-0 flex-1 flex-col", PAGE_IN)}
+              >
+                {editing ? (
+                  <BotEditor
+                    key={editing.botId ?? `new-${editing.template?.id ?? "blank"}`}
+                    bot={editing.botId ? (bots.find((b) => b.id === editing.botId) ?? null) : null}
+                    template={editing.template}
+                    bots={bots}
+                    caps={caps}
+                    onManageAgents={(id) => {
+                      setNav("settings");
+                      setSettingsRoute({ page: "agent", id });
+                    }}
+                    onCancel={() => setEditing(null)}
+                    onSaved={(b) => {
+                      setBots((prev) => (prev.some((x) => x.id === b.id) ? prev.map((x) => (x.id === b.id ? b : x)) : [...prev, b]));
+                      setContact({ kind: "bot", id: b.id });
+                      setEditing(null);
+                    }}
+                  />
+                ) : selectedBot ? (
+                  <BotProfile
+                    key={selectedBot.id}
+                    bot={selectedBot}
+                    caps={caps}
+                    convs={convs}
+                    busy={busyByBot[selectedBot.id] ?? null}
+                    onEdit={() => setEditing({ botId: selectedBot.id, template: null })}
+                    onMessage={() => messageBot(selectedBot)}
+                    onGroup={() => setStarting({ open: true, botIds: [selectedBot.id] })}
+                    onOpenConversation={openConversation}
+                    onDeleted={() => setContact(null)}
+                  />
+                ) : selectedGroup ? (
+                  <GroupProfile
+                    key={selectedGroup.id}
+                    conv={selectedGroup}
+                    bots={bots}
+                    presence={presence}
+                    busy={busyOfConv(selectedGroup)}
+                    onMessage={() => {
+                      focusComposer.current = true;
+                      openConversation(selectedGroup.id);
+                    }}
+                    onOpenBot={(id) => setContact({ kind: "bot", id })}
+                    onGone={(id) => {
+                      dropConversation(id);
+                      setContact(null);
+                    }}
+                  />
+                ) : (
+                  <TemplateGallery onPick={(template) => setEditing({ botId: null, template })} />
+                )}
+              </div>
             </div>
           ) : !conv ? (
             <Empty label={t("app.pickConversation")} className={PANEL} />
           ) : (
-            <>
+            <div className={cn("relative flex min-h-0 min-w-0 flex-1", PAGE_IN)}>
               <div
                 className={cn(PANEL, "relative flex min-h-0 min-w-0 flex-1 flex-col")}
                 // anywhere on the conversation takes a file, not only the few pixels of the composer
@@ -779,7 +819,7 @@ export default function App() {
                 }}
               >
                 {dropping && (
-                  <div className="border-primary/60 bg-background/85 text-primary pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed text-sm font-medium">
+                  <div className="border-primary/60 bg-background/85 text-primary animate-in fade-in-0 pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed text-sm font-medium duration-150">
                     {t("app.dropFiles")}
                   </div>
                 )}
@@ -847,7 +887,8 @@ export default function App() {
                   >
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
                     <div className="cursor-auto space-y-4 px-5 py-4 select-text">
-                      {messages.length === 0 && streamed === 0 && (
+                      {/* only once the log is read: while it loads, an empty pane must not claim there is nothing in it */}
+                      {loadedFor === conv.id && messages.length === 0 && streamed === 0 && (
                         // absolute against the scroll area root: the scrolled content is only as tall as its rows
                         <div className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
                           {group ? (
@@ -868,7 +909,7 @@ export default function App() {
                       {rows.map((row) =>
                         row.kind === "message" ? (
                           // the id is what the outline scrolls to
-                          <div key={row.key} id={`m-${row.message.id}`}>
+                          <div key={row.key} id={`m-${row.message.id}`} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
                             <MessageCard
                               conversationId={conv.id}
                               message={row.message}
@@ -880,7 +921,7 @@ export default function App() {
                           </div>
                         ) : (
                           // a reply points at the turn's answer; before there is one, at where the turn starts
-                          <div key={row.key} id={anchorId(row.turn)}>
+                          <div key={row.key} id={anchorId(row.turn)} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
                             <TurnView
                               conversationId={conv.id}
                               turn={row.turn}
@@ -917,21 +958,21 @@ export default function App() {
                   onRename={() => setRenaming(conv.id)}
                 />
               </div>
-              {panelOpen && (
-                <MembersPanel
-                  conv={conv}
-                  bots={bots}
-                  presence={presence}
-                  sessions={{ info: sessions, options: sessionOptions, quota }}
-                  onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
-                  onOpenBot={(id) => {
-                    setNav("contacts");
-                    setContact({ kind: "bot", id });
-                    setEditing(null);
-                  }}
-                />
-              )}
-            </>
+              <MembersPanel
+                open={panelOpen}
+                mode={wide ? "column" : "overlay"}
+                conv={conv}
+                bots={bots}
+                presence={presence}
+                sessions={{ info: sessions, options: sessionOptions, quota }}
+                onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
+                onOpenBot={(id) => {
+                  setNav("contacts");
+                  setContact({ kind: "bot", id });
+                  setEditing(null);
+                }}
+              />
+            </div>
           )}
         </main>
         </>
@@ -952,6 +993,18 @@ export default function App() {
         }}
       />
 
+      <div
+        role="status"
+        aria-hidden={!offline || undefined}
+        className={cn(
+          "bg-foreground text-background fixed top-[68px] left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-xs shadow-lg transition-[opacity,translate] duration-200 ease-soft",
+          offline ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-2 opacity-0",
+        )}
+      >
+        <WifiOff className="size-3.5" />
+        {t("app.offline")}
+      </div>
+
       {/* below the headers: over their drag region a toast could not be clicked or hovered */}
       <Toaster position="top-center" offset={{ top: 68 }} />
     </TooltipProvider>
@@ -964,7 +1017,7 @@ export default function App() {
 
 function Empty({ label, className }: { label: string; className?: string }) {
   return (
-    <div className={cn("text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-sm", className)}>
+    <div className={cn("text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-sm", PAGE_IN, className)}>
       {label}
     </div>
   );

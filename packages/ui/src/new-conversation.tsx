@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Crown, Search } from "lucide-react";
+import { Check, Crown, Loader, Search } from "lucide-react";
 import { api, type Bot, type Capabilities, type Conversation, type Mode } from "./api";
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
 import { ModePicker } from "./members-panel";
+import { Collapse, ICON_IN } from "./motion";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -155,7 +156,7 @@ export function NewConversation({
                     type="button"
                     onClick={() => toggle(b.id)}
                     className={cn(
-                      "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left",
+                      "focus-visible:ring-ring/50 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 outline-none focus-visible:ring-2",
                       on ? "bg-accent" : "hover:bg-accent/50",
                     )}
                   >
@@ -168,11 +169,11 @@ export function NewConversation({
                     </span>
                     <span
                       className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded border",
+                        "flex size-4 shrink-0 items-center justify-center rounded border transition-[background-color,border-color] duration-120",
                         on && "bg-primary border-primary text-primary-foreground",
                       )}
                     >
-                      {on && <Check className="size-3" />}
+                      {on && <Check className={cn("size-3", ICON_IN)} />}
                     </span>
                   </button>
                 );
@@ -180,43 +181,48 @@ export function NewConversation({
             </div>
           </div>
 
-          {group && (
-            <>
-              <div className="grid gap-2">
-                <Label htmlFor="group-title">{t("newConversation.groupName")}</Label>
-                <Input
-                  id="group-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={t("newConversation.groupNamePlaceholder")}
-                />
+          {/* folded, it must not leave the grid's gap behind: the margin takes the gap back and the padding restores it open */}
+          <Collapse open={group} className="-mt-4">
+            {group && (
+              <div className="grid gap-4 pt-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="group-title">{t("newConversation.groupName")}</Label>
+                  <Input
+                    id="group-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={t("newConversation.groupNamePlaceholder")}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>{t("members.whoAnswers")}</Label>
+                  <ModePicker value={mode} onChange={setMode} compact />
+                  <Collapse open={mode === "leader"} className="-mt-2">
+                    {mode === "leader" && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-3">
+                        <span className="text-muted-foreground mr-1 text-xs">{t("members.leader")}</span>
+                        {chosen.map((b) => (
+                          <button
+                            key={b.id}
+                            type="button"
+                            onClick={() => setLeader(b.id)}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs transition-colors duration-120",
+                              leaderBot?.id === b.id ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+                            )}
+                          >
+                            <BotAvatar bot={b} size="xs" />
+                            {b.name}
+                            {leaderBot?.id === b.id && <Crown className={cn("size-3 text-amber-500", ICON_IN)} />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Collapse>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>{t("members.whoAnswers")}</Label>
-                <ModePicker value={mode} onChange={setMode} compact />
-                {mode === "leader" && (
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-muted-foreground mr-1 text-xs">{t("members.leader")}</span>
-                    {chosen.map((b) => (
-                      <button
-                        key={b.id}
-                        type="button"
-                        onClick={() => setLeader(b.id)}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs",
-                          leaderBot?.id === b.id ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
-                        )}
-                      >
-                        <BotAvatar bot={b} size="xs" />
-                        {b.name}
-                        {leaderBot?.id === b.id && <Crown className="size-3 text-amber-500" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+            )}
+          </Collapse>
 
           <div className="grid gap-2">
             <Label htmlFor="dir">{t("conversation.directory")}</Label>
@@ -234,11 +240,15 @@ export function NewConversation({
             {error && <p className="text-destructive text-xs">{error}</p>}
           </div>
 
-          {chosen.length === 1 && capabilities[chosen[0]!.executor_id] && (
-            <div className="border-t pt-3">
-              <CapabilityNotes caps={capabilities[chosen[0]!.executor_id]!} />
-            </div>
-          )}
+          <Collapse open={chosen.length === 1 && Boolean(capabilities[chosen[0]!.executor_id])} className="-mt-4">
+            {chosen.length === 1 && capabilities[chosen[0]!.executor_id] && (
+              <div className="pt-4">
+                <div className="border-t pt-3">
+                  <CapabilityNotes caps={capabilities[chosen[0]!.executor_id]!} />
+                </div>
+              </div>
+            )}
+          </Collapse>
         </div>
 
         <DialogFooter>
@@ -246,6 +256,7 @@ export function NewConversation({
             {t("common.cancel")}
           </Button>
           <Button onClick={() => void create()} disabled={busy || chosen.length === 0 || !dir.trim()}>
+            {busy && <Loader className="animate-spin" />}
             {group ? t("newConversation.createGroup") : t("newConversation.start")}
           </Button>
         </DialogFooter>

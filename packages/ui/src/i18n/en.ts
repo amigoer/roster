@@ -25,6 +25,7 @@ export const en = {
   "common.unknown": "Unknown",
   "common.deleteTitle": "Delete “{name}”?",
   "common.example": "e.g. {example}",
+  "common.undo": "Undo",
 
   "time.justNow": "just now",
   "time.minutesAgo": "{count} min ago",
@@ -61,6 +62,7 @@ export const en = {
   "app.groupHas": "In this group: {names}",
   "app.noMessages": "No messages yet",
   "app.firstMessage": "Send the first message to begin. It becomes this conversation's title.",
+  "app.offline": "Connection lost. Reconnecting…",
 
   "theme.system": "Follow system",
   "theme.light": "Light",
@@ -576,6 +578,7 @@ export const en = {
   "me.locationPlaceholder": "e.g. Shanghai",
 
   "group.leader": " · led by {name}",
+  "group.archived": "Archived “{title}”",
   "bot.instructions": "Instructions",
   "bot.new": "New bot",
 

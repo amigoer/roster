@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader } from "lucide-react";
+import { Collapsible } from "radix-ui";
 import { api, type ContextDetail, type ContextUse } from "./api";
 import { useI18n } from "./i18n";
 import { cn } from "@/lib/utils";
@@ -66,7 +67,7 @@ export function ContextBar({
         {shown.map((s) => (
           <div
             key={s.name}
-            className={cn("h-full shrink-0 first:rounded-l-full", s.color)}
+            className={cn("h-full shrink-0 transition-[width] duration-300 ease-soft first:rounded-l-full", s.color)}
             style={{ width: `${Math.max(0.5, (s.tokens / context.max) * 100)}%` }}
           />
         ))}
@@ -127,21 +128,21 @@ function Section({ title, total, rows }: { title: string; total: number | undefi
   const [open, setOpen] = useState(false);
   const { t } = useI18n();
   return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="hover:bg-accent -mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-1.5 rounded-md px-1.5 py-1"
-      >
-        <ChevronRight className={cn("text-muted-foreground size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-        <span className="min-w-0 flex-1 truncate text-left">{title}</span>
-        {total !== undefined && <span className="shrink-0 tabular-nums">{tokens(total)}</span>}
-        <span className="text-muted-foreground/70 min-w-11 shrink-0 text-right whitespace-nowrap tabular-nums">
-          {t("context.items", { count: rows.length })}
-        </span>
-      </button>
-      {open && (
+    <Collapsible.Root open={open} onOpenChange={setOpen}>
+      <Collapsible.Trigger asChild>
+        <button
+          type="button"
+          className="hover:bg-accent focus-visible:ring-ring/50 -mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors outline-none focus-visible:ring-2"
+        >
+          <ChevronRight className={cn("text-muted-foreground size-3.5 shrink-0 transition-transform duration-200 ease-soft", open && "rotate-90")} />
+          <span className="min-w-0 flex-1 truncate text-left">{title}</span>
+          {total !== undefined && <span className="shrink-0 tabular-nums">{tokens(total)}</span>}
+          <span className="text-muted-foreground/70 min-w-11 shrink-0 text-right whitespace-nowrap tabular-nums">
+            {t("context.items", { count: rows.length })}
+          </span>
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content className="overflow-hidden ease-soft data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
         <ul className="space-y-1 pt-0.5 pb-1.5 pl-5">
           {rows.map((r) => {
             const { text, title: full } = rowLabel(r.name);
@@ -155,8 +156,8 @@ function Section({ title, total, rows }: { title: string; total: number | undefi
             );
           })}
         </ul>
-      )}
-    </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 }
 

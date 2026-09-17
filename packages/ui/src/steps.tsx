@@ -14,14 +14,20 @@ import {
   ShieldX,
   X,
 } from "lucide-react";
+import { Collapsible } from "radix-ui";
 import { api, isThought, type Step, type StepDetail, type Thought, type ThoughtDetail } from "./api";
 import { CopyIcon, useCopy } from "./copy";
 import { useI18n, type Translate } from "./i18n";
-import { Markdown } from "./markdown";
+import { Markdown, StreamingMarkdown } from "./markdown";
+import { ICON_IN } from "./motion";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /** How the human answered each call they were asked about, by call id: pending, allowed, denied or expired. */
 export type Decisions = ReadonlyMap<string, string>;
+
+/** What a row hides under it: it unfolds to its own height and folds back, clipped while it moves. */
+const FOLD = "overflow-hidden ease-soft data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up";
 
 /** Absolute paths under the conversation's repo read as relative ones. */
 export function relative(text: string, root: string): string {
@@ -136,55 +142,59 @@ export function StepsGroup({
   ].filter(Boolean);
   const thought = running && isThought(running) ? lastLine(thinking[running.id]) : undefined;
   return (
-    <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="text-muted-foreground hover:text-foreground -ml-1.5 flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm transition-colors"
-      >
-        <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-        {running &&
-          (asking ? (
-            <ShieldQuestionMark className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          ) : (
-            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-          ))}
-        <span className="min-w-0 truncate">
-          {running ? (
-            isThought(running) ? (
-              <>
-                {t("steps.thinking")}
-                {thought && ` ${thought}`}
-              </>
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="min-w-0">
+      <Collapsible.Trigger asChild>
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground -ml-1.5 flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm transition-colors"
+        >
+          <ChevronRight className={cn("size-3.5 shrink-0 transition-transform duration-200 ease-soft", open && "rotate-90")} />
+          {running &&
+            (asking ? (
+              <ShieldQuestionMark className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             ) : (
-              <>
-                <span className="font-mono text-xs">{toolLabel(running.name)}</span>
-                {running.title && ` ${relative(running.title, root)}`}
-              </>
-            )
-          ) : (
-            counts
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+            ))}
+          <span className="min-w-0 truncate">
+            {running ? (
+              isThought(running) ? (
+                <>
+                  {t("steps.thinking")}
+                  {thought && ` ${thought}`}
+                </>
+              ) : (
+                <>
+                  <span className="font-mono text-xs">{toolLabel(running.name)}</span>
+                  {running.title && ` ${relative(running.title, root)}`}
+                </>
+              )
+            ) : (
+              counts
+            )}
+          </span>
+          <span className="shrink-0 whitespace-nowrap">{meta.map((m) => ` · ${m}`)}</span>
+          {failed > 0 && (
+            <span className="text-destructive shrink-0 whitespace-nowrap">· {t("steps.failed", { count: failed })}</span>
           )}
-        </span>
-        <span className="shrink-0 whitespace-nowrap">{meta.map((m) => ` · ${m}`)}</span>
-        {failed > 0 && (
-          <span className="text-destructive shrink-0 whitespace-nowrap">· {t("steps.failed", { count: failed })}</span>
-        )}
-      </button>
-      {open && <div className="ml-[7px] border-l pl-2.5">{steps.map(item)}</div>}
-    </div>
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content className={FOLD}>
+        <div className="ml-[7px] border-l pl-2.5">{steps.map(item)}</div>
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 }
 
 function Status({ step, live, asking }: { step: Step; live: boolean; asking: boolean }) {
   const { t } = useI18n();
-  const base = "size-3.5 shrink-0";
-  if (asking) return <ShieldQuestionMark className={cn(base, "text-amber-600 dark:text-amber-400")} />;
-  if (step.ok === true) return <Check className={cn(base, "text-muted-foreground")} />;
-  if (step.ok === false) return <X className={cn(base, "text-destructive")} />;
-  if (live) return <LoaderCircle className={cn(base, "text-muted-foreground animate-spin")} />;
+  const base = cn("size-3.5 shrink-0", ICON_IN);
+  if (asking) return <ShieldQuestionMark key="asking" className={cn(base, "text-amber-600 dark:text-amber-400")} />;
+  if (step.ok === true) return <Check key="ok" className={cn(base, "text-muted-foreground")} />;
+  if (step.ok === false) return <X key="failed" className={cn(base, "text-destructive")} />;
+  // spinning is its animation; it cannot also grow in
+  if (live) return <LoaderCircle key="running" className="text-muted-foreground size-3.5 shrink-0 animate-spin" />;
   return (
-    <span title={t("steps.unfinished")} className="shrink-0">
+    <span key="unfinished" title={t("steps.unfinished")} className="shrink-0">
       <Minus className={cn(base, "text-muted-foreground/60")} />
     </span>
   );
@@ -232,28 +242,31 @@ const StepItem = memo(function StepItem({
   const end = step.endedAt ?? (running ? now : undefined);
   const title = step.title && relative(step.title, root);
   return (
-    <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        title={step.name}
-        className={cn(
-          "hover:bg-accent -ml-1.5 flex w-[calc(100%+0.375rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors",
-          open && "bg-accent/70",
-        )}
-      >
-        <Status step={step} live={live} asking={asking} />
-        <span className="text-muted-foreground shrink-0 font-mono text-xs">{toolLabel(step.name)}</span>
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {/* a long command must not push out why it failed */}
-        {step.error && <span className="text-destructive max-w-1/2 shrink-0 truncate text-xs">{step.error}</span>}
-        {decision && !asking && <DecisionTag status={decision} />}
-        {step.startedAt !== undefined && end !== undefined && (
-          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{duration(t, end - step.startedAt)}</span>
-        )}
-      </button>
-      {open && <StepBody conversationId={conversationId} turnId={turnId} step={step} running={running} root={root} />}
-    </div>
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="min-w-0">
+      <Collapsible.Trigger asChild>
+        <button
+          type="button"
+          title={step.name}
+          className={cn(
+            "hover:bg-accent -ml-1.5 flex w-[calc(100%+0.375rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors",
+            open && "bg-accent/70",
+          )}
+        >
+          <Status step={step} live={live} asking={asking} />
+          <span className="text-muted-foreground shrink-0 font-mono text-xs">{toolLabel(step.name)}</span>
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {/* a long command must not push out why it failed */}
+          {step.error && <span className="text-destructive max-w-1/2 shrink-0 truncate text-xs">{step.error}</span>}
+          {decision && !asking && <DecisionTag status={decision} />}
+          {step.startedAt !== undefined && end !== undefined && (
+            <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{duration(t, end - step.startedAt)}</span>
+          )}
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content className={FOLD}>
+        <StepBody conversationId={conversationId} turnId={turnId} step={step} running={running} root={root} />
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 });
 
@@ -279,32 +292,35 @@ const ThoughtItem = memo(function ThoughtItem({
   // while it streams, the line it is on; once done, the line it opened with
   const title = running ? lastLine(text) : thought.title;
   return (
-    <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "hover:bg-accent -ml-1.5 flex w-[calc(100%+0.375rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors",
-          open && "bg-accent/70",
-        )}
-      >
-        {running ? (
-          <LoaderCircle className="text-muted-foreground size-3.5 shrink-0 animate-spin" />
-        ) : thought.endedAt === undefined ? (
-          <span title={t("steps.unfinished")} className="shrink-0">
-            <Minus className="text-muted-foreground/60 size-3.5" />
-          </span>
-        ) : (
-          <Brain className="text-muted-foreground size-3.5 shrink-0" />
-        )}
-        <span className="text-muted-foreground shrink-0 text-xs">{t("steps.thinking")}</span>
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {end !== undefined && (
-          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{duration(t, end - thought.startedAt)}</span>
-        )}
-      </button>
-      {open && <ThoughtBody conversationId={conversationId} turnId={turnId} thought={thought} running={running} text={text} />}
-    </div>
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="min-w-0">
+      <Collapsible.Trigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "hover:bg-accent -ml-1.5 flex w-[calc(100%+0.375rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors",
+            open && "bg-accent/70",
+          )}
+        >
+          {running ? (
+            <LoaderCircle className="text-muted-foreground size-3.5 shrink-0 animate-spin" />
+          ) : thought.endedAt === undefined ? (
+            <span title={t("steps.unfinished")} className="shrink-0">
+              <Minus className="text-muted-foreground/60 size-3.5" />
+            </span>
+          ) : (
+            <Brain className="text-muted-foreground size-3.5 shrink-0" />
+          )}
+          <span className="text-muted-foreground shrink-0 text-xs">{t("steps.thinking")}</span>
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {end !== undefined && (
+            <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{duration(t, end - thought.startedAt)}</span>
+          )}
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content className={FOLD}>
+        <ThoughtBody conversationId={conversationId} turnId={turnId} thought={thought} running={running} text={text} />
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 });
 
@@ -333,6 +349,18 @@ function useCached<T>(cache: Map<string, Promise<T | null>>, key: string | null,
     };
   }, [key]);
   return key !== null && got?.key === key ? got.value : undefined;
+}
+
+/** A body that has been read fades in over the placeholder that held its place. */
+const BODY_IN = "animate-in fade-in-0 duration-200";
+
+/** The shape of a block, while the body it stands for is read: the row under it does not jump when the body lands. */
+function BodyPlaceholder() {
+  return (
+    <div className="pt-1 pb-2 pl-7">
+      <Skeleton className="h-16 rounded-lg" />
+    </div>
+  );
 }
 
 /** Outputs can be large, so only the most recently opened stay cached. */
@@ -366,15 +394,14 @@ function ThoughtBody({
   // what streamed stands in while the finished thought is read back
   const words = (running ? text : (detail?.text ?? text))?.trim();
   if (!words) {
-    if (running || (key !== null && detail === undefined)) {
-      return <LoaderCircle className="text-muted-foreground my-1.5 ml-7 size-3.5 animate-spin" />;
-    }
+    if (running) return <LoaderCircle className="text-muted-foreground my-1.5 ml-7 size-3.5 animate-spin" />;
+    if (key !== null && detail === undefined) return <BodyPlaceholder />;
     return (
       <p className="text-muted-foreground py-1 pl-7 text-xs">{key === null ? t("steps.unfinished") : t("steps.thoughtLoadFailed")}</p>
     );
   }
   return (
-    <div className="flex min-w-0 flex-col pt-1 pb-2 pl-7">
+    <div className={cn("flex min-w-0 flex-col pt-1 pb-2 pl-7", !running && BODY_IN)}>
       <Block label={t("steps.thought")} copy={words}>
         <Words text={words} running={running} />
       </Block>
@@ -399,22 +426,7 @@ function Words({ text, running }: { text: string; running: boolean }) {
       }}
       className="text-muted-foreground max-h-80 overflow-y-auto px-3 py-2.5"
     >
-      {running ? (
-        // half-written Markdown renders as garbage, the same as a reply being written; a summary's bold headings are safe once closed
-        <div className="text-message leading-message break-words whitespace-pre-wrap">
-          {text.split(/(\*\*[^*\n]+\*\*)/).map((part, i) =>
-            i % 2 === 1 ? (
-              <strong key={i} className="font-semibold">
-                {part.slice(2, -2)}
-              </strong>
-            ) : (
-              part
-            ),
-          )}
-        </div>
-      ) : (
-        <Markdown>{text}</Markdown>
-      )}
+      {running ? <StreamingMarkdown text={text} /> : <Markdown>{text}</Markdown>}
     </div>
   );
 }
@@ -434,10 +446,10 @@ function StepBody({
 }) {
   const detail = useDetail(conversationId, turnId, step);
   const { t } = useI18n();
-  if (detail === undefined) return <LoaderCircle className="text-muted-foreground my-1.5 ml-7 size-3.5 animate-spin" />;
+  if (detail === undefined) return <BodyPlaceholder />;
   if (detail === null) return <p className="text-muted-foreground py-1 pl-7 text-xs">{t("steps.loadFailed")}</p>;
   return (
-    <div className="flex min-w-0 flex-col gap-2 pt-1 pb-2 pl-7">
+    <div className={cn("flex min-w-0 flex-col gap-2 pt-1 pb-2 pl-7", BODY_IN)}>
       <CallInput input={detail.input} root={root} />
       <CallOutput detail={detail} running={running} />
     </div>
@@ -593,7 +605,7 @@ function Block({
             type="button"
             onClick={() => void write(copy)}
             title={t("common.copy")}
-            className="hover:text-foreground ml-auto shrink-0 rounded p-0.5"
+            className="hover:text-foreground focus-visible:ring-ring/50 ml-auto shrink-0 rounded p-0.5 transition-colors outline-none focus-visible:ring-2"
           >
             <CopyIcon copied={copied} className="size-3" />
           </button>
@@ -633,7 +645,7 @@ function MoreButton({ all, count, onClick }: { all: boolean; count: number; onCl
     <button
       type="button"
       onClick={onClick}
-      className="text-muted-foreground hover:text-foreground w-full border-t px-2.5 py-1 text-left text-[11px]"
+      className="text-muted-foreground hover:text-foreground hover:bg-accent/50 w-full border-t px-2.5 py-1 text-left text-[11px] transition-colors"
     >
       {all ? t("steps.showLess") : t("steps.showAll", { count })}
     </button>

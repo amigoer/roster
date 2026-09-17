@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { ICON_IN } from "./motion";
 import { cn } from "@/lib/utils";
 
 /** http://127.0.0.1 counts as a secure context, but a denied permission still throws. */
@@ -38,8 +39,8 @@ export function useCopy() {
 
 export function CopyIcon({ copied, className }: { copied: boolean; className?: string }) {
   return copied ? (
-    <Check className={cn("size-3.5", className)} />
+    <Check key="copied" className={cn("size-3.5", ICON_IN, className)} />
   ) : (
-    <Copy className={cn("size-3.5", className)} />
+    <Copy key="copy" className={cn("size-3.5", ICON_IN, className)} />
   );
 }

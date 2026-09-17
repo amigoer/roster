@@ -1,6 +1,7 @@
 import { activeMembers, type Conversation, type Presence } from "./api";
 import { BotAvatar, busyOf } from "./bot-avatar";
 import { useI18n, type Translate } from "./i18n";
+import { Collapse } from "./motion";
 
 export function presenceLabel(t: Translate, p: Presence): string {
   switch (p.state) {
@@ -46,19 +47,23 @@ export function PresenceStrip({
     const p = presence[m.id];
     return p ? [{ m, p }] : [];
   });
-  if (rows.length === 0) return null;
   return (
-    <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 px-5 pt-2.5 text-xs">
-      {rows.map(({ m, p }) => (
-        <span key={m.id} className="inline-flex items-center gap-1.5">
-          <BotAvatar bot={m.bot} size="xs" busy={busyOf(p.state)} />
-          {conv.shape === "group" && <span className="text-foreground font-medium">{m.bot.name}</span>}
-          <span className={p.state === "waiting_permission" ? "text-amber-600 dark:text-amber-400" : undefined}>
-            {presenceLabel(t, p)}
-          </span>
-          {(p.state === "thinking" || p.state === "starting" || p.state === "compacting") && <Dots />}
-        </span>
-      ))}
-    </div>
+    // unfolds rather than appears: the composer under it moves with it instead of jumping
+    <Collapse open={rows.length > 0}>
+      {rows.length > 0 && (
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 px-5 pt-2.5 text-xs">
+          {rows.map(({ m, p }) => (
+            <span key={m.id} className="inline-flex items-center gap-1.5">
+              <BotAvatar bot={m.bot} size="xs" busy={busyOf(p.state)} />
+              {conv.shape === "group" && <span className="text-foreground font-medium">{m.bot.name}</span>}
+              <span className={p.state === "waiting_permission" ? "text-amber-600 dark:text-amber-400" : undefined}>
+                {presenceLabel(t, p)}
+              </span>
+              {(p.state === "thinking" || p.state === "starting" || p.state === "compacting") && <Dots />}
+            </span>
+          ))}
+        </div>
+      )}
+    </Collapse>
   );
 }

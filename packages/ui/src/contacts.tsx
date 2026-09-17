@@ -1,5 +1,6 @@
 import { Fragment, useContext, useEffect, useMemo, useState } from "react";
-import { Archive, Eye, MessageCircle, Pencil, Plus, Shuffle, Trash2, Users } from "lucide-react";
+import { Archive, Eye, Loader, MessageCircle, Pencil, Plus, Shuffle, Trash2, Users } from "lucide-react";
+import { toast } from "sonner";
 import {
   activeMembers,
   api,
@@ -240,7 +241,7 @@ export function BotProfile({
               void onMessage().finally(() => setOpening(false));
             }}
           >
-            <MessageCircle />
+            {opening ? <Loader className="animate-spin" /> : <MessageCircle />}
             {t("profile.message")}
           </Button>
           <Button size="sm" variant="outline" onClick={onGroup}>
@@ -297,7 +298,7 @@ export function BotProfile({
                 <button
                   key={c.id}
                   onClick={() => onOpenConversation(c.id)}
-                  className="hover:bg-accent/50 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left"
+                  className="hover:bg-accent/50 focus-visible:ring-ring/50 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 outline-none focus-visible:ring-2"
                 >
                   {c.shape === "group" ? (
                     <GroupAvatar bots={activeMembers(c).map((m) => m.bot)} />
@@ -416,7 +417,14 @@ export function GroupProfile({
             size="sm"
             variant="ghost"
             className="text-muted-foreground ml-auto"
-            onClick={() => void api.archive(conv.id, true).then(() => onGone(conv.id))}
+            onClick={() =>
+              void api.archive(conv.id, true).then(() => {
+                onGone(conv.id);
+                toast(t("group.archived", { title: conv.title }), {
+                  action: { label: t("common.undo"), onClick: () => void api.archive(conv.id, false) },
+                });
+              })
+            }
           >
             <Archive />
             {t("common.archive")}
@@ -753,7 +761,7 @@ export function BotEditor({
               <span className="text-muted-foreground text-xs">{t("editor.promptHint")}</span>
             </div>
             {preview ? (
-              <div className="bg-muted/50 min-h-56 rounded-lg border px-4 py-3">
+              <div key="preview" className="bg-muted/50 animate-in fade-in-0 min-h-56 rounded-lg border px-4 py-3 duration-200">
                 {form.system_prompt?.trim() ? (
                   <Markdown>{form.system_prompt}</Markdown>
                 ) : (
@@ -762,11 +770,12 @@ export function BotEditor({
               </div>
             ) : (
               <Textarea
+                key="edit"
                 id="bot-prompt"
                 value={form.system_prompt ?? ""}
                 onChange={(e) => set("system_prompt", e.target.value || null)}
                 placeholder={t("editor.promptPlaceholder")}
-                className="min-h-56 text-sm leading-relaxed"
+                className="animate-in fade-in-0 min-h-56 text-sm leading-relaxed duration-200"
               />
             )}
           </div>
@@ -902,6 +911,7 @@ export function BotEditor({
           {t("common.cancel")}
         </Button>
         <Button onClick={() => void save()} disabled={busy || !form.name.trim()}>
+          {busy && <Loader className="animate-spin" />}
           {bot ? t("common.save") : t("common.create")}
         </Button>
       </div>

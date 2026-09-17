@@ -678,16 +678,18 @@ export const api = {
  * EventSource reconnects on its own, but whatever was pushed while it was down
  * is gone, so onReconnect is the cue to refetch.
  */
-export function connect(onMsg: (m: ServerMsg) => void, onReconnect?: () => void): () => void {
+export function connect(onMsg: (m: ServerMsg) => void, onReconnect?: () => void, onLink?: (up: boolean) => void): () => void {
   const es = new EventSource("/api/stream");
   let dropped = false;
   es.onmessage = (e) => onMsg(JSON.parse(e.data) as ServerMsg);
   es.onerror = () => {
     dropped = true;
+    onLink?.(false);
   };
   es.onopen = () => {
     if (dropped) onReconnect?.();
     dropped = false;
+    onLink?.(true);
   };
   return () => es.close();
 }

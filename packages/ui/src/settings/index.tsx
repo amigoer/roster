@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { ChevronLeft, Cpu, Info, KeyRound, Languages, Puzzle, SunMoon } from "lucide-react";
 import type { Bot, ExecutorSettings, ExtensionsView } from "../api";
 import { DRAG, NO_DRAG } from "../app-region";
 import { LOCALES, useI18n, type Translate } from "../i18n";
 import { LIST_BODY, ROW, rowState, SectionLabel } from "../list";
+import { PAGE_IN } from "../motion";
 import type { Theme } from "../theme";
 import { SettingTile } from "../tiles";
 import { fontLabel, sizeLabel, type TextSize, type Typography } from "../typography";
@@ -262,8 +264,18 @@ export function SettingsPage({
     onRefresh();
   };
 
+  // where the page is and how it got there: an item opens from the right, its overview comes back from the left
+  const item = r && "id" in r && r.id !== undefined ? (r.id ?? "new") : null;
+  const key = r ? `${r.page}:${item ?? ""}` : "";
+  const depth = item === null ? 0 : 1;
+  const [trail, setTrail] = useState({ key, depth, motion: PAGE_IN });
+  if (trail.key !== key) {
+    const from = depth > trail.depth ? "slide-in-from-right-2" : depth < trail.depth ? "slide-in-from-left-2" : "slide-in-from-bottom-1";
+    setTrail({ key, depth, motion: `animate-in fade-in-0 ${from} duration-200 ease-soft` });
+  }
+
   const body = () => {
-    if (!r) return null;
+    if (!r) return <Loading />;
     switch (r.page) {
       case "appearance":
         return <AppearancePanel theme={theme} onChange={onTheme} typography={typography} onFont={onFont} onCustomFont={onCustomFont} onSize={onSize} />;
@@ -342,7 +354,9 @@ export function SettingsPage({
         )}
         <span className="truncate text-sm font-semibold">{crumb.title}</span>
       </header>
-      {body()}
+      <div key={key} className={cn("flex min-h-0 flex-1 flex-col", trail.motion)}>
+        {body()}
+      </div>
     </>
   );
 }

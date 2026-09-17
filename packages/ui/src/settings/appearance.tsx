@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { Collapse } from "../motion";
 import { Choice } from "./shared";
 import { THEMES, type Theme } from "../theme";
 import {
@@ -88,23 +89,25 @@ export function AppearancePanel({
               sample={sample}
             />
           </RadioGroup>
-          {typography.font === CUSTOM_FONT && (
-            <div className="space-y-1.5">
-              <Input
-                value={typography.customFont}
-                onChange={(e) => onCustomFont(e.target.value)}
-                placeholder={t("appearance.fontPlaceholder")}
-                autoFocus
-                spellCheck={false}
-              />
-              {/* the name is applied as typed; say when nothing on this machine answers to it */}
-              {custom && (
-                <p className={cn("text-xs", fontInstalled(custom) ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400")}>
-                  {fontInstalled(custom) ? t("appearance.fontFound", { font: custom }) : t("appearance.fontMissing", { font: custom })}
-                </p>
-              )}
-            </div>
-          )}
+          <Collapse open={typography.font === CUSTOM_FONT} className="-mt-3">
+            {typography.font === CUSTOM_FONT && (
+              <div className="space-y-1.5 pt-3">
+                <Input
+                  value={typography.customFont}
+                  onChange={(e) => onCustomFont(e.target.value)}
+                  placeholder={t("appearance.fontPlaceholder")}
+                  autoFocus
+                  spellCheck={false}
+                />
+                {/* the name is applied as typed; say when nothing on this machine answers to it */}
+                {custom && (
+                  <p className={cn("text-xs", fontInstalled(custom) ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400")}>
+                    {fontInstalled(custom) ? t("appearance.fontFound", { font: custom }) : t("appearance.fontMissing", { font: custom })}
+                  </p>
+                )}
+              </div>
+            )}
+          </Collapse>
           <FieldDescription>
             {t("appearance.fontHint")}
             {chosen ? t("appearance.fontNow", { font: chosen }) : t("appearance.fontDefault")}

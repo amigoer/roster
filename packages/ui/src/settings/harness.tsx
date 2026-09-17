@@ -136,7 +136,7 @@ function JobLine({ job }: { job: InstallJob }) {
   if (job.state === "running") {
     return (
       <div className="space-y-1.5">
-        <Progress value={null as unknown as number} className="h-1" />
+        <Progress value={null} className="h-1" />
         <p className="text-muted-foreground truncate text-xs">{last ?? t("install.downloading")}</p>
       </div>
     );
@@ -266,7 +266,7 @@ export function HarnessOverview({
                   open();
                 }
               }}
-              className="hover:bg-accent/50 focus-visible:ring-ring/50 flex items-start gap-4 rounded-xl border p-4 text-left transition-colors outline-none focus-visible:ring-2"
+              className="hover:bg-accent/50 focus-visible:ring-ring/50 animate-in fade-in-0 flex items-start gap-4 rounded-xl border p-4 text-left transition-colors duration-200 outline-none focus-visible:ring-2"
             >
               <HarnessTile type={h.id} brand={h.brand} size="lg" />
               <div className="min-w-0 flex-1 space-y-1.5">

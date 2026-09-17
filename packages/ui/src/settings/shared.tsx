@@ -258,6 +258,7 @@ export function EditorFrame({
           {t("common.cancel")}
         </Button>
         <Button onClick={onSave} disabled={busy || !canSave}>
+          {busy && <Loader className="animate-spin" />}
           {saveLabel}
         </Button>
       </div>

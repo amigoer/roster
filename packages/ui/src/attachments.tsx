@@ -91,7 +91,8 @@ export function PendingTray({ items, onRemove }: { items: Pending[]; onRemove: (
       {items.map((p) => {
         const uploading = !p.ref && !p.error;
         return (
-          <div key={p.key} className="group/att relative" title={p.error ?? `${p.name} · ${formatSize(p.size)}`}>
+          // each file grows into the tray as it is added
+          <div key={p.key} className="group/att animate-in fade-in-0 zoom-in-95 relative duration-200 ease-soft" title={p.error ?? `${p.name} · ${formatSize(p.size)}`}>
             {p.preview && !p.error ? (
               <img src={p.preview} alt={p.name} className="size-14 rounded-lg border object-cover" />
             ) : (
@@ -127,9 +128,9 @@ export function PendingTray({ items, onRemove }: { items: Pending[]; onRemove: (
               aria-label={t("attachments.remove", { name: p.name })}
               onClick={() => onRemove(p.key)}
               className={cn(
-                "bg-foreground text-background absolute -top-1.5 -right-1.5 size-5 items-center justify-center rounded-full shadow-sm outline-none",
-                "focus-visible:ring-ring/60 focus-visible:flex focus-visible:ring-2",
-                p.error ? "flex" : "hidden group-hover/att:flex",
+                "bg-foreground text-background absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full shadow-sm outline-none transition-opacity duration-120",
+                "focus-visible:ring-ring/60 focus-visible:opacity-100 focus-visible:ring-2",
+                p.error ? "opacity-100" : "opacity-0 group-hover/att:opacity-100",
               )}
             >
               <X className="size-3" />
@@ -202,7 +203,7 @@ export function MessageAttachments({
             <img
               src={attachmentUrl(conversationId, open.id)}
               alt={open.name}
-              className="max-h-[80vh] w-full rounded-lg object-contain"
+              className="animate-in fade-in-0 max-h-[80vh] w-full rounded-lg object-contain duration-200"
             />
           )}
         </DialogContent>

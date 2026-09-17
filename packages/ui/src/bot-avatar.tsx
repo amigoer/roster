@@ -3,6 +3,7 @@ import { User } from "lucide-react";
 import type { Bot, Logo, PresenceState } from "./api";
 import { useI18n } from "./i18n";
 import { colorOf, initialOf, useMe, type Profile } from "./me";
+import { ICON_IN } from "./motion";
 import { cn } from "@/lib/utils";
 
 /** The bundled logo set, as core ships it in /api/state. */
@@ -104,7 +105,8 @@ function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
       className={cn(
         "ring-background absolute -right-0.5 -bottom-0.5 rounded-full ring-2",
         DOTS[size],
-        busy === "needs_you" ? "bg-amber-500" : "animate-pulse bg-emerald-500",
+        // pulsing is the busy dot's own animation, so only the other one grows in
+        busy === "needs_you" ? cn("bg-amber-500", ICON_IN) : "animate-pulse bg-emerald-500",
       )}
       title={busy === "needs_you" ? t("busy.waiting") : t("busy.working")}
     />

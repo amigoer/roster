@@ -39,7 +39,7 @@ export function Outline({ messages, onJump }: { messages: Message[]; onJump: (me
               setOpen(false);
               onJump(m.id);
             }}
-            className="hover:bg-accent flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left"
+            className="hover:bg-accent focus-visible:ring-ring/50 flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-120 outline-none focus-visible:ring-2"
           >
             <span className="min-w-0 flex-1 truncate text-sm">
               {gist(String((JSON.parse(m.body_json) as { text?: string }).text ?? ""))}

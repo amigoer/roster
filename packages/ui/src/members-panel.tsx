@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Crown,
   Hand,
@@ -91,6 +91,8 @@ export function ModePicker({
 }
 
 export function MembersPanel({
+  open,
+  mode,
   conv,
   bots,
   presence,
@@ -98,6 +100,10 @@ export function MembersPanel({
   onClose,
   onOpenBot,
 }: {
+  /** closed, it folds or slides away and drops out of the tab order, but stays mounted to do so */
+  open: boolean;
+  /** a column beside the chat when there is room; a sheet over it when a column would crush it */
+  mode: "column" | "overlay";
   conv: Conversation;
   bots: Bot[];
   presence: Record<string, Presence>;
@@ -107,21 +113,73 @@ export function MembersPanel({
 }) {
   const group = conv.shape === "group";
   const { t } = useI18n();
+  // settled: the move in the current direction has ended; only then is a closed panel hidden outright
+  const [settled, setSettled] = useState(true);
+  const [was, setWas] = useState(open);
+  if (was !== open) {
+    setWas(open);
+    setSettled(false);
+  }
+  // a sheet over the chat closes the way any sheet does; a column beside it is not in the way
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!open || mode !== "overlay") return;
+    const onKey = (e: KeyboardEvent) => {
+      // a menu open inside the panel takes its Escape first
+      if (e.key === "Escape" && !e.defaultPrevented) close.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, mode]);
+  const column = mode === "column";
   return (
-    // a column when there is room; over the chat when a column would crush it
-    <aside className="bg-background ring-border absolute inset-y-0 right-0 z-20 flex w-72 shrink-0 flex-col overflow-hidden rounded-xl shadow-xl ring-1 @3xl:static @3xl:shadow-panel @3xl:ring-0">
-      <header className="flex h-13 shrink-0 items-center justify-between px-4">
-        {/* you are in the room as much as they are, so every head count includes you */}
-        <span className="text-sm font-semibold">{group ? t("members.groupTitle", { count: activeMembers(conv).length + 1 }) : t("members.title")}</span>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.collapse")}>
-          <X className="size-4" />
-        </Button>
-      </header>
-      <Separator />
-      <ScrollArea className="min-h-0 flex-1">
-        <MemberSections conv={conv} bots={bots} presence={presence} sessions={sessions} onOpenBot={onOpenBot} className="p-4" />
-      </ScrollArea>
-    </aside>
+    <>
+      {!column && (
+        <div
+          aria-hidden
+          onClick={onClose}
+          className={cn(
+            "absolute inset-0 z-10 rounded-xl bg-black/20 transition-opacity duration-200 ease-soft",
+            open ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+        />
+      )}
+      {/* the column's width is what moves, so the chat beside it reflows with it; the sheet slides over the chat instead */}
+      <div
+        inert={!open || undefined}
+        onTransitionEnd={(e) => {
+          if (e.target === e.currentTarget) setSettled(true);
+        }}
+        className={cn(
+          "shrink-0 duration-200 ease-soft",
+          column
+            ? // 2px past the panel keeps its hairline inside the clip; the half rem before it is the gap to the chat
+              cn("relative overflow-x-clip transition-[width]", open ? "w-[calc(18.5rem+2px)]" : "w-0")
+            : cn("absolute inset-y-0 right-0 z-20 transition-[translate]", open ? "translate-x-0" : "translate-x-[calc(100%+1rem)]"),
+          !open && settled && "invisible",
+        )}
+      >
+        <aside
+          className={cn(
+            "bg-background flex h-full w-72 flex-col overflow-hidden rounded-xl",
+            column ? "shadow-panel absolute inset-y-0 right-[2px]" : "ring-border shadow-xl ring-1",
+          )}
+        >
+          <header className="flex h-13 shrink-0 items-center justify-between px-4">
+            {/* you are in the room as much as they are, so every head count includes you */}
+            <span className="text-sm font-semibold">{group ? t("members.groupTitle", { count: activeMembers(conv).length + 1 }) : t("members.title")}</span>
+            <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.collapse")}>
+              <X className="size-4" />
+            </Button>
+          </header>
+          <Separator />
+          <ScrollArea className="min-h-0 flex-1">
+            <MemberSections conv={conv} bots={bots} presence={presence} sessions={sessions} onOpenBot={onOpenBot} className="p-4" />
+          </ScrollArea>
+        </aside>
+      </div>
+    </>
   );
 }
 
@@ -267,8 +325,12 @@ function MemberRow({
   // a backend's own modes decide its tool calls; without them the tier still does
   const modes = Boolean(info?.mode && choices?.modes.length);
   return (
-    <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2">
-      <button onClick={onOpen} title={t("members.viewProfile")} className="mt-0.5">
+    <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2 transition-colors">
+      <button
+        onClick={onOpen}
+        title={t("members.viewProfile")}
+        className="focus-visible:ring-ring/50 mt-0.5 rounded-[23%] outline-none focus-visible:ring-2"
+      >
         <BotAvatar bot={bot} busy={busyOf(presence?.state)} />
       </button>
       <div className="min-w-0 flex-1">
@@ -314,7 +376,7 @@ function MemberRow({
           <Button
             variant="ghost"
             size="icon-xs"
-            className="text-muted-foreground opacity-0 group-hover/member:opacity-100 data-[state=open]:opacity-100"
+            className="text-muted-foreground opacity-0 transition-opacity group-hover/member:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
           >
             <MoreHorizontal />
           </Button>
