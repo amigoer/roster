@@ -120,6 +120,8 @@ export interface ExecutorRecord {
   provider_id: string | null;
   model: string | null;
   rev: number;
+  /** 1 keeps each session's prompt cache for an hour instead of minutes */
+  long_cache: number;
   /** why it cannot run right now: its harness is not installed, its model API is gone */
   problem: string | null;
 }
@@ -412,6 +414,8 @@ export interface SessionInfo {
   effort?: string | null;
   fast?: "on" | "off" | "cooldown";
   context?: ContextUse;
+  /** the last turn's input tokens by where they came from: served from the prompt cache, written to it, or neither */
+  cache?: { read: number; write: number; uncached: number };
   commands?: SlashCommand[];
 }
 

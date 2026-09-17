@@ -123,10 +123,12 @@ interface Launch {
  * otherwise quietly win over the endpoint the executor names, or over the
  * sign-in when it names none.
  */
-function launchOf(program: string | undefined, source: ModelSource): Launch {
+function launchOf(program: string | undefined, source: ModelSource, longCache = false): Launch {
   const env = cleanEnv();
   const executable = program?.trim();
   for (const key of Object.keys(env)) if (key.startsWith("ANTHROPIC_")) delete env[key];
+  // the main conversation's cache lifetime; the CLI takes it from 2.1.242 on and keeps its default before
+  if (longCache) env["CLAUDE_CODE_PROMPT_CACHE_TTL"] = "1h";
   if (source.kind === "endpoint") {
     const { endpoint } = source;
     if (endpoint.baseUrl) env["ANTHROPIC_BASE_URL"] = endpoint.baseUrl;
@@ -489,17 +491,22 @@ class ClaudeRuntime implements BotRuntime {
 
       case "result": {
         const usage = m["usage"] as Record<string, any> | undefined;
+        const count = (key: string): number | undefined => (typeof usage?.[key] === "number" ? (usage[key] as number) : undefined);
         if (typeof m["total_cost_usd"] === "number" || usage) {
           this.#emit({
             type: "cost",
             display: "status",
             ...(typeof m["total_cost_usd"] === "number" ? { usd: m["total_cost_usd"] } : {}),
-            ...(typeof usage?.["input_tokens"] === "number"
-              ? { inputTokens: usage["input_tokens"] }
-              : {}),
-            ...(typeof usage?.["output_tokens"] === "number"
-              ? { outputTokens: usage["output_tokens"] }
-              : {}),
+            ...(count("input_tokens") !== undefined ? { inputTokens: count("input_tokens") } : {}),
+            ...(count("output_tokens") !== undefined ? { outputTokens: count("output_tokens") } : {}),
+            ...(count("cache_read_input_tokens") !== undefined ? { cacheRead: count("cache_read_input_tokens") } : {}),
+            ...(count("cache_creation_input_tokens") !== undefined ? { cacheWrite: count("cache_creation_input_tokens") } : {}),
+          });
+        }
+        // the turn's input by where it came from, so a session can show whether its prefix is being reused
+        if (usage && (count("cache_read_input_tokens") !== undefined || count("cache_creation_input_tokens") !== undefined)) {
+          this.#report({
+            cache: { read: count("cache_read_input_tokens") ?? 0, write: count("cache_creation_input_tokens") ?? 0, uncached: count("input_tokens") ?? 0 },
           });
         }
         if (this.#inFlight > 0) this.#inFlight--;
@@ -751,7 +758,7 @@ const probe = (launch: Launch): Promise<Snapshot> =>
 
 function claudeExecutor(instance: InstanceConfig): BotRuntimeFactory {
   const { source } = instance;
-  const launch = launchOf(instance.program, source);
+  const launch = launchOf(instance.program, source, instance.longCache);
   const snapshot = probeCache(launch);
   const words = wordsFor(instance.locale);
   return {

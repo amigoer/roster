@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS executors (
   provider_ids_json TEXT NOT NULL DEFAULT '[]',
   -- bumped when what it runs with changes; members snapshot it, so a change shows them as stale
   rev         INTEGER NOT NULL DEFAULT 1,
+  -- 1 asks the model API to keep each session's prompt cache for an hour rather than minutes; not part of rev,
+  -- since it applies to the next request without a new session
+  long_cache  INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
   -- kept rather than deleted: archived bots and old members still point at it

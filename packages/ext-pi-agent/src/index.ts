@@ -11,6 +11,7 @@ import type {
   Attachment,
   BotRuntime,
   BotRuntimeFactory,
+  CacheUse,
   Capabilities,
   Deliver,
   HarnessType,
@@ -212,6 +213,7 @@ class PiRuntime implements BotRuntime {
   constructor(
     private endpoint: ProviderConfig,
     private words: Words,
+    private longCache: boolean,
   ) {}
 
   #session: Session | undefined;
@@ -221,6 +223,10 @@ class PiRuntime implements BotRuntime {
   #running = false;
   #aborting = false;
   #failed = false;
+  /** what the session was reported to run with; restated with each turn's cache use */
+  #info: SessionInfo = {};
+  /** the running turn's input by where it came from, summed over its model calls */
+  #cache: CacheUse = { read: 0, write: 0, uncached: 0 };
 
   subscribe(handler: (e: NormalizedEvent) => void): Unsubscribe {
     this.#handlers.add(handler);
@@ -298,11 +304,16 @@ class PiRuntime implements BotRuntime {
         : SessionManager.create(opts.cwd),
     });
     this.#session = created.session;
+    if (this.longCache) {
+      // pi maps "long" to each provider's longest retention: an hour on Anthropic, a day on OpenAI
+      const stream = created.session.agent.streamFunction;
+      created.session.agent.streamFunction = (m, context, options) => stream(m, context, { ...options, cacheRetention: "long" });
+    }
     this.#resumeToken = created.session.sessionManager?.getSessionFile?.() ?? undefined;
     this.#unsubscribe = created.session.subscribe((event) => this.#normalize(event));
     // a timer, because the host only starts listening once this call has returned
-    const info: SessionInfo = { model: `${model.provider}/${model.id}`, modelLabel: model.id, effort: null };
-    setTimeout(() => this.#emit({ type: "session.info", display: "status", info }), 0);
+    this.#info = { model: `${model.provider}/${model.id}`, modelLabel: model.id, effort: null };
+    setTimeout(() => this.#emit({ type: "session.info", display: "status", info: this.#info }), 0);
   }
 
   #normalize(event: { type: string } & Record<string, unknown>): void {
@@ -310,6 +321,7 @@ class PiRuntime implements BotRuntime {
       // pi's turn_start/turn_end wrap each model call inside a run; the
       // contract's turn is the whole run, which ends at agent_settled
       case "agent_start":
+        this.#cache = { read: 0, write: 0, uncached: 0 };
         this.#emit({ type: "turn.start", display: "status" });
         return;
       case "agent_end": {
@@ -335,12 +347,17 @@ class PiRuntime implements BotRuntime {
         this.#running = false;
         this.#aborting = false;
         this.#failed = false;
+        const { read, write, uncached } = this.#cache;
+        if (read + write + uncached > 0) {
+          this.#info = { ...this.#info, cache: { read, write, uncached } };
+          this.#emit({ type: "session.info", display: "status", info: this.#info });
+        }
         this.#emit({ type: "turn.end", display: "status", reason });
         return;
       }
       case "message_update": {
         const inner = event["assistantMessageEvent"] as
-          | { type: string; delta?: string; usage?: { input?: number; output?: number } }
+          | { type: string; delta?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }
           | undefined;
         if (!inner) return;
         if (inner.type === "text_delta" && inner.delta !== undefined) {
@@ -348,11 +365,17 @@ class PiRuntime implements BotRuntime {
         } else if (inner.type === "thinking_delta" && inner.delta !== undefined) {
           this.#emit({ type: "assistant.thinking", display: "fold", delta: inner.delta });
         } else if (inner.type === "done" && inner.usage) {
+          const u = inner.usage;
+          this.#cache.read += u.cacheRead ?? 0;
+          this.#cache.write += u.cacheWrite ?? 0;
+          this.#cache.uncached += u.input ?? 0;
           this.#emit({
             type: "cost",
             display: "status",
-            ...(inner.usage.input !== undefined ? { inputTokens: inner.usage.input } : {}),
-            ...(inner.usage.output !== undefined ? { outputTokens: inner.usage.output } : {}),
+            ...(u.input !== undefined ? { inputTokens: u.input } : {}),
+            ...(u.output !== undefined ? { outputTokens: u.output } : {}),
+            ...(u.cacheRead !== undefined ? { cacheRead: u.cacheRead } : {}),
+            ...(u.cacheWrite !== undefined ? { cacheWrite: u.cacheWrite } : {}),
           });
         }
         return;
@@ -494,7 +517,7 @@ function piExecutor(instance: InstanceConfig): BotRuntimeFactory {
     label: instance.label,
     type: "pi-agent",
     capabilities: PI_CAPABILITIES,
-    create: () => new PiRuntime(endpoint, words),
+    create: () => new PiRuntime(endpoint, words, instance.longCache === true),
     async sessionInfo({ model }): Promise<SessionInfo> {
       const hit = await resolveModel(await modelRuntime(endpoint, model), model, endpoint);
       return hit ? { model: `${hit.provider}/${hit.id}`, modelLabel: hit.id, effort: null } : {};

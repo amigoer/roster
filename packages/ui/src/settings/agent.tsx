@@ -34,7 +34,8 @@ import {
 } from "./shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -152,6 +153,7 @@ export function AgentEditor({
   );
   const [model, setModel] = useState(executor?.model ?? "");
   const [name, setName] = useState(executor?.name ?? "");
+  const [longCache, setLongCache] = useState(executor?.long_cache === 1);
   const [models, setModels] = useState<ModelOption[] | "loading" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -206,6 +208,7 @@ export function AgentEditor({
       source_kind: source.kind,
       provider_id: providerId,
       model: model.trim() || null,
+      long_cache: longCache,
       ...(creating ? { type } : {}),
     };
     const r = creating ? await api.createExecutor(body) : await api.updateExecutor(executor.id, body);
@@ -391,6 +394,17 @@ export function AgentEditor({
         <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${label} · ${sourceLabel}`} />
         <FieldDescription>{t("agent.nameHint")}</FieldDescription>
       </Field>
+
+      {/* only harnesses that can pass the choice on: the ACP ones run their own requests */}
+      {(type === "claude-code" || type === "pi-agent") && (
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="agent-long-cache">{t("agent.longCache")}</FieldLabel>
+            <FieldDescription>{t("agent.longCacheHint")}</FieldDescription>
+          </FieldContent>
+          <Switch id="agent-long-cache" checked={longCache} onCheckedChange={setLongCache} />
+        </Field>
+      )}
 
       {executor && (
         <div className="space-y-2">

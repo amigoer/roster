@@ -598,8 +598,10 @@ describe("session status", () => {
       { name: "消息", tokens: 3_000 },
     ];
     const context = { used: 15_000, max: 200_000, percent: 8, autoCompactAt: 84, parts };
+    // a first turn has no prefix to read back: it writes all of it
+    const cache = { read: 0, write: 12_000, uncached: 0 };
     const { commands } = await scripted.sessionOptions();
-    const reported = { model: "m1", modelLabel: "m1", mode: "default", effort: "high", fast: "off", context, commands };
+    const reported = { model: "m1", modelLabel: "m1", mode: "default", effort: "high", fast: "off", context, cache, commands };
     assert.deepEqual((await h.orch.status(conv.id)).sessions[member.id], reported);
     // a session restating the same picture is not news
     await h.orch.configure(conv.id, member.id, {});
@@ -1218,6 +1220,23 @@ describe("executors and providers", () => {
     assert.equal(stale(), false, "a rotated key reaches the next session with nothing to re-sync");
     await h.settings.updateProvider(provider.id, { base_url: "https://b.example/v1" });
     assert.equal(stale(), true);
+  });
+
+  test("a longer prompt cache is a setting of the agent, off unless asked, and no reason to re-sync", async () => {
+    const h = settingsHarness();
+    const provider = await h.settings.createProvider({ name: "官方", preset: "deepseek", key: "sk-secret-value-123456" });
+    const executor = await h.settings.createExecutor({ type: "beta", source_kind: "endpoint", provider_id: provider.id });
+    assert.equal(executor.long_cache, 0);
+    const conv = h.store.createConversation({ title: "t", repoPath: h.dir, worktreePath: h.dir, botIds: [h.bot("甲", executor.id).id] });
+    const stale = () => h.store.listConversations().find((c) => c.id === conv.id).members[0].stale;
+
+    const on = await h.settings.updateExecutor(executor.id, { long_cache: true });
+    assert.equal(on.long_cache, 1);
+    assert.equal(on.rev, executor.rev, "the cache lifetime is not part of the setup members snapshot");
+    assert.equal(stale(), false);
+    // a save that says nothing about it keeps it
+    assert.equal((await h.settings.updateExecutor(executor.id, { name: "改名" })).long_cache, 1);
+    assert.equal((await h.settings.updateExecutor(executor.id, { long_cache: false })).long_cache, 0);
   });
 
   test("an executor's source has to fit its type, a type signs in once, and what is in use cannot be deleted", async () => {

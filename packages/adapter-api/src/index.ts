@@ -132,7 +132,16 @@ export type NormalizedEvent =
   // calls and tool rounds that takes. Every started turn must end, errors included.
   | { type: "turn.start"; display: "status" }
   | { type: "turn.end"; display: "status"; reason: "done" | "aborted" | "error" }
-  | { type: "cost"; display: "status"; usd?: number; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "cost";
+      display: "status";
+      usd?: number;
+      /** input tokens processed in full, outside the prompt cache */
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+    }
   // what the session runs with: the whole picture each time, not a patch
   | { type: "session.info"; display: "status"; info: SessionInfo }
   | { type: "error"; display: "message"; message: string };
@@ -150,8 +159,24 @@ export interface SessionInfo {
   /** faster output at a higher rate; cooldown is on but paused after a rate limit */
   fast?: "on" | "off" | "cooldown";
   context?: ContextUse;
+  /** how the last turn's requests met the prompt cache */
+  cache?: CacheUse;
   /** what this session's own slash commands are, which can depend on its worktree */
   commands?: SlashCommand[];
+}
+
+/**
+ * Input tokens of a turn by where they came from. A turn is several requests,
+ * each re-sending the whole context: what the provider served from its prompt
+ * cache costs a fraction of what it processed in full.
+ */
+export interface CacheUse {
+  /** served from the cache */
+  read: number;
+  /** processed in full and written to the cache for the next request */
+  write: number;
+  /** processed in full and not cached */
+  uncached: number;
 }
 
 /** How full the session's context window is. */
@@ -365,6 +390,13 @@ export interface InstanceConfig {
   source: ModelSource;
   /** the agent program the host settled on: the person's pick, else the one found on the machine, else Roster's own install */
   program?: string;
+  /**
+   * Ask the model API to keep each session's prompt cache for an hour rather
+   * than minutes, where it offers the choice. Dearer per cache write, cheaper
+   * for a session that waits on people between turns. A backend that cannot
+   * pass it on ignores it.
+   */
+  longCache?: boolean;
   /**
    * The language Roster is in, as a BCP 47 tag such as "en" or "zh-CN". Text an
    * adapter writes for a person -- descriptions, check results, errors -- is in

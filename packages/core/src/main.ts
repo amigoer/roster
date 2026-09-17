@@ -163,6 +163,7 @@ const build = () =>
         source: sourceOf(row, store, secrets),
         program: programOf(type.type),
         locale: locale(),
+        longCache: row.long_cache === 1,
       }));
 
 let registry = build();

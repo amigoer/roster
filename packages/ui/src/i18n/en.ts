@@ -305,6 +305,9 @@ export const en = {
   "agent.modelPlaceholder": "Leave empty to use its own default",
   "agent.modelHint": "Used when a bot doesn't pick a model of its own.",
   "agent.nameHint": "This is what you see when picking an agent for a bot; leave empty to name it automatically.",
+  "agent.longCache": "Keep the prompt cache for an hour",
+  "agent.longCacheHint":
+    "Off, the model API drops a session's cache after about 5 minutes of quiet and re-reads the whole context on the next turn. On, it holds it for an hour at a higher price per cache write: worth it when bots wait on people between turns. Applies to sessions started after the change.",
   "agent.testHintOwn":
     "Tests the saved settings: whether the subscription is signed in, and whether the program starts. It doesn't start a conversation or cost anything.",
   "agent.testHintEndpoint":
@@ -486,6 +489,9 @@ export const en = {
   "usage.plan": "Plan usage",
   "usage.autoCompact": "Auto-compacts at {percent}%",
   "usage.noAutoCompact": "Doesn't compact on its own",
+  "usage.cache": "Prompt cache",
+  "usage.cacheHit": "{percent}% of the last turn's input came from the cache",
+  "usage.cacheDetail": "{read} read · {write} written · {uncached} uncached",
   "usage.compact": "Compact",
   "usage.detail": "Details",
   "usage.hideDetail": "Hide details",

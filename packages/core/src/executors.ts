@@ -204,8 +204,8 @@ export class ExecutorSettings {
 
   async updateExecutor(id: string, body: Body): Promise<ExecutorRow> {
     const current = this.#liveExecutor(id);
-    const { name, source_kind, provider_id, model } = await this.#executorInput(body, current);
-    const row = this.store.updateExecutor(id, { name, source_kind, provider_id, model });
+    const { name, source_kind, provider_id, model, long_cache } = await this.#executorInput(body, current);
+    const row = this.store.updateExecutor(id, { name, source_kind, provider_id, model, long_cache });
     this.changed();
     return row;
   }
@@ -520,7 +520,8 @@ export class ExecutorSettings {
     const label = kind === "own" ? t("source.own") : (providerName(provider_id) ?? t("source.endpoint"));
     const name = (follows ? null : given) ?? this.#nameFor(type, label, current?.id);
     if (this.store.executorNameTaken(name, current?.id)) throw new Rejection(t("error.executor.nameTaken", { name }));
-    return { name, type: type.type, source_kind: kind, provider_id, model };
+    const long_cache = "long_cache" in body ? (body["long_cache"] === true ? 1 : 0) : (current?.long_cache ?? 0);
+    return { name, type: type.type, source_kind: kind, provider_id, model, long_cache };
   }
 
   async #providerInput(body: Body, current?: ProviderRow): Promise<ProviderInput & { key: string | undefined }> {

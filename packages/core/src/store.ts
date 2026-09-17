@@ -49,12 +49,14 @@ export interface ExecutorRow {
   model: string | null;
   /** bumped whenever what it runs with changes, so members started on the old setup show as stale */
   rev: number;
+  /** 1 keeps each session's prompt cache warm for an hour instead of minutes, at a higher price per cache write */
+  long_cache: number;
   created_at: number;
   updated_at: number;
   archived_at: number | null;
 }
 
-export type ExecutorInput = Pick<ExecutorRow, "name" | "type" | "source_kind" | "provider_id" | "model">;
+export type ExecutorInput = Pick<ExecutorRow, "name" | "type" | "source_kind" | "provider_id" | "model"> & { long_cache?: number };
 
 export interface ProviderRow {
   id: string;
@@ -329,14 +331,14 @@ export class Store {
     const t = now();
     this.db
       .prepare(
-        `INSERT INTO executors (id, name, type, source_kind, provider_id, model, rev, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO executors (id, name, type, source_kind, provider_id, model, long_cache, rev, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
-      .run(id, input.name, input.type, input.source_kind, input.provider_id, input.model, t, t);
+      .run(id, input.name, input.type, input.source_kind, input.provider_id, input.model, input.long_cache ?? 0, t, t);
     return this.getExecutor(id)!;
   }
 
-  /** A new name alone is not a new setup; anything it runs with is, and bumps the revision. */
+  /** A new name or cache lifetime alone is not a new setup; anything it runs with is, and bumps the revision. */
   updateExecutor(id: string, patch: Partial<Omit<ExecutorInput, "type">>): ExecutorRow {
     const current = this.getExecutor(id);
     if (!current) throw new Error(`unknown executor ${id}`);
@@ -345,9 +347,9 @@ export class Store {
       next.source_kind !== current.source_kind || next.provider_id !== current.provider_id || next.model !== current.model;
     this.db
       .prepare(
-        `UPDATE executors SET name = ?, source_kind = ?, provider_id = ?, model = ?, rev = rev + ?, updated_at = ? WHERE id = ?`,
+        `UPDATE executors SET name = ?, source_kind = ?, provider_id = ?, model = ?, long_cache = ?, rev = rev + ?, updated_at = ? WHERE id = ?`,
       )
-      .run(next.name, next.source_kind, next.provider_id, next.model, changed ? 1 : 0, now(), id);
+      .run(next.name, next.source_kind, next.provider_id, next.model, next.long_cache ?? 0, changed ? 1 : 0, now(), id);
     return this.getExecutor(id)!;
   }
 

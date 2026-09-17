@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Layers, Shrink } from "lucide-react";
-import type { ContextUse, Quota, QuotaWindow } from "./api";
+import type { ContextUse, Quota, QuotaWindow, SessionInfo } from "./api";
 import { ContextBar, ContextBreakdown, partColor, tokens, type Slice } from "./context-breakdown";
 import { useI18n, type I18n, type Translate } from "./i18n";
 import { Button } from "@/components/ui/button";
@@ -195,6 +195,25 @@ function ContextSection({
   );
 }
 
+/** Whether the session's prefix is being reused: the one number that says if a long context is cheap or dear. */
+function CacheSection({ cache }: { cache: NonNullable<SessionInfo["cache"]> }) {
+  const { t } = useI18n();
+  const total = cache.read + cache.write + cache.uncached;
+  const percent = total > 0 ? Math.round((cache.read / total) * 100) : 0;
+  return (
+    <section className="px-2.5 pt-2 pb-2">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-muted-foreground min-w-0 truncate text-xs font-medium">{t("usage.cache")}</h3>
+        <span className={cn("rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums", BADGE[levelOf(100 - percent)])}>{percent}%</span>
+      </div>
+      <p className="mt-1 text-xs">{t("usage.cacheHit", { percent })}</p>
+      <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
+        {t("usage.cacheDetail", { read: tokens(cache.read), write: tokens(cache.write), uncached: tokens(cache.uncached) })}
+      </p>
+    </section>
+  );
+}
+
 function PlanSection({ quota, owner, windows }: { quota: Quota | null | undefined; owner: string | undefined; windows: QuotaWindow[] }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -247,6 +266,7 @@ export function UsagePanel({
   owner,
   name,
   context,
+  cache,
   quota,
   busy,
   member,
@@ -260,6 +280,8 @@ export function UsagePanel({
   /** whose context this is, where there is more than one it could be */
   name?: string;
   context: ContextUse | undefined;
+  /** the last turn's cache use, from the session's own report */
+  cache?: SessionInfo["cache"];
   quota: Quota | null | undefined;
   busy: boolean;
   /** absent where no one session holds the context */
@@ -287,7 +309,7 @@ export function UsagePanel({
     setExpanded(true);
   }, [openWhen]);
   const windows = (quota?.windows ?? []).map(current);
-  if (!context && windows.length === 0) return null;
+  if (!context && !cache && windows.length === 0) return null;
   const tightest = windows.reduce<QuotaWindow | undefined>((a, b) => (!a || b.usedPercent > a.usedPercent ? b : a), undefined);
   const percent = Math.round(context ? context.percent : (tightest?.usedPercent ?? 0));
 
@@ -333,7 +355,9 @@ export function UsagePanel({
             }
           />
         )}
-        {context && windows.length > 0 && <Separator className="my-1" />}
+        {context && cache && <Separator className="my-1" />}
+        {cache && <CacheSection cache={cache} />}
+        {(context || cache) && windows.length > 0 && <Separator className="my-1" />}
         {windows.length > 0 && <PlanSection quota={quota} owner={owner} windows={windows} />}
       </PopoverContent>
     </Popover>

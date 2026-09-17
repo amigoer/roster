@@ -3,6 +3,7 @@ import type {
   Attachment,
   BotRuntime,
   BotRuntimeFactory,
+  CacheUse,
   Capabilities,
   ContextDetail,
   ContextUse,
@@ -108,6 +109,10 @@ const contextOf = (turns: number): ContextUse => {
   return { used, max: 200_000, percent: Math.round((used / 200_000) * 100), autoCompactAt: 84, parts };
 };
 
+/** A first turn writes its whole prefix; every later one reads it back and writes only what is new. */
+const cacheOf = (turns: number): CacheUse =>
+  turns <= 1 ? { read: 0, write: 12_000, uncached: 0 } : { read: 12_000 + (turns - 2) * 3_000, write: 3_000, uncached: 0 };
+
 /** Fixed levels, so the status bar has plan limits to draw without an account. */
 const quotaOf = (): Quota => ({
   plan: "scripted",
@@ -149,7 +154,7 @@ class ScriptedRuntime implements BotRuntime {
     this.#emit({
       type: "session.info",
       display: "status",
-      info: { ...infoOf(this.#settings), context: contextOf(this.#turns), commands: commands() },
+      info: { ...infoOf(this.#settings), context: contextOf(this.#turns), cache: cacheOf(this.#turns), commands: commands() },
     });
   }
 

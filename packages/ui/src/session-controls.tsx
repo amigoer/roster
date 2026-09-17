@@ -473,6 +473,7 @@ export function SessionUsage({
       // a group holds a context per member, so the card says whose this is
       name={conv.shape === "group" ? member?.bot.name : undefined}
       context={info?.context}
+      cache={info?.cache}
       quota={planOwner ? quota[planOwner] : null}
       busy={conv.run_state === "running"}
       member={member ? { conversationId: conv.id, memberId: member.id } : undefined}
