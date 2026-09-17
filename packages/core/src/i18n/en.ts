@@ -210,6 +210,14 @@ export const en = {
   "effort.xhigh": "xHigh",
   "effort.max": "Max",
 
+  // a session's modes on an agent that has none of its own; kept in step with the ui's tier.* words
+  "tier.read": "Read only",
+  "tier.read.description": "Can read and search files; asks you before writing files or running commands",
+  "tier.write": "Write",
+  "tier.write.description": "Can edit files in the working directory; asks you before running commands",
+  "tier.execute": "Execute",
+  "tier.execute.description": "Can edit files and run commands without asking",
+
   // what ACP agents write for a person, keyed by agent type and id, so it can be said in Roster's language; unknown ones pass through
   "acp.codex.mode.read-only": "Ask for approval",
   "acp.codex.mode.read-only.description": "Always ask to edit external files and use the internet",

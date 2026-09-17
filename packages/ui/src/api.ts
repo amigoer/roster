@@ -473,6 +473,7 @@ export interface SessionOptions {
     fast?: boolean;
   }>;
   efforts: Array<{ id: string; label: string; description?: string }>;
+  /** permission modes; the tiers read, write and execute for an agent without modes of its own */
   modes: Array<{ id: string; label: string; description?: string }>;
   fast?: { available: boolean; reason?: string };
   compact: boolean;

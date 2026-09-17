@@ -15,7 +15,10 @@ import {
 } from "./steps.js";
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
-export type Tier = "read" | "write" | "execute";
+/** Narrowest first: a tier covers everything before it. */
+export const TIERS = ["read", "write", "execute"] as const;
+export type Tier = (typeof TIERS)[number];
+export const isTier = (v: unknown): v is Tier => TIERS.includes(v as Tier);
 export type Mode = "human_led" | "leader" | "discussion";
 
 export interface BotRow {
@@ -416,6 +419,18 @@ export class Store {
           WHERE m.left_at IS NULL AND c.archived_at IS NULL AND json_extract(m.spec_json, '$.executor_id') = ?`,
       )
       .all(executorId) as unknown as Array<{ id: string; conversation_id: string }>;
+  }
+
+  /** A bot's members still in a conversation someone can open. */
+  membersOf(botId: string): MemberRow[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT m.* FROM members m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.left_at IS NULL AND c.archived_at IS NULL AND m.bot_id = ?`,
+        )
+        .all(botId) as unknown as RawMember[]
+    ).map((m) => this.#member(m));
   }
 
   /** Live executors that run on this model API. */

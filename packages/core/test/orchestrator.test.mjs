@@ -589,7 +589,8 @@ describe("session status", () => {
     const conv = h.group([h.bot("甲", { model: "m1" })]);
     const [member] = h.store.activeMembers(conv.id);
 
-    assert.deepEqual((await h.orch.status(conv.id)).sessions[member.id], { model: "preview:m1" });
+    // with no permission modes of its own, the mode shown is the tier it is gated by
+    assert.deepEqual((await h.orch.status(conv.id)).sessions[member.id], { model: "preview:m1", mode: "read" });
 
     await h.orch.send(conv.id, "一");
     await settle(h.store, conv.id);
@@ -603,7 +604,7 @@ describe("session status", () => {
     // a first turn has no prefix to read back: it writes all of it
     const cache = { read: 0, write: 12_000, uncached: 0 };
     const { commands } = await scripted.sessionOptions();
-    const reported = { model: "m1", modelLabel: "m1", mode: "default", effort: "high", fast: "off", context, cache, commands };
+    const reported = { model: "m1", modelLabel: "m1", mode: "read", effort: "high", fast: "off", context, cache, commands };
     assert.deepEqual((await h.orch.status(conv.id)).sessions[member.id], reported);
     // a session restating the same picture is not news
     await h.orch.configure(conv.id, member.id, {});
@@ -611,7 +612,8 @@ describe("session status", () => {
   });
 
   test("picks for a session are kept, reach it live, and survive into its next start", async () => {
-    const h = harness({ pi: scriptedFactory("pi", 1) });
+    const scripted = scriptedFactory("pi", 1);
+    const h = harness({ pi: { ...scripted, capabilities: { ...scripted.capabilities, permissionModes: true } } });
     const conv = h.group([h.bot("甲")]);
     const [member] = h.store.activeMembers(conv.id);
 
@@ -673,6 +675,104 @@ describe("session status", () => {
       .filter((m) => m.card_kind === "steps")
       .flatMap((m) => JSON.parse(m.body_json).steps);
     assert.deepEqual(steps.map((s) => [s.name, s.ok]), [["read", true], ["write", true]]);
+  });
+
+  test("without permission modes of its own, a session switches tiers for itself alone, and the backend never hears of it", async () => {
+    const scripted = scriptedFactory("pi", 1);
+    const handed = [];
+    const h = harness({
+      pi: {
+        ...scripted,
+        create() {
+          const rt = scripted.create();
+          const [start, configure] = [rt.start.bind(rt), rt.configure.bind(rt)];
+          rt.start = (opts) => (handed.push(opts.mode), start(opts));
+          rt.configure = (settings) => (handed.push(settings.mode), configure(settings));
+          return rt;
+        },
+      },
+    });
+    const pi = h.bot("Pi");
+    const conv = h.group([pi]);
+    const elsewhere = h.group([pi]);
+    const [member] = h.store.activeMembers(conv.id);
+
+    const { sessions, options } = await h.orch.status(conv.id);
+    assert.deepEqual(options[member.id].modes.map((m) => [m.id, m.label]), [["read", "只读"], ["write", "可写"], ["execute", "可执行"]]);
+    assert.equal(sessions[member.id].mode, "read", "until one is picked, the bot's tier is the session's");
+    await assert.rejects(h.orch.configure(conv.id, member.id, { mode: "plan" }), /不认识的模式/);
+
+    await h.orch.configure(conv.id, member.id, { mode: "execute" });
+    assert.equal(h.pushed.findLast((m) => m.kind === "session").info.mode, "execute");
+    await h.orch.send(conv.id, "改完跑一下 #write #exec");
+    await settle(h.store, conv.id);
+    assert.equal(h.store.listMessages(conv.id).filter((m) => m.card_kind === "permission").length, 0);
+    assert.equal(h.store.getBot(pi.id).permission_tier, "read");
+
+    await h.orch.send(elsewhere.id, "改一下 #write");
+    await until(() => h.store.listMessages(elsewhere.id).some((m) => m.status === "pending"));
+    const card = h.store.listMessages(elsewhere.id).find((m) => m.status === "pending");
+    h.orch.resolvePermission(elsewhere.id, JSON.parse(card.body_json).requestId, false);
+    await settle(h.store, elsewhere.id);
+
+    assert.equal(handed.length, 2, "one start per conversation, and nothing to switch in place");
+    assert.ok(handed.every((mode) => mode === undefined));
+  });
+
+  test("a tier switched while a call waits on you leaves that call to you, and lets the next one through", async () => {
+    const h = harness({ pi: scriptedFactory("pi", 1) });
+    const conv = h.group([h.bot("Pi")]);
+    const [member] = h.store.activeMembers(conv.id);
+    const cards = () => h.store.listMessages(conv.id).filter((m) => m.card_kind === "permission");
+
+    await h.orch.send(conv.id, "改完跑一下 #write #exec");
+    await until(() => cards().some((m) => m.status === "pending"));
+    await h.orch.configure(conv.id, member.id, { mode: "execute" });
+    assert.deepEqual(cards().map((c) => c.status), ["pending"]);
+
+    h.orch.resolvePermission(conv.id, JSON.parse(cards()[0].body_json).requestId, true);
+    await settle(h.store, conv.id);
+    assert.deepEqual(cards().map((c) => [JSON.parse(c.body_json).call.name, c.status]), [["write", "allowed"]]);
+    const steps = h.store
+      .listMessages(conv.id)
+      .filter((m) => m.card_kind === "steps")
+      .flatMap((m) => JSON.parse(m.body_json).steps);
+    assert.deepEqual(steps.map((s) => [s.name, s.ok]), [["write", true], ["bash", true]]);
+  });
+
+  test("switching only the tier keeps a live session and what it reported", async () => {
+    const scripted = scriptedFactory("pi", 1);
+    // like pi, a runtime that cannot switch anything in place
+    const h = harness({ pi: { ...scripted, create: () => Object.assign(scripted.create(), { configure: undefined }) } });
+    const conv = h.group([h.bot("Pi")]);
+    const [member] = h.store.activeMembers(conv.id);
+    await h.orch.send(conv.id, "一");
+    await settle(h.store, conv.id);
+    const before = (await h.orch.status(conv.id)).sessions[member.id];
+    assert.ok(before.cache, "the cache readout only a live session has");
+
+    await h.orch.configure(conv.id, member.id, { mode: "write" });
+    assert.deepEqual(h.pushed.findLast((m) => m.kind === "session").info, { ...before, mode: "write" });
+    assert.deepEqual((await h.orch.status(conv.id)).sessions[member.id], { ...before, mode: "write" });
+  });
+
+  test("a bot's new tier reaches the sessions still going by it; one that picked its own keeps it, through a sync too", async () => {
+    const h = harness({ pi: scriptedFactory("pi", 1) });
+    const pi = h.bot("Pi");
+    const [following, picked] = [h.group([pi]), h.group([pi])].map((conv) => ({ conv, member: h.store.activeMembers(conv.id)[0] }));
+    await h.orch.configure(picked.conv.id, picked.member.id, { mode: "execute" });
+
+    const from = h.pushed.length;
+    h.store.updateBot(pi.id, { permission_tier: "write" });
+    h.orch.tierChanged(pi.id);
+    await until(() => h.pushed.slice(from).some((m) => m.kind === "session"));
+    await new Promise((r) => setTimeout(r, 30));
+    const pushed = h.pushed.slice(from).filter((m) => m.kind === "session");
+    assert.deepEqual(pushed.map((m) => [m.memberId, m.info.mode]), [[following.member.id, "write"]]);
+
+    await h.orch.syncMember(picked.conv.id, picked.member.id);
+    assert.deepEqual(h.store.getMember(picked.member.id).settings, { mode: "execute" });
+    assert.equal((await h.orch.status(picked.conv.id)).sessions[picked.member.id].mode, "execute");
   });
 
   test("a steps card says what each call was about, when it ran, and where it fell in the reply", async () => {

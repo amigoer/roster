@@ -198,6 +198,13 @@ export const zhCN = translation<typeof en>()({
   "effort.xhigh": "超高",
   "effort.max": "最高",
 
+  "tier.read": "只读",
+  "tier.read.description": "只能读文件、搜索；写文件和执行命令都要问你",
+  "tier.write": "可写",
+  "tier.write.description": "可以改工作目录里的文件；执行命令要问你",
+  "tier.execute": "可执行",
+  "tier.execute.description": "可以改文件、执行命令，不再询问",
+
   "acp.codex.mode.read-only": "先问再做",
   "acp.codex.mode.read-only.description": "改工作区以外的文件、访问网络之前都会先问你",
   "acp.codex.mode.agent": "替我批准",

@@ -1,9 +1,21 @@
-import { Fragment, useEffect, useState } from "react";
-import { ExternalLink, FolderInput, FolderOpen, FolderSearch, Loader, MessageSquareDashed } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Circle,
+  CircleDot,
+  ExternalLink,
+  FolderInput,
+  FolderOpen,
+  FolderSearch,
+  Loader,
+  MessageSquareDashed,
+  TriangleAlert,
+} from "lucide-react";
 import { api, type Conversation, type Location, type Locations } from "./api";
 import { desktop } from "./desktop";
 import { useI18n, type Translate } from "./i18n";
-import { Choice } from "./settings/shared";
+import { FIELD } from "./list";
+import { ICON_IN } from "./motion";
+import { WARN_TEXT } from "./settings/shared";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,9 +25,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { RadioGroup } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const LOCATION = "roster.location";
@@ -77,7 +89,7 @@ const CHAT = "chat";
 const OTHER = "other";
 const recentKey = (path: string) => `recent:${path}`;
 
-/** A chat space, a directory used before, or any other: one choice, drawn as tiles. */
+/** A chat space, a directory used before, or any other: one choice, as a list that takes one. */
 export function LocationPicker({
   value,
   onChange,
@@ -100,13 +112,17 @@ export function LocationPicker({
   const bridge = desktop();
   const recent = locations?.recent ?? [];
   const inRecent = value.kind === "repo" && recent.includes(value.path);
-  // what was typed stays while another tile is tried, so coming back does not start over
+  // what was typed stays while another row is tried, so coming back does not start over
   const [typed, setTyped] = useState(value.kind === "repo" && !inRecent ? value.path : "");
   const picked = value.kind === "chat" ? CHAT : inRecent ? recentKey(value.path) : OTHER;
+  // the field takes focus when its row is picked by hand, not when a dialog opens on it
+  const field = useRef<HTMLInputElement>(null);
   const pick = (v: string) => {
     if (v === CHAT) onChange({ kind: "chat" });
-    else if (v === OTHER) onChange({ kind: "repo", path: typed });
-    else onChange({ kind: "repo", path: v.slice("recent:".length) });
+    else if (v === OTHER) {
+      onChange({ kind: "repo", path: typed });
+      requestAnimationFrame(() => field.current?.focus());
+    } else onChange({ kind: "repo", path: v.slice("recent:".length) });
   };
   const chosen = value.kind === "repo" ? value.path.trim() : "";
   const inUse = chosen ? convs.filter((c) => !c.archived && c.id !== excludeId && c.dir_kind === "repo" && c.repo_path === chosen) : [];
@@ -119,66 +135,143 @@ export function LocationPicker({
 
   return (
     <div className="grid gap-2">
-      <RadioGroup value={picked} onValueChange={pick} className="grid gap-2">
-        <Choice value={CHAT} selected={picked === CHAT}>
-          <MessageSquareDashed className="text-muted-foreground size-4 shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">{t("location.chat")}</span>
-            <span className="text-muted-foreground block text-xs">{t("location.chatHint")}</span>
-          </span>
-        </Choice>
-        {locations === null ? (
-          <Skeleton className="h-11 rounded-xl" />
-        ) : (
-          recent.length > 0 && (
-            <>
-              <span className="text-muted-foreground px-1 pt-1 text-xs">{t("location.recent")}</span>
-              {recent.map((path) => (
-                <Choice key={path} value={recentKey(path)} selected={picked === recentKey(path)} className="py-2">
-                  <FolderOpen className="text-muted-foreground size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{repoName(path)}</span>
-                    <span className="text-muted-foreground block truncate font-mono text-[11px]">{path}</span>
-                  </span>
-                </Choice>
-              ))}
-            </>
-          )
-        )}
-        <Choice value={OTHER} selected={picked === OTHER} className="items-start">
-          <FolderSearch className="text-muted-foreground mt-0.5 size-4 shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">{t("location.other")}</span>
-            <span className="mt-1.5 flex gap-2">
-              <Input
-                value={typed}
-                spellCheck={false}
-                onChange={(e) => {
-                  setTyped(e.target.value);
-                  onChange({ kind: "repo", path: e.target.value });
-                }}
-                onFocus={() => {
-                  if (picked !== OTHER) onChange({ kind: "repo", path: typed });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit?.();
-                }}
-                placeholder="/path/to/repo"
-                className="h-8 font-mono text-xs"
-              />
-              {bridge && (
-                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => void browse()}>
-                  {t("location.browse")}
-                </Button>
-              )}
-            </span>
-          </span>
-        </Choice>
-      </RadioGroup>
+      {/* rows hang into the margin the way the sidebar's do, so their text lines up with the heading */}
+      <div className="-mx-2.5">
+        <RadioGroup value={picked} onValueChange={pick} className="gap-0.5">
+          <PlaceRow value={CHAT} selected={picked === CHAT} icon={MessageSquareDashed} title={t("location.chat")} line={t("location.chatHint")} />
+          {locations === null ? (
+            <Skeleton className="mx-1 my-0.5 h-10 rounded-lg" />
+          ) : (
+            recent.length > 0 && (
+              <>
+                <span className="text-muted-foreground px-2.5 pt-1.5 pb-0.5 text-[11px] font-medium">{t("location.recent")}</span>
+                {recent.map((path) => (
+                  <PlaceRow key={path} value={recentKey(path)} selected={picked === recentKey(path)} icon={FolderOpen} title={repoName(path)} line={path} mono />
+                ))}
+              </>
+            )
+          )}
+          <PlaceRow value={OTHER} selected={picked === OTHER} icon={FolderSearch} title={t("location.other")} />
+        </RadioGroup>
+        {/* the field stays in view under its row, so a path is never a click away; typing into it picks the row */}
+        <div className="flex gap-2 pt-1 pr-2.5 pb-1 pl-9">
+          <input
+            ref={field}
+            value={typed}
+            spellCheck={false}
+            onFocus={() => {
+              if (picked !== OTHER) onChange({ kind: "repo", path: typed });
+            }}
+            onChange={(e) => {
+              setTyped(e.target.value);
+              onChange({ kind: "repo", path: e.target.value });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit?.();
+            }}
+            placeholder="/path/to/repo"
+            className={cn(FIELD, "h-8 w-full min-w-0 px-2.5 font-mono text-xs")}
+          />
+          {bridge && (
+            <Button type="button" variant="secondary" size="sm" className="h-8 shrink-0" onClick={() => void browse()}>
+              {t("location.browse")}
+            </Button>
+          )}
+        </div>
+      </div>
       {inUse.length > 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{t("location.inUse", { titles: list(inUse.map((c) => c.title)) })}</p>
+        <p className={cn("flex items-start gap-1.5 text-xs leading-relaxed", WARN_TEXT)}>
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>{t("location.inUse", { titles: list(inUse.map((c) => c.title)) })}</span>
+        </p>
       )}
     </div>
+  );
+}
+
+/** One place to work, as a row: picked, it wears the tint a chosen member does, and a dot says the list takes one. */
+function PlaceRow({
+  value,
+  selected,
+  icon: Icon,
+  title,
+  line,
+  mono,
+}: {
+  value: string;
+  selected: boolean;
+  icon: typeof FolderOpen;
+  title: string;
+  /** the second line, when the place needs one */
+  line?: string;
+  /** the line is a path */
+  mono?: boolean;
+}) {
+  return (
+    <label
+      className={cn(
+        "has-[:focus-visible]:ring-ring/60 flex cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 transition-colors duration-120 has-[:focus-visible]:ring-2",
+        selected ? "bg-selected" : "hover:bg-accent",
+      )}
+    >
+      <RadioGroupItem value={value} className="sr-only" />
+      <Icon className={cn("size-4 shrink-0", selected ? "text-primary" : "text-muted-foreground")} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{title}</span>
+        {line && (
+          <span title={mono ? line : undefined} className={cn("text-muted-foreground block truncate", mono ? "font-mono text-[11px]" : "text-xs")}>
+            {line}
+          </span>
+        )}
+      </span>
+      {selected ? (
+        <CircleDot className={cn("text-primary size-[18px] shrink-0", ICON_IN)} aria-hidden />
+      ) : (
+        <Circle className="text-foreground/30 size-[18px] shrink-0" strokeWidth={1.5} aria-hidden />
+      )}
+    </label>
+  );
+}
+
+/**
+ * Where a conversation works, as a chip the width of its name; the path is
+ * its tooltip. A click opens the folder on the desktop, or the panel that
+ * spells the place out where there is no desktop to open it in.
+ */
+export function PlaceChip({
+  conv,
+  onOpen,
+  style,
+}: {
+  conv: Pick<Conversation, "dir_kind" | "repo_path">;
+  onOpen: () => void;
+  style?: CSSProperties;
+}) {
+  const { t } = useI18n();
+  const bridge = desktop();
+  const repo = conv.dir_kind === "repo";
+  const Icon = repo ? FolderOpen : MessageSquareDashed;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          style={style}
+          onClick={() => {
+            if (bridge) void bridge.revealDirectory(conv.repo_path);
+            else onOpen();
+          }}
+          className="bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/[0.1] hover:text-foreground focus-visible:ring-ring/60 inline-flex max-w-[50%] shrink-0 items-center gap-1 rounded px-1 text-[10px] leading-4 transition-colors duration-120 outline-none focus-visible:ring-2"
+        >
+          <Icon className="size-3 shrink-0" />
+          <span className="truncate">{repo ? repoName(conv.repo_path) : t("location.chat")}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-md">
+        <span className="font-mono">{conv.repo_path}</span>
+        {bridge && <span className="opacity-70"> · {t("location.reveal")}</span>}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

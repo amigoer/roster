@@ -17,7 +17,7 @@ import { isPreference, t, type Locale, type LocalePreference } from "./i18n/inde
 import type { Installer } from "./installer.js";
 import type { Quote } from "./log.js";
 import type { Orchestrator } from "./orchestrator.js";
-import type { BotInput, MemberSettings, Mode, Store } from "./store.js";
+import { isTier, type BotInput, type MemberSettings, type Mode, type Store } from "./store.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -29,7 +29,6 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-const TIERS = ["read", "write", "execute"] as const;
 const MODES: readonly Mode[] = ["human_led", "leader", "discussion"];
 /** how many past directories to look at, and how many to offer once the missing ones are dropped */
 const RECENT_SCAN = 24;
@@ -112,8 +111,8 @@ function botInput(
   if (has("model")) out.model = optText(body["model"], 120);
   if (has("permission_tier")) {
     const tier = String(body["permission_tier"] ?? "");
-    if (!(TIERS as readonly string[]).includes(tier)) throw new Rejection(t("error.bot.tier"));
-    out.permission_tier = tier as BotInput["permission_tier"];
+    if (!isTier(tier)) throw new Rejection(t("error.bot.tier"));
+    out.permission_tier = tier;
   }
   return out;
 }
@@ -438,6 +437,7 @@ export function startServer(opts: {
       pushBots();
       // names and avatars in every conversation follow the edit
       pushConversations();
+      if (updated.permission_tier !== current.permission_tier) orchestrator.tierChanged(bot[1]);
       return json(res, { bot: updated });
     }
     if (bot?.[1] && method === "DELETE") {

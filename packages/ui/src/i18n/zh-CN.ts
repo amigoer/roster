@@ -513,7 +513,7 @@ export const zhCN = translation<typeof en>()({
   "conversation.leaderSuffix": "（群主 {name}）",
 
   "location.chat": "聊天空间",
-  "location.chatHint": "Roster 数据目录下专属的文件夹，适合不涉及某个仓库的聊天",
+  "location.chatHint": "Roster 数据目录下专属的文件夹，不涉及仓库时用",
   "location.recent": "最近用过",
   "location.other": "其他目录",
   "location.browse": "选择…",
@@ -530,14 +530,16 @@ export const zhCN = translation<typeof en>()({
 
   "newConversation.title": "发起会话",
   "newConversation.description": "一个 bot 加聊天空间是单聊；选了仓库或多个 bot 就是群。群里每个 bot 都是独立的会话。",
-  "newConversation.none": "还没选",
+  "newConversation.none": "还没选成员",
+  "newConversation.noneHint": "先从通讯录里挑成员",
+  "newConversation.picked": "已选 {count}",
   "newConversation.group": "{count} 个 bot · 群聊",
   "newConversation.direct": "单聊",
   "newConversation.search": "搜索名字或职责",
   "newConversation.noContacts": "通讯录还是空的，先去通讯录建一个 bot",
   "newConversation.noMatches": "没有匹配的 bot",
   "newConversation.groupName": "群名",
-  "newConversation.groupNamePlaceholder": "不填就用你发的第一条消息",
+  "newConversation.groupNamePlaceholder": "群名，不填就用你发的第一条消息",
   "newConversation.createGroup": "创建群聊",
   "newConversation.start": "开始会话",
 
@@ -639,7 +641,7 @@ export const zhCN = translation<typeof en>()({
   "editor.modelId": "模型 id",
   "editor.tier": "权限档",
   "editor.tierModesHint": "这个 agent 按自己的权限模式审批：档位只决定新会话从哪个模式开始，之后在输入框下方切换。",
-  "editor.tierHint": "超出档位的操作会在聊天里发一张卡片问你；改档位立即生效。",
+  "editor.tierHint": "超出档位的操作会在聊天里发一张卡片问你。会话里可以在输入框下方另选一档；没另选过的会话，改这里立即生效。",
   "editor.createAgentFailed": "建 agent 失败",
 
   "about.tagline": "把 code agent 当联系人用：单聊就是一次会话，拉个群就是一支 agent team。",

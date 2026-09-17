@@ -133,17 +133,24 @@ export function BotAvatar({
   );
 }
 
-/** Two tiles corner to corner inside the square, the front one ringed off the back one; the count sits in the free corner. */
+/** The square's side, the ring that lifts a tile off the one under it, and the count pill in the free corner. */
 const GROUP_SIZES = {
-  md: { box: "size-9", tile: "size-[26px]", ring: "ring-[1.5px]", badge: "h-3.5 min-w-3.5 px-1 text-[8px]" },
-  lg: { box: "size-14", tile: "size-10", ring: "ring-2", badge: "h-5 min-w-5 px-1.5 text-[10px]" },
-  xl: { box: "size-20", tile: "size-14", ring: "ring-[3px]", badge: "h-7 min-w-7 px-2 text-xs" },
+  md: { box: "size-9", ring: "ring-[1.5px]", badge: "h-3.5 min-w-3.5 px-1 text-[8px]" },
+  lg: { box: "size-14", ring: "ring-2", badge: "h-5 min-w-5 px-1.5 text-[10px]" },
+  xl: { box: "size-20", ring: "ring-[3px]", badge: "h-7 min-w-7 px-2 text-xs" },
 } as const;
 
+/** How many faces a group shows before the rest become a count. */
+const FACES = 3;
+
+/** Three tiles down the diagonal, each stepping past the one under it; two alone get the pair's bigger tiles. */
+const STACK = ["top-0 left-0", "top-[21%] left-[21%]", "right-0 bottom-0"] as const;
+
 /**
- * A group's face: a logo picked for it, or its members' faces stacked the way
- * the composer shows who a message goes to. Whole faces, since these
- * characters do not survive being quartered; past two, the rest is a count.
+ * A group's face: a logo picked for it, or its members' faces stacked down
+ * the diagonal the way a pile of cards sits, the front one ringed off the
+ * one under it. Whole faces, since these characters do not survive being
+ * quartered; past three, the free corner counts the rest.
  */
 export function GroupAvatar({
   bots,
@@ -158,9 +165,9 @@ export function GroupAvatar({
   busy?: Busy;
 }) {
   const logos = useLogos();
-  const { box, tile, ring, badge } = GROUP_SIZES[size];
+  const { box, ring, badge } = GROUP_SIZES[size];
   const chosen = avatar ? logos.find((l) => l.id === avatar) : undefined;
-  const shown = bots.slice(0, 2);
+  const shown = bots.slice(0, FACES);
   const more = bots.length - shown.length;
   return (
     <span className="relative inline-flex shrink-0">
@@ -169,8 +176,17 @@ export function GroupAvatar({
         <LogoImage logo={chosen ?? (shown[0] ? logoOf(shown[0], logos) : undefined)} className={box} />
       ) : (
         <span className={cn("relative block", box)} aria-hidden>
-          <LogoImage logo={logoOf(shown[0]!, logos)} className={cn("absolute top-0 left-0", tile)} />
-          <LogoImage logo={logoOf(shown[1]!, logos)} className={cn("ring-background absolute right-0 bottom-0", ring, tile)} />
+          {shown.map((b, i) => (
+            <LogoImage
+              key={i}
+              logo={logoOf(b, logos)}
+              className={cn(
+                "absolute",
+                shown.length === 2 ? cn("size-[72%]", i === 0 ? STACK[0] : STACK[2]) : cn("size-[58%]", STACK[i]),
+                i > 0 && cn("ring-background", ring),
+              )}
+            />
+          ))}
           {more > 0 && (
             <span
               className={cn(

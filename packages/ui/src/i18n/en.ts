@@ -525,7 +525,7 @@ export const en = {
   "conversation.leaderSuffix": " (leader: {name})",
 
   "location.chat": "Chat space",
-  "location.chatHint": "A folder of its own under Roster's data directory, for a chat that isn't about a repository",
+  "location.chatHint": "Roster's own folder, for a chat that isn't about a repository",
   "location.recent": "Recent",
   "location.other": "Another folder",
   "location.browse": "Choose…",
@@ -543,14 +543,16 @@ export const en = {
 
   "newConversation.title": "New conversation",
   "newConversation.description": "One bot in a chat space is a direct chat; a repository, or several bots, makes a group. Each bot in a group runs its own session.",
-  "newConversation.none": "None picked",
+  "newConversation.none": "No members yet",
+  "newConversation.noneHint": "Pick members from your contacts to start",
+  "newConversation.picked": "{count} picked",
   "newConversation.group": { one: "{count} bot · group", other: "{count} bots · group" },
   "newConversation.direct": "One-on-one",
   "newConversation.search": "Search names or roles",
   "newConversation.noContacts": "Your contacts are empty; create a bot in Contacts first",
   "newConversation.noMatches": "No matching bots",
   "newConversation.groupName": "Group name",
-  "newConversation.groupNamePlaceholder": "Leave empty to use your first message",
+  "newConversation.groupNamePlaceholder": "Group name, or leave it to your first message",
   "newConversation.createGroup": "Create group",
   "newConversation.start": "Start conversation",
 
@@ -656,7 +658,8 @@ export const en = {
   "editor.tier": "Permission level",
   "editor.tierModesHint":
     "This agent approves by its own permission modes: the level only sets which mode a new session starts in, and you switch it under the message box after that.",
-  "editor.tierHint": "Anything beyond the level shows up in the chat as a card asking you; a new level applies at once.",
+  "editor.tierHint":
+    "Anything beyond the level shows up in the chat as a card asking you. A conversation can pick its own level under the message box; the rest take a new level at once.",
   "editor.createAgentFailed": "Couldn't create the agent",
 
   "about.tagline": "Use code agents like contacts: a one-on-one chat is a session, and a group is an agent team.",

@@ -61,17 +61,23 @@ const rankOf = (m: Model) => {
   return i === -1 ? FAMILIES.length : i;
 };
 
-/** Claude Code's modes by what they let through; a mode another backend names gets the plain shield. */
+/**
+ * Claude Code's modes, and the tiers an agent without modes switches between,
+ * by what they let through; a mode another backend names gets the plain shield.
+ */
 const MODE_ICONS: Record<string, LucideIcon> = {
   default: ShieldCheck,
   acceptEdits: FilePenLine,
   plan: ListChecks,
   auto: ShieldHalf,
   bypassPermissions: ShieldOff,
+  read: ShieldCheck,
+  write: FilePenLine,
+  execute: ShieldOff,
 };
 
 /** A mode that asks nothing before acting stays tinted, so it is never on by accident. */
-const UNGUARDED = new Set(["bypassPermissions"]);
+const UNGUARDED = new Set(["bypassPermissions", "execute"]);
 
 const FAST_UNAVAILABLE: Record<string, Extract<Key, `session.fastOff.${string}`>> = {
   extra_usage_disabled: "session.fastOff.extraUsage",

@@ -21,8 +21,8 @@ import type { CoreEvent, Quote } from "./log.js";
 import { findMentions } from "./mentions.js";
 import type { Registry } from "./registry.js";
 import type { Sources } from "./sources.js";
-import { cropQuote, titleFrom, UNTITLED } from "./store.js";
-import type { ConversationRow, DirKind, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
+import { cropQuote, isTier, TIERS, titleFrom, UNTITLED } from "./store.js";
+import type { BotRow, ConversationRow, DirKind, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
 
 export type Broadcast = (msg: { kind: string; [k: string]: unknown }) => void;
 
@@ -53,6 +53,10 @@ const outOfDate = (entry: QuotaRead): boolean =>
   true;
 
 const sameInfo = (a: SessionInfo, b: SessionInfo) => JSON.stringify(a) === JSON.stringify(b);
+
+/** What a session switches between when its backend has no permission modes of its own and the gate goes by tier. */
+const tierModes = (): SessionOptions["modes"] =>
+  TIERS.map((tier) => ({ id: tier, label: t(`tier.${tier}`), description: t(`tier.${tier}.description`) }));
 
 /** The picks a session's options still offer; the rest belonged to what it ran before. */
 function stillOffered(settings: MemberSettings, options: SessionOptions): MemberSettings {
@@ -221,7 +225,7 @@ export class Orchestrator {
     const options: Record<string, SessionOptions> = {};
     await Promise.all(
       members.map(async (m) => {
-        const info = this.#lives.get(m.id)?.session ?? (await this.#resting(m));
+        const info = this.#shown(m, this.#lives.get(m.id)?.session ?? (await this.#resting(m)));
         if (Object.keys(info).length > 0) sessions[m.id] = info;
         const o = await this.#optionsFor(m).catch(() => null);
         if (o) options[m.id] = o;
@@ -240,7 +244,8 @@ export class Orchestrator {
    * Switches what one member's session runs with, in this conversation only. A
    * live session switches in place; otherwise the pick waits for its next start.
    * Only what the executor's own options offer can be picked: its source is not
-   * a session's to change.
+   * a session's to change. A tier picked as the mode is the gate's alone and
+   * holds from the session's next tool call.
    */
   async configure(conversationId: string, memberId: string, patch: MemberSettings): Promise<void> {
     const member = this.#memberOf(conversationId, memberId);
@@ -261,20 +266,31 @@ export class Orchestrator {
 
     const live = this.#lives.get(memberId);
     const { model, effort, mode, fast } = patch;
+    // a backend without modes of its own never hears of one: there the mode is a tier
+    const tier = this.#ownModes(member) ? undefined : mode;
     const settings: MemberSettings = {
       ...(model !== undefined ? { model } : {}),
       ...(effort !== undefined ? { effort } : {}),
-      ...(mode !== undefined ? { mode } : {}),
+      ...(mode !== undefined && tier === undefined ? { mode } : {}),
       ...(fast !== undefined ? { fast } : {}),
     };
-    // the session reports what actually took, which the push then carries
-    if (live?.runtime?.configure) await live.runtime.configure(settings);
-    this.store.setSettings(memberId, { ...member.settings, ...settings });
-    if (live?.runtime?.configure) return;
+    if (tier === undefined || Object.keys(settings).length > 0) {
+      // the session reports what actually took, which the push then carries
+      if (live?.runtime?.configure) await live.runtime.configure(settings);
+      this.store.setSettings(memberId, { ...member.settings, ...settings });
+      if (live && !live.runtime?.configure) live.session = null;
+    }
+    if (tier !== undefined) this.store.setSettings(memberId, { ...this.#memberOf(conversationId, memberId).settings, mode: tier });
+    // a session that switched in place pushed its own report, which says nothing of a tier
+    if (tier !== undefined || !live?.runtime?.configure) await this.#announce(conversationId, memberId);
+  }
 
-    if (live) live.session = null;
-    const info = await this.#resting(this.store.getMember(memberId)!);
-    this.broadcast({ kind: "session", conversationId, memberId, info });
+  /** A bot's tier is read live, so every session that has not picked its own shows the new one. */
+  tierChanged(botId: string): void {
+    for (const m of this.store.membersOf(botId)) {
+      if (this.#ownModes(m) || isTier(m.settings.mode)) continue;
+      void this.#announce(m.conversation_id, m.id).catch(() => {});
+    }
   }
 
   /**
@@ -562,8 +578,18 @@ export class Orchestrator {
     const member = this.store.getMember(memberId);
     if (!member) return;
     void this.#resting(member).then((info) => {
-      if (!this.#lives.get(memberId)?.session) this.broadcast({ kind: "session", conversationId, memberId, info });
+      if (this.#lives.get(memberId)?.session) return;
+      this.broadcast({ kind: "session", conversationId, memberId, info: this.#shown(this.store.getMember(memberId) ?? member, info) });
     });
+  }
+
+  /** Pushes what a member's session shows now: its own report while it has one, else the preview. */
+  async #announce(conversationId: string, memberId: string): Promise<void> {
+    const member = this.store.getMember(memberId);
+    if (!member) return;
+    const info = this.#lives.get(memberId)?.session ?? (await this.#resting(member));
+    // read again: a tier picked while the preview was being made is the one to show
+    this.broadcast({ kind: "session", conversationId, memberId, info: this.#shown(this.store.getMember(memberId) ?? member, info) });
   }
 
   /**
@@ -784,10 +810,11 @@ export class Orchestrator {
         this.store.setReport(live.memberId, e.info);
         // a mode the session moved into by itself -- leaving Plan once its plan is approved -- is where it now is
         const member = this.store.getMember(live.memberId);
-        if (member && e.info.mode && e.info.mode !== this.#effective(member).mode) {
+        if (member && this.#ownModes(member) && e.info.mode && e.info.mode !== this.#effective(member).mode) {
           this.store.setSettings(member.id, { ...member.settings, mode: e.info.mode });
         }
-        this.broadcast({ kind: "session", conversationId: live.conversationId, memberId: live.memberId, info: e.info });
+        const info = member ? this.#shown(member, e.info) : e.info;
+        this.broadcast({ kind: "session", conversationId: live.conversationId, memberId: live.memberId, info });
         return;
       }
       case "turn.end":
@@ -943,7 +970,7 @@ export class Orchestrator {
     const ownModes = this.registry.get(member.spec.executor_id)?.capabilities.permissionModes === true;
     const deferring = ownModes && conv.mode !== "discussion";
     // the live tier, not the join-time snapshot: lowering it must take effect now
-    const tier: Tier = conv.mode === "discussion" ? "read" : bot.permission_tier;
+    const tier: Tier = conv.mode === "discussion" ? "read" : this.#tierOf(member, bot);
     if (!deferring && TIER_RANK[call.effect] > TIER_RANK[tier]) {
       const decision = await this.#askHuman(live, call);
       this.#event(live, { type: "permission.decision", display: "card", id: call.id, decision });
@@ -1017,12 +1044,13 @@ export class Orchestrator {
   /**
    * What a member's session starts with: its own picks over the join-time spec --
    * not the bot as since edited -- then the executor's default model, and, for a
-   * mode nobody picked, the one its tier names.
+   * mode nobody picked, the one its tier names. A backend without modes of its
+   * own gets none: what was picked there is a tier, which only the gate reads.
    */
   #effective(m: MemberRow): SessionSettings {
     const tier = this.store.getBot(m.bot_id)?.permission_tier ?? "read";
     const model = m.settings.model ?? m.spec.model ?? this.store.getExecutor(m.spec.executor_id)?.model ?? undefined;
-    const mode = m.settings.mode ?? this.registry.get(m.spec.executor_id)?.modeForTier?.(tier);
+    const mode = this.#ownModes(m) ? (m.settings.mode ?? this.registry.get(m.spec.executor_id)?.modeForTier?.(tier)) : undefined;
     return {
       ...(model ? { model } : {}),
       ...(m.settings.effort ? { effort: m.settings.effort } : {}),
@@ -1038,11 +1066,34 @@ export class Orchestrator {
     return { ...preview, ...(m.report?.context ? { context: m.report.context } : {}) };
   }
 
-  /** What a member's session can be switched to: its executor's own options, nothing from any other source. */
+  /**
+   * What a member's session can be switched to: its executor's own options,
+   * nothing from any other source. Without permission modes of its own the gate
+   * goes by tier, so the tiers are the modes offered.
+   */
   async #optionsFor(m: MemberRow): Promise<SessionOptions | null> {
     const executor = this.registry.get(m.spec.executor_id);
-    if (!executor?.sessionOptions) return null;
-    return executor.sessionOptions().catch(() => null);
+    if (!executor) return null;
+    const own = executor.sessionOptions ? await executor.sessionOptions().catch(() => null) : null;
+    if (executor.capabilities.permissionModes) return own;
+    return { models: [], efforts: [], compact: false, ...own, modes: tierModes() };
+  }
+
+  /** The backend approves by permission modes of its own; without them the gate goes by tier. */
+  #ownModes(m: MemberRow): boolean {
+    return this.registry.get(m.spec.executor_id)?.capabilities.permissionModes === true;
+  }
+
+  /** What the gate lets a session do unasked: the tier picked for it, which only a backend without modes offers, else its bot's. */
+  #tierOf(m: MemberRow, bot: BotRow): Tier {
+    return !this.#ownModes(m) && isTier(m.settings.mode) ? m.settings.mode : bot.permission_tier;
+  }
+
+  /** Without modes of its own, the mode a session shows is the tier it is gated by. */
+  #shown(m: MemberRow, info: SessionInfo): SessionInfo {
+    const bot = this.store.getBot(m.bot_id);
+    if (!bot || !this.registry.get(m.spec.executor_id) || this.#ownModes(m)) return info;
+    return { ...info, mode: this.#tierOf(m, bot) };
   }
 
   /** Re-reads an executor's plan usage once the last read is older than maxAgeMs, and pushes it if it moved. */

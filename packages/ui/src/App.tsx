@@ -40,7 +40,7 @@ import { leaderOf } from "./mentions";
 import { PAGE_IN, useAtLeast } from "./motion";
 import { SelectionMenu } from "./selection";
 import { NavRail, RAIL, type Nav } from "./nav-rail";
-import { locationLabel, repoName } from "./location";
+import { PlaceChip, repoName } from "./location";
 import { NewConversation, startDirect } from "./new-conversation";
 import { SessionSwitcher } from "./session-switcher";
 import { Outline } from "./outline";
@@ -996,11 +996,14 @@ export default function App() {
                       )}
                     </div>
                     {group ? (
-                      <div className="text-muted-foreground truncate px-1.5 text-[11px]">
-                        {`${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
-                          conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
-                        }`}
-                        <span className={conv.dir_kind === "repo" ? "font-mono" : undefined}> · {locationLabel(t, conv)}</span>
+                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[11px]">
+                        <span className="truncate">
+                          {`${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
+                            conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
+                          }`}
+                        </span>
+                        {/* the place by name, the way the list says it; the whole path waits in the tooltip */}
+                        <PlaceChip conv={conv} style={NO_DRAG} onOpen={() => setPanel((p) => ({ ...p, [conv.shape]: true }))} />
                       </div>
                     ) : renaming === conv.id ? (
                       <div className="px-1.5">

@@ -58,18 +58,10 @@ export const MODES: Array<{ id: Mode; icon: typeof Hand }> = [
   { id: "discussion", icon: MessagesSquare },
 ];
 
-export function ModePicker({
-  value,
-  onChange,
-  compact = false,
-}: {
-  value: Mode;
-  onChange: (m: Mode) => void;
-  compact?: boolean;
-}) {
+export function ModePicker({ value, onChange }: { value: Mode; onChange: (m: Mode) => void }) {
   const { t } = useI18n();
   return (
-    <div className={cn("grid gap-1.5", compact && "grid-cols-3")}>
+    <div className="grid gap-1.5">
       {MODES.map((m) => (
         <button
           key={m.id}
@@ -77,7 +69,6 @@ export function ModePicker({
           onClick={() => onChange(m.id)}
           className={cn(
             "flex gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-            compact && "flex-col gap-1",
             value === m.id ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
           )}
         >
@@ -328,7 +319,7 @@ function MemberRow({
   const model = member.model ?? executor.model;
   const info = sessions?.info[member.id];
   const choices = sessions?.options[member.id];
-  // a backend's own modes decide its tool calls; without them the tier still does
+  // the mode picker shows what gates its tool calls, a tier included; without one the bot's tier is spelled out
   const modes = Boolean(info?.mode && choices?.modes.length);
   return (
     <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2 transition-colors">

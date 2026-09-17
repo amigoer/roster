@@ -34,6 +34,8 @@ export interface Capabilities {
   /**
    * The backend has permission modes of its own. A call the host defers is
    * decided by that mode, and the mode's asks come back through onPermission.
+   * Without them the host gates every call by tier, and a session switches
+   * between tiers where it would switch modes.
    */
   permissionModes: boolean;
 }
@@ -95,7 +97,7 @@ export interface StartOpts {
   systemPrompt?: string;
   model?: string;
   effort?: string;
-  /** a permission mode id from sessionOptions; ignored by backends without permissionModes */
+  /** a permission mode id from sessionOptions; never given to backends without permissionModes */
   mode?: string;
   fast?: boolean;
   /** Tool names the bot may use at all; omitted means the backend default set. */
@@ -152,7 +154,7 @@ export interface SessionInfo {
   model?: string;
   /** a short human name for that model, e.g. "Opus 5" */
   modelLabel?: string;
-  /** the backend's own permission mode */
+  /** the backend's own permission mode; the host puts the session's tier here for a backend without permissionModes */
   mode?: string;
   /** reasoning effort; null when the model takes none */
   effort?: string | null;
@@ -229,6 +231,7 @@ export interface SessionOptions {
     fast?: boolean;
   }>;
   efforts: Array<{ id: string; label: string; description?: string }>;
+  /** permission modes; the host offers its tiers here instead for a backend without permissionModes */
   modes: Array<{ id: string; label: string; description?: string }>;
   /** whether this account can turn fast mode on at all, and why not */
   fast?: { available: boolean; reason?: string };

@@ -11,6 +11,10 @@ export const rowState = (selected: boolean) => (selected ? "bg-selected" : "hove
 /** Rows are inset from the column edge; labels line up with the avatars inside them. */
 export const LIST_BODY = "px-2 pb-2";
 
+/** A field the way the search box draws one: a faint fill, and no outline until it is focused. */
+export const FIELD =
+  "bg-foreground/[0.045] placeholder:text-muted-foreground rounded-lg border border-transparent outline-none focus-visible:border-ring/60 focus-visible:bg-background focus-visible:ring-ring/20 transition-[background-color,border-color,box-shadow] focus-visible:ring-[3px]";
+
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-muted-foreground px-2.5 pt-3 pb-1 text-[11px] font-medium">{children}</div>;
 }
@@ -19,10 +23,13 @@ export function ListSearch({
   value,
   onChange,
   placeholder,
+  onEnter,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  /** Enter with something typed: the first match is the one meant */
+  onEnter?: () => void;
 }) {
   return (
     <div className="shrink-0 px-2 pb-1.5">
@@ -33,13 +40,11 @@ export function ListSearch({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") onChange("");
+            else if (e.key === "Enter" && value.trim() && !e.nativeEvent.isComposing) onEnter?.();
           }}
           placeholder={placeholder}
           spellCheck={false}
-          className={cn(
-            "bg-foreground/[0.045] placeholder:text-muted-foreground h-8 w-full rounded-lg border border-transparent pr-2.5 pl-8 text-[13px] outline-none",
-            "focus-visible:border-ring/60 focus-visible:bg-background focus-visible:ring-ring/20 transition-[background-color,border-color,box-shadow] focus-visible:ring-[3px]",
-          )}
+          className={cn(FIELD, "h-8 w-full pr-2.5 pl-8 text-[13px]")}
         />
       </div>
     </div>
