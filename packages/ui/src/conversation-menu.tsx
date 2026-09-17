@@ -145,7 +145,7 @@ export function RenameInput({
       style={style}
       // field-sizing keeps the box the width of the text, so whatever sits beside it is not shoved away
       className={cn(
-        "border-input ring-ring/40 field-sizing-content max-w-full min-w-24 rounded border px-1.5 py-0.5 font-semibold ring-2 outline-none",
+        "border-ring/60 ring-ring/20 field-sizing-content max-w-full min-w-24 rounded border px-1.5 py-0.5 font-semibold ring-[3px] outline-none",
         className,
       )}
       onFocus={(e) => e.currentTarget.select()}

@@ -9,9 +9,12 @@ function Progress({
   value,
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root>) {
+  // no value at all: nobody knows how far along it is, so a third of the bar sweeps the track instead
+  const indeterminate = value === null || value === undefined
   return (
     <ProgressPrimitive.Root
       data-slot="progress"
+      value={indeterminate ? null : value}
       className={cn(
         "relative h-2 w-full overflow-hidden rounded-full bg-primary/20",
         className
@@ -20,8 +23,11 @@ function Progress({
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className="h-full w-full flex-1 bg-primary transition-all"
-        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+        className={cn(
+          "h-full bg-primary",
+          indeterminate ? "animate-indeterminate w-1/3 rounded-full" : "w-full flex-1 transition-all"
+        )}
+        style={indeterminate ? undefined : { transform: `translateX(-${100 - (value || 0)}%)` }}
       />
     </ProgressPrimitive.Root>
   )

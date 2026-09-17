@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* enter/exit keyframes behind animate-in, fade-in-0, zoom-in-95 and the rest; components/ui lean on them */
+@import "tw-animate-css";
 
 /* dark: follows the theme picked in settings; Tailwind's default would follow the OS even when the user chose light */
 @custom-variant dark (&:is(.dark *));
@@ -44,9 +46,14 @@
   --selected: hsl(221 100% 60% / 0.09);
 
   --selection: hsl(221 100% 60% / 0.2);
+
+  /* native scrollbars and form controls follow the picked theme, not the OS */
+  color-scheme: light;
 }
 
 .dark {
+  color-scheme: dark;
+
   --background: hsl(222 14% 7%);
   --foreground: hsl(220 14% 95%);
   --card: hsl(222 14% 9%);
@@ -91,12 +98,37 @@
   --message-size: 14px;
 }
 
+/*
+ * Switching theme repaints every surface at once; for the moment it happens,
+ * every colour eases instead. Unlayered, so it wins over transition utilities.
+ */
+.theming,
+.theming * {
+  transition-property: background-color, color, border-color, fill, stroke, box-shadow;
+  transition-duration: 200ms;
+}
+
+/* jumped to: unlayered, so it also wins over a row's own arrival animation */
+.found {
+  animation: found 1.6s ease-out;
+  border-radius: var(--radius);
+}
+
 /* Step 2: map variables to utilities, or bg-background etc. do not exist */
 @theme inline {
   /* text-message: the size of what people read and type in a conversation */
   --text-message: var(--message-size);
   /* leading-message: Chinese text needs more room between lines than Latin does */
   --leading-message: 1.75;
+
+  /*
+   * One motion scale for the whole window: duration-120 for colour, 150 for
+   * menus and tooltips, 200 for dialogs, panels and anything that unfolds,
+   * 300 for meters. ease-soft is the decelerating curve every one of them uses.
+   */
+  --ease-soft: cubic-bezier(0.2, 0, 0, 1);
+  /* a bar with no known progress: a third of the track sweeping across it */
+  --animate-indeterminate: indeterminate 1.2s ease-in-out infinite;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -200,9 +232,24 @@
     }
   }
 
-  .found {
-    animation: found 1.6s ease-out;
-    border-radius: var(--radius);
+  @keyframes indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+
+  /* motion off in the OS means off here: spinners keep turning, everything else lands at once */
+  @media (prefers-reduced-motion: reduce) {
+    *:not(.animate-spin):not(.animate-pulse):not(.animate-bounce),
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 
   body {
