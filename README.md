@@ -17,7 +17,7 @@ Roster is a desktop app for the coding agents you already use: Claude Code, Code
 - **Subscription or API, fixed per agent.** An agent pairs a harness, the coding agent program such as Claude Code, with where its models come from: the program's own sign-in, or a model API you add. A bot picks an agent, so how it runs is settled in one place. Keys can come from environment variables; keys you save are encrypted with a key the operating system protects (Keychain on macOS).
 - **Permission levels.** Read-only, can write, or can execute. Anything beyond a bot's level becomes an approval card in the chat, never a blocking dialog.
 - **What needs you comes first.** Conversations waiting for an approval or a reply sort to the top, longest wait first. The desktop app adds notifications and a Dock badge.
-- **One working directory per conversation**, chosen when you start it. Attachments, slash commands and a context usage panel are built in.
+- **A direct chat is just a chat**, in a chat space of its own under Roster's data directory; several sessions with the same bot fold into one entry. **Work happens in a group**, even with one bot: you pick the working directory when you start it, and can move it later. Attachments, slash commands and a context usage panel are built in.
 - **English and Simplified Chinese.** Roster follows your system language, or the one picked in Settings > Language. Group notices and the instructions Roster gives agents switch along with the interface.
 
 ## Harnesses
@@ -59,7 +59,7 @@ The desktop app serves the built UI from `packages/ui/dist`, so after UI changes
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ROSTER_DATA_DIR` | `~/.roster` | Database, attachments and downloaded agents |
+| `ROSTER_DATA_DIR` | `~/.roster` | Database, attachments, chat spaces and downloaded agents |
 | `ROSTER_PORT` | `7788` | Port core listens on, 127.0.0.1 only; a free port is used if it is taken |
 | `ROSTER_EXTENSIONS` | | Extra adapter directories, as a path list |
 | `ROSTER_SCRIPTED` | | `1` runs a scripted agent instead of real ones |

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Crown, Loader, Search } from "lucide-react";
-import { api, type Bot, type Capabilities, type Conversation, type Mode } from "./api";
+import { api, type Bot, type Capabilities, type Conversation, type Location, type Mode } from "./api";
 import { BotAvatar } from "./bot-avatar";
 import { CapabilityNotes } from "./capabilities";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
+import { LocationPicker, recallLocation, rememberLocation, useLocations } from "./location";
 import { ModePicker } from "./members-panel";
 import { Collapse, ICON_IN } from "./motion";
 import { Button } from "@/components/ui/button";
@@ -20,26 +21,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-const LAST_DIR = "roster.lastDir";
-
-/** The last directory used is almost always the next one wanted. */
-function lastDir(fallback: string): string {
-  try {
-    return localStorage.getItem(LAST_DIR) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-/** A 1:1 has nothing to choose, so it starts without the dialog. Core gives it a default title, which the first message replaces. */
-export const startDirect = (bot: Bot, defaultDir: string) => api.createConversation({ repoPath: lastDir(defaultDir), botIds: [bot.id] });
+/** A direct chat is one bot in a chat space of its own, so there is nothing to choose: it starts without the dialog. */
+export const startDirect = (bot: Bot) => api.createConversation({ chat: true, botIds: [bot.id] });
 
 export function NewConversation({
   open,
   onOpenChange,
   bots,
   capabilities,
-  defaultDir,
+  convs,
   initialBotIds,
   onCreated,
 }: {
@@ -47,7 +37,8 @@ export function NewConversation({
   onOpenChange: (open: boolean) => void;
   bots: Bot[];
   capabilities: Record<string, Capabilities>;
-  defaultDir: string;
+  /** to say when the chosen directory already has a conversation in it */
+  convs: Conversation[];
   /** preselected, e.g. from a contact's profile */
   initialBotIds: string[];
   onCreated: (c: Conversation) => void;
@@ -59,7 +50,8 @@ export function NewConversation({
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<Mode>("human_led");
   const [leader, setLeader] = useState<string | null>(null);
-  const [dir, setDir] = useState(defaultDir);
+  const [location, setLocation] = useState<Location>({ kind: "chat" });
+  const locations = useLocations(open);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -71,12 +63,14 @@ export function NewConversation({
     setMode("human_led");
     setLeader(null);
     setError(null);
-    setDir(lastDir(defaultDir));
+    // the place picked last time is almost always the one wanted next; the first time, a chat space asks nothing
+    setLocation(recallLocation() ?? { kind: "chat" });
     // only on opening; bots updating underneath must not reset a half-filled form
   }, [open]);
 
   const chosen = picked.flatMap((id) => bots.filter((b) => b.id === id));
-  const group = chosen.length > 1;
+  // one bot in a chat space is a direct chat; a repository, or company, makes a group
+  const group = chosen.length > 1 || location.kind === "repo";
   const leaderBot = chosen.find((b) => b.id === leader) ?? chosen[0];
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -88,27 +82,27 @@ export function NewConversation({
   const toggle = (id: string) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  const path = location.kind === "repo" ? location.path.trim() : "";
+  const ready = chosen.length > 0 && (location.kind === "chat" || path.length > 0);
+
   const create = async () => {
-    if (chosen.length === 0) return;
+    if (!ready) return;
     setBusy(true);
     setError(null);
+    const where: Location = location.kind === "repo" ? { kind: "repo", path } : location;
     const r = await api.createConversation({
       // left out, core names it in its own language, and the first message renames it
       ...(group && title.trim() ? { title: title.trim() } : {}),
-      repoPath: dir.trim(),
+      ...(where.kind === "chat" ? { chat: true as const } : { repoPath: where.path }),
       botIds: chosen.map((b) => b.id),
-      ...(group ? { mode, ...(mode === "leader" && leaderBot ? { leaderBotId: leaderBot.id } : {}) } : {}),
+      ...(chosen.length > 1 ? { mode, ...(mode === "leader" && leaderBot ? { leaderBotId: leaderBot.id } : {}) } : {}),
     });
     setBusy(false);
     if (r.error || !r.conversation) {
       setError(r.error ?? t("common.createFailed"));
       return;
     }
-    try {
-      localStorage.setItem(LAST_DIR, dir.trim());
-    } catch {
-      // a directory that cannot be remembered still works this time
-    }
+    rememberLocation(where);
     onCreated(r.conversation);
     onOpenChange(false);
   };
@@ -181,6 +175,11 @@ export function NewConversation({
             </div>
           </div>
 
+          <div className="grid gap-2">
+            <Label>{t("conversation.directory")}</Label>
+            <LocationPicker value={location} onChange={setLocation} locations={locations} convs={convs} onSubmit={() => void create()} />
+          </div>
+
           {/* folded, it must not leave the grid's gap behind: the margin takes the gap back and the padding restores it open */}
           <Collapse open={group} className="-mt-4">
             {group && (
@@ -191,54 +190,46 @@ export function NewConversation({
                     id="group-title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.nativeEvent.isComposing) void create();
+                    }}
                     placeholder={t("newConversation.groupNamePlaceholder")}
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label>{t("members.whoAnswers")}</Label>
-                  <ModePicker value={mode} onChange={setMode} compact />
-                  <Collapse open={mode === "leader"} className="-mt-2">
-                    {mode === "leader" && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-3">
-                        <span className="text-muted-foreground mr-1 text-xs">{t("members.leader")}</span>
-                        {chosen.map((b) => (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => setLeader(b.id)}
-                            className={cn(
-                              "inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs transition-colors duration-120",
-                              leaderBot?.id === b.id ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
-                            )}
-                          >
-                            <BotAvatar bot={b} size="xs" />
-                            {b.name}
-                            {leaderBot?.id === b.id && <Crown className={cn("size-3 text-amber-500", ICON_IN)} />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </Collapse>
-                </div>
+                {/* who answers is only a question once there is more than one who could */}
+                {chosen.length > 1 && (
+                  <div className="grid gap-2">
+                    <Label>{t("members.whoAnswers")}</Label>
+                    <ModePicker value={mode} onChange={setMode} compact />
+                    <Collapse open={mode === "leader"} className="-mt-2">
+                      {mode === "leader" && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-3">
+                          <span className="text-muted-foreground mr-1 text-xs">{t("members.leader")}</span>
+                          {chosen.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setLeader(b.id)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs transition-colors duration-120",
+                                leaderBot?.id === b.id ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+                              )}
+                            >
+                              <BotAvatar bot={b} size="xs" />
+                              {b.name}
+                              {leaderBot?.id === b.id && <Crown className={cn("size-3 text-amber-500", ICON_IN)} />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </Collapse>
+                  </div>
+                )}
               </div>
             )}
           </Collapse>
 
-          <div className="grid gap-2">
-            <Label htmlFor="dir">{t("conversation.directory")}</Label>
-            <Input
-              id="dir"
-              value={dir}
-              spellCheck={false}
-              onChange={(e) => setDir(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) void create();
-              }}
-              className="font-mono text-xs"
-              placeholder="/path/to/repo"
-            />
-            {error && <p className="text-destructive text-xs">{error}</p>}
-          </div>
+          {error && <p className="text-destructive text-xs">{error}</p>}
 
           <Collapse open={chosen.length === 1 && Boolean(capabilities[chosen[0]!.executor_id])} className="-mt-4">
             {chosen.length === 1 && capabilities[chosen[0]!.executor_id] && (
@@ -255,7 +246,7 @@ export function NewConversation({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={() => void create()} disabled={busy || chosen.length === 0 || !dir.trim()}>
+          <Button onClick={() => void create()} disabled={busy || !ready}>
             {busy && <Loader className="animate-spin" />}
             {group ? t("newConversation.createGroup") : t("newConversation.start")}
           </Button>

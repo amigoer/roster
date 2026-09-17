@@ -11,7 +11,7 @@ export interface About {
   /** code on disk changed after this process started, so what runs is no longer what was built */
   stale: boolean;
   runtime: { node: string; electron?: string; chrome?: string; platform: string; release: string; arch: string };
-  paths: { data: string; agents: string; attachments: string; extensions: string };
+  paths: { data: string; agents: string; attachments: string; chats: string; extensions: string };
   /** so paths under it can be shown as ~ */
   home: string;
 }

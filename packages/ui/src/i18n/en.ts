@@ -466,6 +466,7 @@ export const en = {
   "members.allHere": "Every bot in your contacts is already here",
   "members.you": "You",
   "members.viewProfile": "View profile",
+  "card.mention": "Mention",
   "members.leader": "Leader",
   "members.syncHint": "It's still on the setup it joined with. Syncing starts a new session and hands it the group chat history again",
   "members.syncButton": "Setup changed; click to sync",
@@ -522,10 +523,27 @@ export const en = {
   "conversation.groupSubtitle": { one: "{count} member · {mode}", other: "{count} members · {mode}" },
   "conversation.leaderSuffix": " (leader: {name})",
 
+  "location.chat": "Chat space",
+  "location.chatHint": "A folder of its own under Roster's data directory, for a chat that isn't about a repository",
+  "location.recent": "Recent",
+  "location.other": "Another folder",
+  "location.browse": "Choose…",
+  "location.reveal": "Open in Finder",
+  "location.change": "Change…",
+  "location.apply": "Change",
+  "location.changeTitle": "Change working directory",
+  "location.changeBody":
+    "Every member starts a new session in the new directory and reads the conversation history again. It can't be changed while a member is working.",
+  "location.inUse": "Also used by {titles}. Two conversations editing the same files at once can get in each other's way.",
+
+  "session.new": "New session",
+  "session.with": "Sessions with {name}",
+  "session.count": { one: "{count} session", other: "{count} sessions" },
+
   "newConversation.title": "New conversation",
-  "newConversation.description": "Pick one bot for a one-on-one chat, or several for a group. Each bot in a group runs its own session.",
+  "newConversation.description": "One bot in a chat space is a direct chat; a repository, or several bots, makes a group. Each bot in a group runs its own session.",
   "newConversation.none": "None picked",
-  "newConversation.group": "{count} bots · group",
+  "newConversation.group": { one: "{count} bot · group", other: "{count} bots · group" },
   "newConversation.direct": "One-on-one",
   "newConversation.search": "Search names or roles",
   "newConversation.noContacts": "Your contacts are empty; create a bot in Contacts first",
@@ -596,6 +614,11 @@ export const en = {
 
   "group.leader": " · led by {name}",
   "group.archived": "Archived “{title}”",
+  "group.avatarTitle": "Group avatar",
+  "group.avatarHint": "Its members' faces stacked, or one character from the set the bots share",
+  "group.avatarAuto": "Members' faces",
+  "group.avatarAutoHint": "Follows whoever is in the group",
+  "group.avatarChange": "Change avatar",
   "bot.instructions": "Instructions",
   "bot.new": "New bot",
 
@@ -655,6 +678,7 @@ export const en = {
   "about.dataDir": "Data",
   "about.agentsDir": "Agents",
   "about.attachmentsDir": "Attachments",
+  "about.chatsDir": "Chat spaces",
   "about.extensionsDir": "Extensions",
   "about.dataHint":
     "Conversations, bots and model APIs all live in the data directory. Keys are encrypted with this machine's keychain, so on another machine they have to be entered again.",

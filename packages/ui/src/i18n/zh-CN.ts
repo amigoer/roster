@@ -454,6 +454,7 @@ export const zhCN = translation<typeof en>()({
   "members.allHere": "通讯录里的 bot 都在这了",
   "members.you": "你",
   "members.viewProfile": "查看资料",
+  "card.mention": "@ 它",
   "members.leader": "群主",
   "members.syncHint": "它还在用加入时的设定；同步后会开一个新会话，并把群聊记录重新交给它",
   "members.syncButton": "设定有更新，点此同步",
@@ -510,8 +511,24 @@ export const zhCN = translation<typeof en>()({
   "conversation.groupSubtitle": "{count} 位成员 · {mode}",
   "conversation.leaderSuffix": "（群主 {name}）",
 
+  "location.chat": "聊天空间",
+  "location.chatHint": "Roster 数据目录下专属的文件夹，适合不涉及某个仓库的聊天",
+  "location.recent": "最近用过",
+  "location.other": "其他目录",
+  "location.browse": "选择…",
+  "location.reveal": "在 Finder 中打开",
+  "location.change": "更改…",
+  "location.apply": "更改",
+  "location.changeTitle": "更改工作目录",
+  "location.changeBody": "每个成员都会在新目录里新开一个后端会话，并重新读一遍会话记录。有成员正在干活时不能改。",
+  "location.inUse": "{titles} 也在这个目录里干活，同时改文件会互相影响。",
+
+  "session.new": "新会话",
+  "session.with": "和 {name} 的会话",
+  "session.count": "{count} 个会话",
+
   "newConversation.title": "发起会话",
-  "newConversation.description": "选一个 bot 单聊，选几个就是拉群。群里每个 bot 都是独立的会话。",
+  "newConversation.description": "一个 bot 加聊天空间是单聊；选了仓库或多个 bot 就是群。群里每个 bot 都是独立的会话。",
   "newConversation.none": "还没选",
   "newConversation.group": "{count} 个 bot · 群聊",
   "newConversation.direct": "单聊",
@@ -582,6 +599,11 @@ export const zhCN = translation<typeof en>()({
 
   "group.leader": " · 群主 {name}",
   "group.archived": "已归档“{title}”",
+  "group.avatarTitle": "群头像",
+  "group.avatarHint": "默认叠放成员的头像，也可以从 bot 共用的那套形象里选一个",
+  "group.avatarAuto": "成员头像",
+  "group.avatarAutoHint": "跟着群里有谁变",
+  "group.avatarChange": "更换头像",
   "bot.instructions": "设定",
   "bot.new": "新建 Bot",
 
@@ -638,6 +660,7 @@ export const zhCN = translation<typeof en>()({
   "about.dataDir": "数据目录",
   "about.agentsDir": "下载的 agent",
   "about.attachmentsDir": "附件",
+  "about.chatsDir": "聊天空间",
   "about.extensionsDir": "扩展",
   "about.dataHint": "会话、bot 和模型 API 都存在数据目录里。密钥由这台机器的钥匙串加密，换到别的机器要重新填。",
 

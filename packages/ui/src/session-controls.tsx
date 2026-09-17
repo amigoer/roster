@@ -471,7 +471,7 @@ export function SessionUsage({
     <UsagePanel
       owner={planOwner ? executor(planOwner).label : undefined}
       // a group holds a context per member, so the card says whose this is
-      name={conv.shape === "group" ? member?.bot.name : undefined}
+      name={activeMembers(conv).length > 1 ? member?.bot.name : undefined}
       context={info?.context}
       cache={info?.cache}
       quota={planOwner ? quota[planOwner] : null}

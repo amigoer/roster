@@ -1,27 +1,11 @@
 import { activeMembers, type Conversation, type Presence } from "./api";
 import { BotAvatar, busyOf } from "./bot-avatar";
-import { useI18n, type Translate } from "./i18n";
+import { BotCardTrigger } from "./bot-card";
+import { useI18n } from "./i18n";
 import { Collapse } from "./motion";
-import { toolLabel } from "./steps";
+import { presenceLabel } from "./presence-label";
 
-export function presenceLabel(t: Translate, p: Presence): string {
-  switch (p.state) {
-    case "starting":
-      return t("presence.starting");
-    case "thinking":
-      return t("presence.thinking");
-    case "writing":
-      return t("presence.writing");
-    case "tool":
-      return p.detail ? t("presence.toolNamed", { tool: toolLabel(t, p.detail) }) : t("presence.tool");
-    case "waiting_permission":
-      return p.detail ? t("presence.permissionNamed", { tool: toolLabel(t, p.detail) }) : t("presence.permission");
-    case "waiting_lock":
-      return p.detail ? t("presence.lockNamed", { name: p.detail }) : t("presence.lock");
-    case "compacting":
-      return t("presence.compacting");
-  }
-}
+export { presenceLabel };
 
 function Dots() {
   return (
@@ -57,8 +41,10 @@ export function PresenceStrip({
         <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 px-5 pt-2.5 text-xs">
           {rows.map(({ m, p }) => (
             <span key={m.id} className="inline-flex items-center gap-1.5">
-              <BotAvatar bot={m.bot} size="xs" busy={busyOf(p.state)} />
-              {conv.shape === "group" && <span className="text-foreground font-medium">{m.bot.name}</span>}
+              <BotCardTrigger bot={m.bot} presence={p}>
+                <BotAvatar bot={m.bot} size="xs" busy={busyOf(p.state)} />
+              </BotCardTrigger>
+              {activeMembers(conv).length > 1 && <span className="text-foreground font-medium">{m.bot.name}</span>}
               <span className={p.state === "waiting_permission" ? "text-amber-600 dark:text-amber-400" : undefined}>
                 {presenceLabel(t, p)}
               </span>

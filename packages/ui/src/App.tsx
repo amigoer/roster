@@ -24,6 +24,7 @@ import {
 } from "./api";
 import { DRAG, NO_DRAG } from "./app-region";
 import { BotAvatar, busyOf, GroupAvatar, Logos, type Busy } from "./bot-avatar";
+import { BotCardActions, BotCardTrigger } from "./bot-card";
 import { CapabilityBadge } from "./capabilities";
 import { MessageCard, TurnView, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
@@ -37,7 +38,9 @@ import { MembersPanel } from "./members-panel";
 import { leaderOf } from "./mentions";
 import { PAGE_IN, useAtLeast } from "./motion";
 import { NavRail, RAIL, type Nav } from "./nav-rail";
+import { locationLabel, repoName } from "./location";
 import { NewConversation, startDirect } from "./new-conversation";
+import { SessionSwitcher } from "./session-switcher";
 import { Outline } from "./outline";
 import { PresenceStrip } from "./presence";
 import { ProfilePanel } from "./profile";
@@ -78,7 +81,6 @@ function listTime({ t, clock, day }: Pick<I18n, "t" | "clock" | "day">, ts: numb
 /** Exactly one unread meaning: this one is waiting for you. Running is never unread. */
 const isWaiting = (attention: Conversation["attention"]): attention is Exclude<Conversation["attention"], "none"> => attention !== "none";
 
-const repoName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 const omit = <T,>(rec: Record<string, T>, key: string): Record<string, T> => {
   if (!(key in rec)) return rec;
@@ -107,6 +109,16 @@ function usePanelOpen() {
 }
 
 const REMEMBERED_CONVERSATION = "roster.activeConversation";
+const LAST_SESSION = "roster.lastSession";
+
+/** Per bot, the direct chat open last: where its entry goes back to when no session waits on you. */
+function lastSessions(): Record<string, string> {
+  try {
+    return (JSON.parse(localStorage.getItem(LAST_SESSION) ?? "{}") as Record<string, string> | null) ?? {};
+  } catch {
+    return {};
+  }
+}
 
 function rememberedConversation(): string | null {
   try {
@@ -138,7 +150,6 @@ export default function App() {
   /** what is installed and what could be; refreshed whenever core says extensions changed */
   const [extView, setExtView] = useState<ExtensionsView | null>(null);
   const [about, setAbout] = useState<AboutState>(null);
-  const [defaultDir, setDefaultDir] = useState("");
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [active, setActive] = useState<string | null>(null);
   // the open chat survives a reload; it is adopted once the list confirms it still exists
@@ -263,7 +274,6 @@ export default function App() {
         setExecutors(s.executors ?? []);
         setSourceRefs(s.sources ?? []);
         setHarnessLabels(Object.fromEntries((s.harnesses ?? []).map((h) => [h.type, h.label])));
-        setDefaultDir(s.defaultDir ?? "");
         setPresence(Object.fromEntries((s.presence ?? []).map((p) => [p.memberId, p])));
         if (s.preferences) sync(s.preferences.locale);
         if (!activeRef.current) {
@@ -524,23 +534,45 @@ export default function App() {
     if (activeRef.current === id) setActive(null);
   };
 
-  /** Straight to the chat, like any messenger: the latest 1:1 with the bot, or a new one if there is none. */
-  const messageBot = async (bot: Bot) => {
-    let id = convs
-      .filter((c) => c.shape === "direct" && !c.archived && activeMembers(c).some((m) => m.bot.id === bot.id))
-      .sort((a, b) => b.last_activity_at - a.last_activity_at)[0]?.id;
-    if (!id) {
-      const r = await startDirect(bot, defaultDir);
-      if (!r.conversation) {
-        // most likely the remembered directory is gone, and the dialog is where another is picked
-        toast.error(t("app.startFailed"), { description: r.error });
-        setStarting({ open: true, botIds: [bot.id] });
-        return;
-      }
-      const c = r.conversation;
-      setConvs((prev) => [c, ...prev.filter((x) => x.id !== c.id)]);
-      id = c.id;
+  /** A bot's open direct chats, in the list's order: what waits on you first, then the latest. */
+  const sessionsOf = (botId: string) =>
+    convs.filter((c) => c.shape === "direct" && !c.archived && activeMembers(c).some((m) => m.bot.id === botId));
+  const lastSession = useRef(lastSessions());
+  useEffect(() => {
+    const c = active ? convs.find((x) => x.id === active) : undefined;
+    const bot = c?.shape === "direct" ? activeMembers(c)[0]?.bot : undefined;
+    if (!bot || !c || lastSession.current[bot.id] === c.id) return;
+    lastSession.current[bot.id] = c.id;
+    try {
+      localStorage.setItem(LAST_SESSION, JSON.stringify(lastSession.current));
+    } catch {
+      // still remembered for this window
     }
+  }, [active, convs]);
+  /** Which of a bot's sessions its entry opens: the one waiting on you longest, else the one open last, else the latest. */
+  const entryOf = (botId: string, sessions: Conversation[]): Conversation | undefined =>
+    sessions.find((c) => isWaiting(c.attention)) ?? sessions.find((c) => c.id === lastSession.current[botId]) ?? sessions[0];
+
+  const adopt = (c: Conversation) => {
+    setConvs((prev) => [c, ...prev.filter((x) => x.id !== c.id)]);
+    focusComposer.current = true;
+    openConversation(c.id);
+  };
+
+  /** Another session with the same bot, in a chat space of its own, opened at once. */
+  const newSession = async (bot: Bot) => {
+    const r = await startDirect(bot);
+    if (!r.conversation) {
+      toast.error(t("app.startFailed"), { description: r.error });
+      return;
+    }
+    adopt(r.conversation);
+  };
+
+  /** The bot's own entry, like any messenger: the session waiting on you, else the one open last, else the latest; none at all makes one. */
+  const messageBot = async (bot: Bot) => {
+    const id = entryOf(bot.id, sessionsOf(bot.id))?.id;
+    if (!id) return newSession(bot);
     focusComposer.current = true;
     openConversation(id);
   };
@@ -555,11 +587,30 @@ export default function App() {
   const q = query.trim().toLowerCase();
   const shownConvs = q
     ? convs.filter((c) =>
-        [c.title, c.preview ?? "", repoName(c.repo_path), ...c.members.map((m) => m.bot.name)].some((s) =>
+        [c.title, c.preview ?? "", c.dir_kind === "repo" ? repoName(c.repo_path) : "", ...c.members.map((m) => m.bot.name)].some((s) =>
           s.toLowerCase().includes(q),
         ),
       )
     : convs;
+  // direct chats fold into one entry per bot, the list's order deciding which session fronts it; everything else is its own row
+  const entries: Array<{ conv: Conversation; sessions: Conversation[] | null }> = [];
+  {
+    const byBot = new Map<string, Conversation[]>();
+    for (const c of shownConvs) {
+      const bot = c.shape === "direct" && !c.archived ? activeMembers(c)[0]?.bot : undefined;
+      if (!bot) {
+        entries.push({ conv: c, sessions: null });
+        continue;
+      }
+      const mine = byBot.get(bot.id);
+      if (mine) mine.push(c);
+      else {
+        const sessions = [c];
+        byBot.set(bot.id, sessions);
+        entries.push({ conv: c, sessions });
+      }
+    }
+  }
   const members = activeMembers(conv);
   const memberById = useMemo(() => new Map<string, Member>((conv?.members ?? []).map((m) => [m.id, m])), [conv]);
   const names = useMemo(() => (conv?.members ?? []).map((m) => m.bot.name), [conv]);
@@ -568,8 +619,28 @@ export default function App() {
   const selectedBot = contact?.kind === "bot" ? bots.find((b) => b.id === contact.id) : undefined;
   const selectedGroup = contact?.kind === "group" ? convs.find((c) => c.id === contact.id && !c.archived) : undefined;
 
+  /** What a bot's card can do, wherever its face is clicked. */
+  const cardActions: BotCardActions = {
+    message: (bot) => void messageBot(bot),
+    profile: (bot) => {
+      setNav("contacts");
+      setContact({ kind: "bot", id: bot.id });
+      setEditing(null);
+    },
+    // @name addresses someone in a group; alone with a bot there is no one else to address
+    ...(members.length > 1
+      ? {
+          mention: (bot: Bot) => {
+            setDraft((d) => (d && !/\s$/.test(d) ? `${d} @${bot.name} ` : `${d}@${bot.name} `));
+            composer.current?.focus();
+          },
+        }
+      : {}),
+  };
+
   return (
     <Logos.Provider value={logos}>
+    <BotCardActions.Provider value={cardActions}>
     <Executors.Provider value={executors}>
     <HarnessLabels.Provider value={harnessLabels}>
     <SourceRefs.Provider value={sourceRefs}>
@@ -656,37 +727,51 @@ export default function App() {
                         <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
                       )
                     )}
-                    {shownConvs.map((c) => {
-                      const waiting = isWaiting(c.attention) ? t(`attention.${c.attention}`) : null;
+                    {entries.map(({ conv: c, sessions: many }) => {
                       const people = activeMembers(c);
                       const face = people[0] ?? c.members[0];
+                      const all = many ?? [c];
+                      // a bot's entry fronts the session that needs you, else the one open last, else the latest
+                      const target = many && face ? (entryOf(face.bot.id, many) ?? c) : c;
+                      const current = all.some((s) => s.id === active);
+                      const menuFor = many ? (many.find((s) => s.id === active) ?? target) : c;
+                      const waitingOnes = all.filter((s) => isWaiting(s.attention));
+                      const first = waitingOnes[0];
+                      const waiting =
+                        first && isWaiting(first.attention)
+                          ? `${t(`attention.${first.attention}`)}${waitingOnes.length > 1 ? ` · ${waitingOnes.length}` : ""}`
+                          : null;
+                      const busy: Busy = all.map(busyOfConv).find((b) => b === "needs_you") ?? all.map(busyOfConv).find(Boolean) ?? null;
+                      const open = () => setActive(target.id);
                       return (
                         <div
-                          key={c.id}
+                          key={many && face ? `bot:${face.bot.id}` : c.id}
                           role="button"
                           tabIndex={0}
-                          aria-current={c.id === active || undefined}
-                          onClick={() => setActive(c.id)}
+                          aria-current={current || undefined}
+                          onClick={open}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
-                              setActive(c.id);
+                              open();
                             }
                           }}
                           // a div, not a button: the row holds a menu button and nesting buttons is invalid markup
-                          className={cn(ROW, "group/item cursor-default py-2.5", c.archived && "opacity-60", rowState(c.id === active))}
+                          className={cn(ROW, "group/item cursor-default py-2.5", c.archived && "opacity-60", rowState(current))}
                         >
                           {c.shape === "group" ? (
-                            <GroupAvatar bots={people.map((m) => m.bot)} busy={busyOfConv(c)} />
+                            <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} />
                           ) : face ? (
-                            <BotAvatar bot={face.bot} busy={busyOfConv(c)} />
+                            <BotAvatar bot={face.bot} busy={busy} />
                           ) : (
                             <Who kind="bot" />
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               {/* weight is the unread mark: it stays heavy exactly as long as the conversation waits on you */}
-                              <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>{c.title}</span>
+                              <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>
+                                {many && face ? face.bot.name : c.title}
+                              </span>
                               {c.shape === "group" && (
                                 <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
                                   {t("conversation.groupBadge")}
@@ -699,12 +784,18 @@ export default function App() {
                               )}
                               {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
                               <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
-                                {listTime(i18n, c.last_activity_at)}
+                                {listTime(i18n, Math.max(...all.map((s) => s.last_activity_at)))}
                               </span>
                             </div>
                             <div className="mt-0.5 flex items-center gap-2">
+                              {/* which repository, always: same-named conversations in different ones are told apart here */}
+                              {!many && c.dir_kind === "repo" && (
+                                <span className="bg-foreground/[0.06] text-muted-foreground max-w-[45%] shrink-0 truncate rounded px-1 text-[10px] leading-4">
+                                  {repoName(c.repo_path)}
+                                </span>
+                              )}
                               <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-                                {c.preview ?? repoName(c.repo_path)}
+                                {target.preview ?? (!many && c.dir_kind === "chat" ? t("location.chat") : t("app.noMessages"))}
                               </span>
                               {waiting ? (
                                 // opaque, so it keeps its colour on a selected row instead of mixing with the blue
@@ -713,18 +804,21 @@ export default function App() {
                                 </span>
                               ) : (
                                 // running is deliberately quiet: it does not need you
-                                c.run_state === "running" && <Loader className="text-muted-foreground/50 size-3 shrink-0 animate-spin" />
+                                all.some((s) => s.run_state === "running") && (
+                                  <Loader className="text-muted-foreground/50 size-3 shrink-0 animate-spin" />
+                                )
                               )}
                             </div>
                           </div>
                           <ConversationMenu
-                            conv={c}
+                            conv={menuFor}
                             className="absolute top-2 right-1.5"
                             onRename={() => {
-                              setActive(c.id);
-                              setRenaming(c.id);
+                              setActive(menuFor.id);
+                              setRenaming(menuFor.id);
                             }}
                             onGone={dropConversation}
+                            onNewSession={many && face ? () => void newSession(face.bot) : undefined}
                           />
                         </div>
                       );
@@ -817,6 +911,7 @@ export default function App() {
                     key={selectedGroup.id}
                     conv={selectedGroup}
                     bots={bots}
+                    convs={convs}
                     presence={presence}
                     busy={busyOfConv(selectedGroup)}
                     onMessage={() => {
@@ -863,13 +958,18 @@ export default function App() {
                 )}
                 <header className="flex h-13 shrink-0 items-center gap-3 px-5" style={DRAG}>
                   {group ? (
-                    <GroupAvatar bots={members.map((m) => m.bot)} busy={busyOfConv(conv)} />
+                    <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} busy={busyOfConv(conv)} />
                   ) : members[0] ? (
-                    <BotAvatar bot={members[0].bot} busy={busyOfConv(conv)} />
+                    <BotCardTrigger bot={members[0].bot} presence={presence[members[0].id] ?? null} style={NO_DRAG}>
+                      <BotAvatar bot={members[0].bot} busy={busyOfConv(conv)} />
+                    </BotCardTrigger>
                   ) : null}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      {renaming === conv.id ? (
+                      {!group ? (
+                        // a direct chat is headed by the bot; the session is named below, where it is switched
+                        <span className="truncate px-1.5 py-0.5 text-sm font-semibold">{members[0]?.bot.name ?? conv.title}</span>
+                      ) : renaming === conv.id ? (
                         <RenameInput conv={conv} style={NO_DRAG} className="text-sm" onDone={() => setRenaming(null)} />
                       ) : (
                         <span
@@ -891,14 +991,33 @@ export default function App() {
                         )
                       )}
                     </div>
-                    <div className="text-muted-foreground truncate px-1.5 text-[11px]">
-                      {group
-                        ? `${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
-                            conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
-                          }`
-                        : [members[0]?.bot.name, members[0]?.bot.title].filter(Boolean).join(" · ")}
-                      <span className="font-mono"> · {conv.repo_path}</span>
-                    </div>
+                    {group ? (
+                      <div className="text-muted-foreground truncate px-1.5 text-[11px]">
+                        {`${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
+                          conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
+                        }`}
+                        <span className={conv.dir_kind === "repo" ? "font-mono" : undefined}> · {locationLabel(t, conv)}</span>
+                      </div>
+                    ) : renaming === conv.id ? (
+                      <div className="px-1.5">
+                        <RenameInput conv={conv} style={NO_DRAG} className="text-[11px]" onDone={() => setRenaming(null)} />
+                      </div>
+                    ) : (
+                      <div className="text-muted-foreground flex min-w-0 px-1.5 text-[11px]">
+                        <SessionSwitcher
+                          conv={conv}
+                          sessions={members[0] ? sessionsOf(members[0].bot.id) : [conv]}
+                          name={members[0]?.bot.name ?? ""}
+                          time={(ts) => listTime(i18n, ts)}
+                          onPick={openConversation}
+                          onNew={() => {
+                            if (members[0]) void newSession(members[0].bot);
+                          }}
+                          onRename={() => setRenaming(conv.id)}
+                          style={NO_DRAG}
+                        />
+                      </div>
+                    )}
                   </div>
                   {!group && (
                     <span style={NO_DRAG}>
@@ -931,7 +1050,7 @@ export default function App() {
                         <div className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
                           {group ? (
                             <>
-                              <GroupAvatar bots={members.map((m) => m.bot)} size="lg" />
+                              <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} size="lg" />
                               <p className="text-sm">{t("app.groupHas", { names: list(members.map((m) => m.bot.name)) })}</p>
                               <p className="max-w-sm text-xs">{t(`mode.${conv.mode}.hint`)}</p>
                             </>
@@ -1003,6 +1122,7 @@ export default function App() {
                 bots={bots}
                 presence={presence}
                 sessions={{ info: sessions, options: sessionOptions, quota }}
+                convs={convs}
                 onClose={() => setPanel((p) => ({ ...p, [conv.shape]: false }))}
                 onOpenBot={(id) => {
                   setNav("contacts");
@@ -1023,7 +1143,7 @@ export default function App() {
         onOpenChange={(open) => setStarting((s) => ({ ...s, open }))}
         bots={bots}
         capabilities={caps}
-        defaultDir={defaultDir}
+        convs={convs}
         initialBotIds={starting.botIds}
         onCreated={(c) => {
           setConvs((prev) => [c, ...prev.filter((x) => x.id !== c.id)]);
@@ -1049,6 +1169,7 @@ export default function App() {
     </SourceRefs.Provider>
     </HarnessLabels.Provider>
     </Executors.Provider>
+    </BotCardActions.Provider>
     </Logos.Provider>
   );
 }

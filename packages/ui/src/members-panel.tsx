@@ -23,8 +23,10 @@ import {
   type SessionOptions,
 } from "./api";
 import { BotAvatar, busyOf, HumanAvatar } from "./bot-avatar";
+import { BotCardTrigger } from "./bot-card";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
+import { DirectorySection } from "./location";
 import { useMe } from "./me";
 import { leaderOf } from "./mentions";
 import { presenceLabel } from "./presence";
@@ -97,6 +99,7 @@ export function MembersPanel({
   bots,
   presence,
   sessions,
+  convs,
   onClose,
   onOpenBot,
 }: {
@@ -108,6 +111,8 @@ export function MembersPanel({
   bots: Bot[];
   presence: Record<string, Presence>;
   sessions: MemberSessions;
+  /** every conversation, so a directory change can say who else works there */
+  convs: Conversation[];
   onClose: () => void;
   onOpenBot: (botId: string) => void;
 }) {
@@ -176,6 +181,7 @@ export function MembersPanel({
           <Separator />
           <ScrollArea className="min-h-0 flex-1">
             <MemberSections conv={conv} bots={bots} presence={presence} sessions={sessions} onOpenBot={onOpenBot} className="p-4" />
+            <DirectorySection conv={conv} convs={convs} className="px-4 pb-4" />
           </ScrollArea>
         </aside>
       </div>
@@ -326,13 +332,9 @@ function MemberRow({
   const modes = Boolean(info?.mode && choices?.modes.length);
   return (
     <div className="group/member hover:bg-accent/50 -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2 transition-colors">
-      <button
-        onClick={onOpen}
-        title={t("members.viewProfile")}
-        className="focus-visible:ring-ring/50 mt-0.5 rounded-[23%] outline-none focus-visible:ring-2"
-      >
+      <BotCardTrigger bot={bot} presence={presence} className="mt-0.5">
         <BotAvatar bot={bot} busy={busyOf(presence?.state)} />
-      </button>
+      </BotCardTrigger>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate text-sm font-medium">{bot.name}</span>

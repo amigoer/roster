@@ -22,7 +22,7 @@ import { findMentions } from "./mentions.js";
 import type { Registry } from "./registry.js";
 import type { Sources } from "./sources.js";
 import { cropQuote, titleFrom, UNTITLED } from "./store.js";
-import type { ConversationRow, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
+import type { ConversationRow, DirKind, MemberRow, MemberSettings, Mode, Store, Tier } from "./store.js";
 
 export type Broadcast = (msg: { kind: string; [k: string]: unknown }) => void;
 
@@ -512,10 +512,7 @@ export class Orchestrator {
     if (live?.running) throw new Error(t("error.sync.busy"));
     const picked = member.settings;
     this.store.refreshSpec(memberId);
-    if (live) {
-      this.#drop(live);
-      live.session = null;
-    }
+    if (live) this.#forget(live);
     // picks the new setup still offers carry over; the rest belonged to the old one
     const refreshed = this.store.getMember(memberId);
     if (refreshed && Object.keys(picked).length > 0) {
@@ -525,13 +522,48 @@ export class Orchestrator {
     }
     this.#notice(conversationId, "notice.synced", { name: this.#name(member) });
     this.#pushConversations();
-    // the old session's report no longer holds; show what the new spec will run until a turn restates it
-    const synced = this.store.getMember(memberId);
-    if (synced) {
-      void this.#resting(synced).then((info) => {
-        if (!this.#lives.get(memberId)?.session) this.broadcast({ kind: "session", conversationId, memberId, info });
-      });
-    }
+    this.#announceResting(conversationId, memberId);
+  }
+
+  /**
+   * Moves the conversation. Every backend session is bound to the directory it
+   * was opened in, so each member starts a fresh one there on its next turn and
+   * reads the transcript again; nothing may be mid-turn. Returns false when the
+   * conversation already works there.
+   */
+  async setDirectory(conversationId: string, path: string, kind: DirKind): Promise<boolean> {
+    const conv = this.store.getConversation(conversationId);
+    if (!conv) throw new Error(t("error.conversation.notFound"));
+    // a direct chat is one bot in its own chat space; there is no other place for it
+    if (conv.shape === "direct" && conv.dir_kind === "chat") throw new Error(t("error.directory.direct"));
+    if (conv.repo_path === path && conv.dir_kind === kind) return false;
+    const lives = this.#livesOf(conversationId);
+    // a session still starting would come up in the old directory
+    if (lives.some((l) => l.running || l.queued.size > 0 || l.starting)) throw new Error(t("error.directory.busy"));
+    this.store.setDirectory(conversationId, path, kind);
+    for (const live of lives) this.#forget(live);
+    // handoffs were made for work in the old directory
+    this.#group(conversationId).awaiting.clear();
+    if (kind === "chat") this.#notice(conversationId, "notice.directory.chat", { path });
+    else this.#notice(conversationId, "notice.directory", { path });
+    this.#pushConversations();
+    for (const m of this.store.activeMembers(conversationId)) this.#announceResting(conversationId, m.id);
+    return true;
+  }
+
+  /** Forgets the runtime and what it reported; the next turn opens a new session. */
+  #forget(live: Live): void {
+    this.#drop(live);
+    live.session = null;
+  }
+
+  /** The old session's report no longer holds; shows what the member will run with until a turn restates it. */
+  #announceResting(conversationId: string, memberId: string): void {
+    const member = this.store.getMember(memberId);
+    if (!member) return;
+    void this.#resting(member).then((info) => {
+      if (!this.#lives.get(memberId)?.session) this.broadcast({ kind: "session", conversationId, memberId, info });
+    });
   }
 
   /**
@@ -637,7 +669,8 @@ export class Orchestrator {
     const { items, upTo } = this.store.backlog(member);
     const store = this.attachments;
     const delivery = composeDelivery({
-      shape: conv.shape,
+      // alone, a member reads the person's words as they are; the conversation's shape is only how the window draws it
+      shape: members.length > 1 ? "group" : "direct",
       title: conv.title,
       mode: conv.mode,
       selfId: member.id,

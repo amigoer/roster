@@ -133,41 +133,57 @@ export function BotAvatar({
   );
 }
 
-/** Two cells plus the gap must fit the box's inner width, or the tiles wrap one per row. */
+/** Two tiles corner to corner inside the square, the front one ringed off the back one; the count sits in the free corner. */
 const GROUP_SIZES = {
-  md: { box: "size-9 gap-px p-[2px]", tile: "size-[15px]", you: "size-2.5", letter: "text-[8px]" },
-  lg: { box: "size-14 gap-0.5 p-[3px]", tile: "size-6", you: "size-3.5", letter: "text-[11px]" },
-  xl: { box: "size-20 gap-[3px] p-1", tile: "size-[34px]", you: "size-5", letter: "text-[15px]" },
+  md: { box: "size-9", tile: "size-[26px]", ring: "ring-[1.5px]", badge: "h-3.5 min-w-3.5 px-1 text-[8px]" },
+  lg: { box: "size-14", tile: "size-10", ring: "ring-2", badge: "h-5 min-w-5 px-1.5 text-[10px]" },
+  xl: { box: "size-20", tile: "size-14", ring: "ring-[3px]", badge: "h-7 min-w-7 px-2 text-xs" },
 } as const;
 
-/** A group's face is its members' logos tiled together, like any IM -- and you are one of the people in it. */
+/**
+ * A group's face: a logo picked for it, or its members' faces stacked the way
+ * the composer shows who a message goes to. Whole faces, since these
+ * characters do not survive being quartered; past two, the rest is a count.
+ */
 export function GroupAvatar({
   bots,
+  avatar = null,
   size = "md",
   busy = null,
 }: {
   bots: Array<Pick<Bot, "id" | "avatar">>;
+  /** a logo id chosen for the group; null stacks the members */
+  avatar?: string | null;
   size?: keyof typeof GROUP_SIZES;
   busy?: Busy;
 }) {
   const logos = useLogos();
-  const me = useMe().profile;
-  const { box, tile, you, letter } = GROUP_SIZES[size];
+  const { box, tile, ring, badge } = GROUP_SIZES[size];
+  const chosen = avatar ? logos.find((l) => l.id === avatar) : undefined;
+  const shown = bots.slice(0, 2);
+  const more = bots.length - shown.length;
   return (
     <span className="relative inline-flex shrink-0">
-      <span
-        className={cn(
-          "bg-muted inline-flex flex-wrap content-center items-center justify-center overflow-hidden rounded-[23%]",
-          box,
-        )}
-        aria-hidden
-      >
-        {/* four tiles is what the square holds; a crowded group drops a bot, never you */}
-        {bots.slice(0, 3).map((b) => (
-          <LogoImage key={b.id} logo={logoOf(b, logos)} className={tile} />
-        ))}
-        <YouTile profile={me} className={cn("bg-background", tile)} letter={letter} icon={you} />
-      </span>
+      {chosen || shown.length < 2 ? (
+        // one member wears its own face; the group badge beside the title says the rest
+        <LogoImage logo={chosen ?? (shown[0] ? logoOf(shown[0], logos) : undefined)} className={box} />
+      ) : (
+        <span className={cn("relative block", box)} aria-hidden>
+          <LogoImage logo={logoOf(shown[0]!, logos)} className={cn("absolute top-0 left-0", tile)} />
+          <LogoImage logo={logoOf(shown[1]!, logos)} className={cn("ring-background absolute right-0 bottom-0", ring, tile)} />
+          {more > 0 && (
+            <span
+              className={cn(
+                "bg-foreground text-background ring-background absolute -top-0.5 -right-0.5 inline-flex items-center justify-center rounded-full leading-none font-semibold tabular-nums",
+                ring,
+                badge,
+              )}
+            >
+              +{more}
+            </span>
+          )}
+        </span>
+      )}
       <Dot busy={busy} size={size} />
     </span>
   );

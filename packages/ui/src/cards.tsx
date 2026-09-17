@@ -3,6 +3,7 @@ import { Bird, Bot, Loader, QuoteIcon, ShieldAlert, User } from "lucide-react";
 import { api, type AttachmentRef, type Member, type Message, type Quote } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
+import { BotCardTrigger } from "./bot-card";
 import { useI18n, type I18n } from "./i18n";
 import { Markdown, MentionChip, MentionNames, plain, StreamingMarkdown } from "./markdown";
 import { segments } from "./mentions";
@@ -136,7 +137,15 @@ function Bubble({
 }) {
   return (
     <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")}>
-      {who === "human" ? <HumanAvatar /> : author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />}
+      {who === "human" ? (
+        <HumanAvatar />
+      ) : author ? (
+        <BotCardTrigger bot={author.bot} className="self-start">
+          <BotAvatar bot={author.bot} />
+        </BotCardTrigger>
+      ) : (
+        <Who kind="bot" />
+      )}
       <div className={cn("flex max-w-[min(680px,78%)] min-w-0 flex-col gap-1", who === "human" && "items-end")}>
         {group && who === "bot" && author && <Byline author={author} />}
         {attachments}
@@ -321,7 +330,13 @@ export function TurnView({
   if (parts.length === 0 && pending.length === 0) return null;
   return (
     <div className="group/msg flex gap-3">
-      {author ? <BotAvatar bot={author.bot} /> : <Who kind="bot" />}
+      {author ? (
+        <BotCardTrigger bot={author.bot} className="self-start">
+          <BotAvatar bot={author.bot} />
+        </BotCardTrigger>
+      ) : (
+        <Who kind="bot" />
+      )}
       <div className="flex w-full max-w-[min(680px,78%)] min-w-0 flex-col gap-1">
         {group && author && <Byline author={author} />}
         <div className="flex min-w-0 flex-col gap-2">

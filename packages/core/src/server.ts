@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize } from "node:path";
+import { homedir } from "node:os";
+import { extname, isAbsolute, join, normalize, sep } from "node:path";
 import type { About } from "./about.js";
 import { MAX_BYTES, MAX_PER_MESSAGE, type AttachmentStore } from "./attachments.js";
+import type { ChatSpaces } from "./chats.js";
 import type { Harnesses } from "./harnesses.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { Detector } from "./detect.js";
@@ -28,6 +31,24 @@ const MIME: Record<string, string> = {
 
 const TIERS = ["read", "write", "execute"] as const;
 const MODES: readonly Mode[] = ["human_led", "leader", "discussion"];
+/** how many past directories to look at, and how many to offer once the missing ones are dropped */
+const RECENT_SCAN = 24;
+const RECENT_SHOWN = 8;
+
+/**
+ * A directory a person named: ~ expanded, absolute because core has no working
+ * directory of its own, normalized, and there. A bad path is caught here,
+ * where the message can be shown, rather than three layers down inside a backend.
+ */
+function directoryOf(raw: unknown): string {
+  let dir = String(raw ?? "").trim();
+  if (dir === "~" || dir.startsWith("~/")) dir = join(homedir(), dir.slice(1));
+  if (!dir || !isAbsolute(dir)) throw new Rejection(t("error.conversation.notAbsolute", { path: dir }));
+  dir = normalize(dir);
+  while (dir.length > 1 && dir.endsWith(sep)) dir = dir.slice(0, -1);
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Rejection(t("error.conversation.notDirectory", { path: dir }));
+  return dir;
+}
 
 export interface ServerHandle {
   port: number;
@@ -101,6 +122,7 @@ export function startServer(opts: {
   store: Store;
   orchestrator: Orchestrator;
   attachments: AttachmentStore;
+  chats: ChatSpaces;
   settings: ExecutorSettings;
   extensions: Extensions;
   installer: Installer;
@@ -118,7 +140,7 @@ export function startServer(opts: {
   broadcast(msg: unknown): void;
   subscribe(fn: (msg: unknown) => void): () => void;
 }): Promise<ServerHandle> {
-  const { store, orchestrator, attachments, uiDir, extensions, installer, harnesses, catalog, detector } = opts;
+  const { store, orchestrator, attachments, chats, uiDir, extensions, installer, harnesses, catalog, detector } = opts;
   // read per request: executors can be added and removed while the server runs
   const executors = () => Object.keys(orchestrator.capabilities());
 
@@ -211,8 +233,16 @@ export function startServer(opts: {
         presence: orchestrator.presence(),
         logos: logos(),
         preferences: opts.preferences(),
-        defaultDir: process.env["ROSTER_DEFAULT_DIR"] ?? process.cwd(),
       });
+    }
+
+    if (path === "/api/locations") {
+      // where a new conversation can work: Roster's own chat spaces, and directories picked before that are still there
+      const recent = store
+        .recentDirs(RECENT_SCAN)
+        .filter((dir) => existsSync(dir) && statSync(dir).isDirectory())
+        .slice(0, RECENT_SHOWN);
+      return json(res, { chats: chats.root, recent });
     }
 
     if (path === "/api/preferences" && method === "GET") {
@@ -506,26 +536,34 @@ export function startServer(opts: {
 
     if (path === "/api/conversations" && method === "POST") {
       const body = await readBody(req);
-      const dir = String(body["repoPath"] ?? process.cwd()).trim();
-      // catch a bad path here, where the message can be shown, rather than three
-      // layers down inside a backend
-      if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Rejection(t("error.conversation.notDirectory", { path: dir }));
       const botIds = Array.isArray(body["botIds"]) ? [...new Set((body["botIds"] as unknown[]).map(String))] : [];
       const bots = botIds.map((id) => store.getBot(id));
       if (bots.length === 0) throw new Rejection(t("error.conversation.pickBot"));
       if (bots.some((b) => !b || b.archived_at !== null)) throw new Rejection(t("error.conversation.botGone"));
       const mode = MODES.includes(body["mode"] as Mode) ? (body["mode"] as Mode) : "human_led";
       const leaderBotId = typeof body["leaderBotId"] === "string" ? body["leaderBotId"] : undefined;
+      // no directory named means a chat space: core never works where it happens to have been started
+      const chat = body["chat"] === true || !String(body["repoPath"] ?? "").trim();
+      const id = randomUUID();
+      const dir = chat ? chats.create(id) : directoryOf(body["repoPath"]);
       // a default title, which the first message replaces
       const fallback = bots.length > 1 ? t("conversation.newGroup") : t("conversation.directTitle", { name: bots[0]!.name });
-      const conv = store.createConversation({
-        title: optText(body["title"], 80) ?? fallback,
-        repoPath: dir,
-        worktreePath: dir,
-        botIds,
-        mode,
-        ...(leaderBotId ? { leaderBotId } : {}),
-      });
+      let conv;
+      try {
+        conv = store.createConversation({
+          id,
+          title: optText(body["title"], 80) ?? fallback,
+          repoPath: dir,
+          worktreePath: dir,
+          dirKind: chat ? "chat" : "repo",
+          botIds,
+          mode,
+          ...(leaderBotId ? { leaderBotId } : {}),
+        });
+      } catch (err) {
+        if (chat) chats.remove(id);
+        throw err;
+      }
       pushConversations();
       // same shape as the list endpoint, so the UI can insert it optimistically
       return json(res, { conversation: { ...conv, members: store.members(conv.id), archived: false } });
@@ -606,7 +644,10 @@ export function startServer(opts: {
     if (conv?.[1] && method === "DELETE") {
       await orchestrator.release(conv[1]);
       const ok = store.delete(conv[1]);
-      if (ok) attachments.removeConversation(conv[1]);
+      if (ok) {
+        attachments.removeConversation(conv[1]);
+        chats.remove(conv[1]);
+      }
       pushConversations();
       return json(res, { ok });
     }
@@ -624,6 +665,18 @@ export function startServer(opts: {
         if (!MODES.includes(mode)) throw new Rejection(t("error.conversation.unknownMode"));
         const leader = typeof body["leaderMemberId"] === "string" ? body["leaderMemberId"] : undefined;
         guard(() => orchestrator.setMode(id, mode, leader));
+      }
+      if ("avatar" in body) {
+        // one of the bundled logos, so a group looks like the bots in it; null goes back to their faces
+        const avatar = body["avatar"];
+        if (avatar !== null && !isLogo(avatar)) throw new Rejection(t("error.bot.avatar"));
+        store.setAvatar(id, avatar);
+      }
+      if ("repoPath" in body || body["chat"] === true) {
+        const chat = body["chat"] === true;
+        // a folder made for a change that is then refused is empty and keyed by the conversation; deleting it cleans up
+        const dir = chat ? chats.create(id) : directoryOf(body["repoPath"]);
+        await guardAsync(() => orchestrator.setDirectory(id, dir, chat ? "chat" : "repo"));
       }
       pushConversations();
       return json(res, { ok: true });

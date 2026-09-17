@@ -6,6 +6,7 @@ import { aboutReader } from "./about.js";
 import { AttachmentStore } from "./attachments.js";
 import { Harnesses } from "./harnesses.js";
 import { CATALOG } from "./catalog.js";
+import { ChatSpaces } from "./chats.js";
 import { openDb } from "./db/index.js";
 import { Detector } from "./detect.js";
 import { ExecutorSettings } from "./executors.js";
@@ -111,7 +112,13 @@ const about = aboutReader({
   fromSource: checkout,
   // core's own build and the adapters loaded into it: rebuilding any of them only applies after a restart
   codeDirs: [here, join(here, "db"), ...extensions.list().map((e) => join(e.dir, "dist"))],
-  paths: { data: dataDir, agents: join(dataDir, "agents"), attachments: join(dataDir, "attachments"), extensions: extensionsDir },
+  paths: {
+    data: dataDir,
+    agents: join(dataDir, "agents"),
+    attachments: join(dataDir, "attachments"),
+    chats: join(dataDir, "chats"),
+    extensions: extensionsDir,
+  },
 });
 
 const secrets = new Secrets(db, vault);
@@ -169,6 +176,7 @@ const build = () =>
 let registry = build();
 const sources = new Sources(store, secrets, () => registry, (t) => settings.presets(t));
 const attachments = new AttachmentStore(join(dataDir, "attachments"));
+const chats = new ChatSpaces(join(dataDir, "chats"));
 const orchestrator = new Orchestrator(store, broadcast as never, registry, sources, attachments);
 // executors are made when someone needs one, so a change only has to rebuild them against what is configured now
 const changed = () => {
@@ -231,6 +239,7 @@ const handle = await startServer({
   store,
   orchestrator,
   attachments,
+  chats,
   settings,
   extensions,
   installer,

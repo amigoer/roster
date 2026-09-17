@@ -1,4 +1,4 @@
-import { Fragment, useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { Archive, Eye, Loader, MessageCircle, Pencil, Plus, Shuffle, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,6 +20,7 @@ import { DeleteConversation, RenameInput } from "./conversation-menu";
 import { byHarness, Executors, HarnessLabels, useExecutor } from "./executors";
 import { useI18n } from "./i18n";
 import { LIST_BODY, ListSearch, ROW, rowState, SectionLabel } from "./list";
+import { DirectorySection, locationLabel } from "./location";
 import { Markdown } from "./markdown";
 import { MemberSections, MODES } from "./members-panel";
 import { leaderOf } from "./mentions";
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -106,7 +108,7 @@ export function ContactList({
                     onClick={() => onSelect({ kind: "group", id: c.id })}
                     className={cn(ROW, rowState(isSelected("group", c.id)))}
                   >
-                    <GroupAvatar bots={members.map((m) => m.bot)} />
+                    <GroupAvatar bots={members.map((m) => m.bot)} avatar={c.avatar} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{c.title}</div>
                       <div className="text-muted-foreground truncate text-xs">
@@ -301,13 +303,15 @@ export function BotProfile({
                   className="hover:bg-accent/50 focus-visible:ring-ring/50 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 outline-none focus-visible:ring-2"
                 >
                   {c.shape === "group" ? (
-                    <GroupAvatar bots={activeMembers(c).map((m) => m.bot)} />
+                    <GroupAvatar bots={activeMembers(c).map((m) => m.bot)} avatar={c.avatar} />
                   ) : (
                     <BotAvatar bot={bot} />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{c.title}</span>
-                    <span className="text-muted-foreground block truncate font-mono text-[11px]">{c.repo_path}</span>
+                    <span className={cn("text-muted-foreground block truncate text-[11px]", c.dir_kind === "repo" && "font-mono")}>
+                      {locationLabel(t, c)}
+                    </span>
                   </span>
                   {c.shape === "group" && (
                     <Badge variant="secondary" className="px-1 py-0 text-[10px]">
@@ -347,6 +351,7 @@ export function BotProfile({
 export function GroupProfile({
   conv,
   bots,
+  convs,
   presence,
   busy,
   onMessage,
@@ -355,6 +360,8 @@ export function GroupProfile({
 }: {
   conv: Conversation;
   bots: Bot[];
+  /** every conversation, so a directory change can say who else works there */
+  convs: Conversation[];
   presence: Record<string, Presence>;
   busy: Busy;
   onMessage: () => void;
@@ -364,15 +371,28 @@ export function GroupProfile({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [picking, setPicking] = useState(false);
   const { t, list } = useI18n();
   const members = activeMembers(conv);
   const mode = MODES.find((m) => m.id === conv.mode);
+  const choose = async (avatar: string | null) => {
+    setPicking(false);
+    const r = await api.setAvatar(conv.id, avatar);
+    if (r.error) toast.error(r.error);
+  };
 
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto max-w-2xl px-8 py-10">
         <div className="flex flex-wrap items-start gap-5">
-          <GroupAvatar bots={members.map((m) => m.bot)} size="xl" busy={busy} />
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            title={t("group.avatarChange")}
+            className="ring-offset-background rounded-[23%] ring-offset-2 transition outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} size="xl" busy={busy} />
+          </button>
           <div className="min-w-48 flex-1 pt-1">
             {/* both pad the text by the same amount, so it does not jump when the field swaps in */}
             {renaming ? (
@@ -442,20 +462,34 @@ export function GroupProfile({
 
         <MemberSections conv={conv} bots={bots} presence={presence} onOpenBot={onOpenBot} className="mt-7 space-y-7" />
 
-        <Section title={t("conversation.directory")}>
-          <p className="font-mono text-xs wrap-anywhere">
-            {/* a narrow column breaks after a separator, not inside a directory name */}
-            {conv.repo_path.split(/(?<=[\\/])/).map((part, i) => (
-              <Fragment key={i}>
-                {part}
-                <wbr />
-              </Fragment>
-            ))}
-          </p>
-        </Section>
+        <DirectorySection conv={conv} convs={convs} className="mt-7" />
       </div>
 
       <DeleteConversation conv={conv} open={confirming} onOpenChange={setConfirming} onDeleted={onGone} />
+
+      <Dialog open={picking} onOpenChange={setPicking}>
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>{t("group.avatarTitle")}</DialogTitle>
+            <DialogDescription>{t("group.avatarHint")}</DialogDescription>
+          </DialogHeader>
+          <button
+            type="button"
+            onClick={() => void choose(null)}
+            className={cn(
+              "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+              conv.avatar === null ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+            )}
+          >
+            <GroupAvatar bots={members.map((m) => m.bot)} />
+            <span>
+              <span className="block text-sm font-medium">{t("group.avatarAuto")}</span>
+              <span className="text-muted-foreground block text-xs">{t("group.avatarAutoHint")}</span>
+            </span>
+          </button>
+          <LogoPicker value={conv.avatar} onChange={(id) => void choose(id)} bots={bots} />
+        </DialogContent>
+      </Dialog>
     </ScrollArea>
   );
 }

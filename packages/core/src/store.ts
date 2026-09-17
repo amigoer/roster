@@ -95,6 +95,9 @@ export type BotSpec = Pick<BotRow, "name" | "system_prompt" | "executor_id" | "m
 /** A member's picks for its session. The source is not among them: it belongs to the executor. */
 export type MemberSettings = SessionSettings;
 
+/** Where a conversation works: a directory a person picked, or a chat space of Roster's own. */
+export type DirKind = "repo" | "chat";
+
 export interface ConversationRow {
   id: string;
   title: string;
@@ -103,6 +106,9 @@ export interface ConversationRow {
   leader_member_id: string | null;
   repo_path: string;
   worktree_path: string;
+  dir_kind: DirKind;
+  /** a logo picked for the group; null shows its members' faces */
+  avatar: string | null;
   created_at: number;
   archived_at: number | null;
   last_seq: number;
@@ -662,25 +668,30 @@ export class Store {
   // ---- conversations ----
 
   createConversation(input: {
+    /** given when the caller had to make the directory before the row existed */
+    id?: string;
     title: string;
     repoPath: string;
     worktreePath: string;
+    dirKind?: DirKind;
     botIds: string[];
     mode?: Mode;
     leaderBotId?: string;
   }): ConversationRow {
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     const t = now();
-    // shape is a presentation hint; a 1:1 is a one-member group and takes the
-    // same code path everywhere below
-    const shape = input.botIds.length > 1 ? "group" : "direct";
+    const dirKind = input.dirKind ?? "repo";
+    // shape is a presentation hint; the runtime treats a 1:1 as a one-member
+    // group. A direct chat is one bot in its chat space; anything in a
+    // repository is a group, even with one bot, because that is work
+    const shape = input.botIds.length > 1 || dirKind === "repo" ? "group" : "direct";
     this.db
       .prepare(
-        `INSERT INTO conversations (id, title, shape, mode, repo_path, worktree_path,
+        `INSERT INTO conversations (id, title, shape, mode, repo_path, worktree_path, dir_kind,
                                     created_at, last_activity_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.title, shape, input.mode ?? "human_led", input.repoPath, input.worktreePath, t, t);
+      .run(id, input.title, shape, input.mode ?? "human_led", input.repoPath, input.worktreePath, dirKind, t, t);
 
     for (const botId of new Set(input.botIds)) {
       const member = this.#insertMember(id, botId, t);
@@ -709,6 +720,40 @@ export class Store {
     this.db
       .prepare(`UPDATE conversations SET archived_at = ? WHERE id = ?`)
       .run(archived ? now() : null, id);
+  }
+
+  setAvatar(id: string, avatar: string | null): void {
+    this.db.prepare(`UPDATE conversations SET avatar = ? WHERE id = ?`).run(avatar, id);
+  }
+
+  /**
+   * Moves the conversation. Every backend session was opened in the old
+   * directory and resumes only there, so each present member starts over and
+   * is owed the transcript again. Its preset and its picks still hold.
+   */
+  setDirectory(id: string, path: string, kind: DirKind): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`UPDATE conversations SET repo_path = ?, worktree_path = ?, dir_kind = ? WHERE id = ?`).run(path, path, kind, id);
+      this.db
+        .prepare(`UPDATE members SET resume_token = NULL, delivered_seq = 0, session_json = NULL WHERE conversation_id = ? AND left_at IS NULL`)
+        .run(id);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  /** Directories people picked, most recently active first, archived ones included; whether they still exist is the caller's to check. */
+  recentDirs(limit: number): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT repo_path AS path FROM conversations WHERE dir_kind = 'repo'
+         GROUP BY repo_path ORDER BY MAX(last_activity_at) DESC LIMIT ?`,
+      )
+      .all(limit) as unknown as Array<{ path: string }>;
+    return rows.map((r) => r.path);
   }
 
   /** Cascades to members, events and messages via the schema's foreign keys. */

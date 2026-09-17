@@ -36,7 +36,7 @@ export interface About {
   /** core's code on disk changed after it started, so the running core is older than the build */
   stale: boolean;
   runtime: { node: string; electron?: string; chrome?: string; platform: string; release: string; arch: string };
-  paths: { data: string; agents: string; attachments: string; extensions: string };
+  paths: { data: string; agents: string; attachments: string; chats: string; extensions: string };
   home: string;
 }
 
@@ -294,6 +294,19 @@ export interface Member {
   stale: boolean;
 }
 
+/** Where a conversation works: a directory a person picked, or a chat space of Roster's own. */
+export type DirKind = "repo" | "chat";
+
+/** Where a new conversation is to work, as the dialog picks it. */
+export type Location = { kind: "chat" } | { kind: "repo"; path: string };
+
+export interface Locations {
+  /** the folder chat spaces are made under */
+  chats: string;
+  /** directories picked before, most recently used first, only those still there */
+  recent: string[];
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -301,6 +314,9 @@ export interface Conversation {
   mode: Mode;
   leader_member_id: string | null;
   repo_path: string;
+  dir_kind: DirKind;
+  /** a logo picked for the group; null shows its members' faces */
+  avatar: string | null;
   last_activity_at: number;
   preview: string | null;
   attention: Attention;
@@ -537,8 +553,9 @@ export const api = {
       presence: Presence[];
       logos: Logo[];
       preferences?: Preferences;
-      defaultDir: string;
     }>(`/api/state${archived ? "?archived=1" : ""}`),
+  /** where a new conversation can work */
+  locations: () => j<Locations>("/api/locations"),
   setLocale: (locale: LocalePreference) =>
     j<Preferences & { error?: string }>("/api/preferences", body("PATCH", { locale })),
   /** by agent id */
@@ -623,13 +640,9 @@ export const api = {
     }),
   contextDetail: (convId: string, memberId: string) =>
     j<ContextDetail & { error?: string }>(`/api/conversations/${convId}/members/${memberId}/context`),
-  createConversation: (input: {
-    title?: string;
-    repoPath: string;
-    botIds: string[];
-    mode?: Mode;
-    leaderBotId?: string;
-  }) => j<{ conversation?: Conversation; error?: string }>("/api/conversations", body("POST", input)),
+  createConversation: (
+    input: { title?: string; botIds: string[]; mode?: Mode; leaderBotId?: string } & ({ chat: true } | { repoPath: string }),
+  ) => j<{ conversation?: Conversation; error?: string }>("/api/conversations", body("POST", input)),
   send: (id: string, text: string, attachments: string[] = [], quote?: Quote) =>
     j<{ ok?: boolean; error?: string }>(
       `/api/conversations/${id}/messages`,
@@ -663,6 +676,15 @@ export const api = {
     j<{ ok?: boolean; error?: string }>(`/api/conversations/${id}`, body("PATCH", { title })),
   setMode: (id: string, mode: Mode, leaderMemberId?: string) =>
     j<{ ok?: boolean; error?: string }>(`/api/conversations/${id}`, body("PATCH", { mode, leaderMemberId })),
+  /** a logo for the group, or null for its members' faces */
+  setAvatar: (id: string, avatar: string | null) =>
+    j<{ ok?: boolean; error?: string }>(`/api/conversations/${id}`, body("PATCH", { avatar })),
+  /** moves a group; every member starts over there */
+  setDirectory: (id: string, location: Location) =>
+    j<{ ok?: boolean; error?: string }>(
+      `/api/conversations/${id}`,
+      body("PATCH", location.kind === "chat" ? { chat: true } : { repoPath: location.path }),
+    ),
   abort: (id: string) => j<{ ok: boolean }>(`/api/conversations/${id}/abort`, { method: "POST" }),
   resolvePermission: (convId: string, requestId: string, allow: boolean) =>
     j<{ ok: boolean }>(`/api/conversations/${convId}/permissions/${requestId}`, body("POST", { allow })),

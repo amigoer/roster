@@ -117,6 +117,11 @@ CREATE TABLE IF NOT EXISTS conversations (
   leader_member_id TEXT,
   repo_path     TEXT NOT NULL,
   worktree_path TEXT NOT NULL,
+  -- 'repo' is a directory a person picked; 'chat' is a folder of Roster's own
+  -- under <data>/chats/<id>, for a conversation that is not about a repository
+  dir_kind      TEXT NOT NULL DEFAULT 'repo' CHECK (dir_kind IN ('repo', 'chat')),
+  -- a logo picked for the group; NULL shows its members' faces
+  avatar        TEXT,
   created_at    INTEGER NOT NULL,
   archived_at   INTEGER,
 

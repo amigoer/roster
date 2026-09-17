@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, clipboard, nativeTheme, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -73,6 +73,8 @@ function startCore() {
   const secrets = vaultKey();
   return new Promise((resolve, reject) => {
     core = spawn(process.execPath, [coreEntry], {
+      // core has no working directory of its own; wherever the app was launched from must not become one
+      cwd: os.homedir(),
       // started from the dock, core has no LANG and its Intl says en-US whatever the system is set to
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ROSTER_UI_DIR: uiDir, ROSTER_SYSTEM_LOCALES: app.getPreferredSystemLanguages().join(",") },
       stdio: ["pipe", "pipe", "pipe"],
@@ -120,9 +122,21 @@ app.whenReady().then(async () => {
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0b0d" : "#eef0f4",
     // shown once the page has painted in the theme it picked, so no frame of the wrong one comes first
     show: false,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.once("ready-to-show", () => win.show());
+  // the page's only way to a native folder chooser and to Finder; both take a path, neither returns anything else
+  ipcMain.handle("roster:pickDirectory", async (_e, defaultPath) => {
+    const r = await dialog.showOpenDialog(win, {
+      properties: ["openDirectory", "createDirectory"],
+      ...(typeof defaultPath === "string" && defaultPath ? { defaultPath } : {}),
+    });
+    return r.canceled ? null : (r.filePaths[0] ?? null);
+  });
+  ipcMain.handle("roster:revealDirectory", async (_e, dir) => {
+    if (typeof dir !== "string" || !path.isAbsolute(dir)) return false;
+    return (await shell.openPath(dir)) === "";
+  });
   // a link out of the app belongs in the user's browser, not in a bare Electron window
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:\/\//.test(target)) void shell.openExternal(target);

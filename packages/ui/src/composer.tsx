@@ -129,7 +129,8 @@ export function Composer({
   const { t } = i18n;
 
   const members = activeMembers(conv);
-  const group = conv.shape === "group";
+  // alone, a member is handed your words as they are, so its commands and its session are the ones in play
+  const group = members.length > 1;
   const running = conv.run_state === "running";
   const to = group ? recipients(i18n, conv, draft, messages) : null;
   // the session the toolbar switches is the one the message goes to, so a group sending to one member reads like a direct conversation

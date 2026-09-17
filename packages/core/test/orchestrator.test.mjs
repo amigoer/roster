@@ -64,17 +64,19 @@ function harness(factories) {
     create() {
       const rt = inner.create();
       let name = "?";
+      let cwd;
       return new Proxy(rt, {
         get(target, prop) {
           if (prop === "start") {
             return (opts) => {
               name = opts.systemPrompt ?? "?";
+              cwd = opts.cwd;
               return target.start(opts);
             };
           }
           if (prop === "send") {
             return (text, deliver, attachments = []) => {
-              sent.push({ preset: name, text, attachments });
+              sent.push({ preset: name, cwd, text, attachments });
               return target.send(text, deliver, attachments);
             };
           }
@@ -1795,27 +1797,202 @@ describe("languages", () => {
   });
 });
 
+describe("directories", () => {
+  let h;
+  beforeEach(() => {
+    h = harness();
+  });
+
+  /** A chat-space conversation, made the way the server makes one: the folder first, then the row under that id. */
+  const chat = (bots) => {
+    const id = randomUUID();
+    const dir = join(h.dir, "chats", id);
+    mkdirSync(dir, { recursive: true });
+    return h.store.createConversation({ id, title: "闲聊", repoPath: dir, worktreePath: dir, dirKind: "chat", botIds: bots.map((b) => b.id) });
+  };
+
+  test("one bot in a repository is a group; one bot in a chat space is a direct chat", () => {
+    const pi = h.bot("Pi");
+    const repo = h.group([pi]);
+    assert.equal(repo.dir_kind, "repo");
+    assert.equal(repo.shape, "group");
+    const direct = chat([pi]);
+    assert.equal(direct.dir_kind, "chat");
+    assert.equal(direct.shape, "direct");
+    assert.equal(direct.repo_path, join(h.dir, "chats", direct.id), "the row carries the id the folder was made under");
+    assert.equal(chat([pi, h.bot("Go")]).shape, "group");
+  });
+
+  test("recent directories are the repositories picked, newest activity first, each once", async () => {
+    const pi = h.bot("Pi");
+    const a = mkdtempSync(join(tmpdir(), "roster-a-"));
+    const b = mkdtempSync(join(tmpdir(), "roster-b-"));
+    dirs.push(a, b);
+    const first = h.group([pi], { repoPath: a, worktreePath: a });
+    h.group([pi], { repoPath: b, worktreePath: b });
+    h.group([pi], { repoPath: a, worktreePath: a });
+    chat([pi]);
+    await new Promise((r) => setTimeout(r, 5));
+    h.store.append(first.id, null, null, { type: "system.notice", display: "message", text: "hi" });
+    assert.deepEqual(h.store.recentDirs(10), [a, b]);
+    assert.deepEqual(h.store.recentDirs(1), [a]);
+  });
+
+  test("alone in a group, a bot reads the person's words as they are; a second member turns them into a transcript", async () => {
+    const conv = h.group([h.bot("Pi")]);
+    await h.orch.send(conv.id, "写个 hello");
+    await settle(h.store, conv.id);
+    assert.equal(h.sent.at(-1).text, "写个 hello");
+    assert.equal(h.sent.at(-1).cwd, h.dir);
+    await h.orch.addMember(conv.id, h.bot("Go").id);
+    await h.orch.send(conv.id, "@Go 看看");
+    await settle(h.store, conv.id);
+    assert.match(h.sent.at(-1).text, /<group_chat /);
+  });
+
+  test("moving a group restarts every member from the transcript in the new directory and says so", async () => {
+    const conv = h.group([h.bot("甲"), h.bot("乙")]);
+    await h.orch.send(conv.id, "@所有人 开始");
+    await settle(h.store, conv.id);
+    for (const m of h.store.activeMembers(conv.id)) h.store.setResumeToken(m.id, "old-session");
+    const dir2 = mkdtempSync(join(tmpdir(), "roster-move-"));
+    dirs.push(dir2);
+
+    assert.equal(await h.orch.setDirectory(conv.id, dir2, "repo"), true);
+    assert.equal(h.said(conv.id).at(-1), `* 工作目录改为 ${dir2}`);
+    for (const m of h.store.activeMembers(conv.id)) {
+      assert.equal(m.delivered_seq, 0, "owed the transcript again");
+      assert.equal(m.resume_token, null, "a session opened elsewhere cannot be resumed here");
+    }
+    const after = h.store.getConversation(conv.id);
+    assert.equal(after.repo_path, dir2);
+    assert.equal(after.worktree_path, dir2);
+
+    await h.orch.send(conv.id, "@乙 继续");
+    await settle(h.store, conv.id);
+    const last = h.sent.at(-1);
+    assert.equal(last.cwd, dir2);
+    assert.match(last.text, /<members>/, "a fresh member is told who is in the group");
+    assert.match(last.text, /开始/);
+    assert.match(last.text, /工作目录改为/);
+
+    // the same place again is not a change
+    assert.equal(await h.orch.setDirectory(conv.id, dir2, "repo"), false);
+    assert.equal(h.said(conv.id).filter((s) => s.startsWith("* 工作目录")).length, 1);
+  });
+
+  test("moving to a chat space is named as such, and the shape stays", async () => {
+    const conv = h.group([h.bot("Pi")]);
+    const space = join(h.dir, "chats", conv.id);
+    mkdirSync(space, { recursive: true });
+    assert.equal(await h.orch.setDirectory(conv.id, space, "chat"), true);
+    assert.equal(h.said(conv.id).at(-1), `* 工作目录改为聊天空间（${space}）`);
+    const after = h.store.getConversation(conv.id);
+    assert.equal(after.dir_kind, "chat");
+    assert.equal(after.shape, "group");
+  });
+
+  test("not while a member is working, and never for a direct chat", async () => {
+    const pi = h.bot("Pi");
+    const conv = h.group([pi]);
+    await h.orch.send(conv.id, "干活");
+    await assert.rejects(h.orch.setDirectory(conv.id, join(h.dir, "x"), "repo"), /正在干活/);
+    await settle(h.store, conv.id);
+    await assert.rejects(h.orch.setDirectory(chat([pi]).id, h.dir, "repo"), /单聊/);
+  });
+});
+
+/** Starts a scripted core on its own data directory: the process, its exit, and its URL once it reports ready. */
+function startCore(dir) {
+  const core = spawn(process.execPath, [fileURLToPath(new URL("../dist/main.js", import.meta.url))], {
+    env: { ...process.env, ROSTER_DATA_DIR: dir, ROSTER_PORT: "0", ROSTER_SCRIPTED: "1" },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  core.stdin.end();
+  const exited = new Promise((resolve) => core.once("exit", (code, signal) => resolve({ code, signal })));
+  const url = new Promise((resolve, reject) => {
+    let out = "";
+    core.stdout.on("data", (d) => {
+      out += d;
+      const ready = /"roster":"ready".*"url":"([^"]+)"/.exec(out);
+      if (ready) resolve(ready[1]);
+    });
+    void exited.then(() => reject(new Error("core exited before it was ready")));
+  });
+  return { core, exited, url };
+}
+
+describe("locations", () => {
+  test("a conversation works in a chat space unless a directory is named; directories picked before are offered again", { timeout: 20_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "roster-loc-"));
+    dirs.push(dir);
+    const { core, url } = startCore(dir);
+    try {
+      const base = await url;
+      const call = async (path, method = "GET", body) => {
+        const res = await fetch(new URL(path, base), {
+          method,
+          ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+        });
+        return { status: res.status, body: await res.json() };
+      };
+      const state = (await call("/api/state")).body;
+      const bot = state.bots[0];
+      assert.ok(bot, "scripted mode seeds a bot");
+      assert.equal("defaultDir" in state, false, "core has no working directory of its own");
+
+      const chat = (await call("/api/conversations", "POST", { botIds: [bot.id] })).body.conversation;
+      assert.equal(chat.dir_kind, "chat");
+      assert.equal(chat.shape, "direct");
+      assert.equal(chat.repo_path, join(dir, "chats", chat.id));
+      assert.ok(statSync(chat.repo_path).isDirectory());
+      assert.deepEqual((await call("/api/locations")).body, { chats: join(dir, "chats"), recent: [] });
+
+      const repo = (await call("/api/conversations", "POST", { botIds: [bot.id], repoPath: dir })).body.conversation;
+      assert.equal(repo.dir_kind, "repo");
+      assert.equal(repo.shape, "group", "one bot in a repository is a group");
+      assert.deepEqual((await call("/api/locations")).body.recent, [dir]);
+
+      const relative = await call("/api/conversations", "POST", { botIds: [bot.id], repoPath: "packages" });
+      assert.equal(relative.status, 400);
+      assert.match(relative.body.error, /完整路径|full path/);
+      const missing = await call("/api/conversations", "POST", { botIds: [bot.id], repoPath: join(dir, "nope") });
+      assert.equal(missing.status, 400);
+
+      assert.equal((await call(`/api/conversations/${repo.id}`, "PATCH", { chat: true })).status, 200);
+      const moved = (await call("/api/state")).body.conversations.find((c) => c.id === repo.id);
+      assert.equal(moved.dir_kind, "chat");
+      assert.equal(moved.repo_path, join(dir, "chats", repo.id));
+      const notices = (await call(`/api/conversations/${repo.id}/messages`)).body.messages.filter((m) => m.author_kind === "system");
+      assert.match(JSON.parse(notices.at(-1).body_json).text, /聊天空间|chat space/);
+      const refused = await call(`/api/conversations/${chat.id}`, "PATCH", { repoPath: dir });
+      assert.equal(refused.status, 400, "a direct chat has no other place to be");
+
+      // a group's face: one of the bundled logos, or its members' again
+      const logo = state.logos[0].id;
+      assert.equal((await call(`/api/conversations/${repo.id}`, "PATCH", { avatar: "nope" })).status, 400);
+      assert.equal((await call(`/api/conversations/${repo.id}`, "PATCH", { avatar: logo })).status, 200);
+      const faced = (await call("/api/state")).body.conversations.find((c) => c.id === repo.id);
+      assert.equal(faced.avatar, logo);
+      assert.equal((await call(`/api/conversations/${repo.id}`, "PATCH", { avatar: null })).status, 200);
+      assert.equal((await call("/api/state")).body.conversations.find((c) => c.id === repo.id).avatar, null);
+
+      assert.equal((await call(`/api/conversations/${chat.id}`, "DELETE")).body.ok, true);
+      assert.equal(existsSync(join(dir, "chats", chat.id)), false, "the chat space goes with the conversation");
+    } finally {
+      core.kill("SIGKILL");
+    }
+  });
+});
+
 describe("shutdown", () => {
   test("SIGTERM ends core even while a window holds the event stream open", { timeout: 20_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "roster-test-"));
     dirs.push(dir);
-    const core = spawn(process.execPath, [fileURLToPath(new URL("../dist/main.js", import.meta.url))], {
-      env: { ...process.env, ROSTER_DATA_DIR: dir, ROSTER_PORT: "0", ROSTER_SCRIPTED: "1" },
-      stdio: ["pipe", "pipe", "inherit"],
-    });
-    core.stdin.end();
-    const exited = new Promise((resolve) => core.once("exit", (code, signal) => resolve({ code, signal })));
+    const { core, exited, url: ready } = startCore(dir);
     let timer;
     try {
-      const url = await new Promise((resolve, reject) => {
-        let out = "";
-        core.stdout.on("data", (d) => {
-          out += d;
-          const ready = /"roster":"ready".*"url":"([^"]+)"/.exec(out);
-          if (ready) resolve(ready[1]);
-        });
-        void exited.then(() => reject(new Error("core exited before it was ready")));
-      });
+      const url = await ready;
       const stream = await new Promise((resolve, reject) => get(new URL("/api/stream", url), resolve).on("error", reject));
       stream.resume();
 

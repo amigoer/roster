@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, type Conversation } from "./api";
 import { useI18n } from "./i18n";
 import {
@@ -27,12 +27,15 @@ export function ConversationMenu({
   className,
   onRename,
   onGone,
+  onNewSession,
 }: {
   conv: Conversation;
   className?: string;
   onRename: () => void;
   /** archived or deleted: the caller decides what to select next */
   onGone: (id: string) => void;
+  /** a direct chat can start another session with the same bot */
+  onNewSession?: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const { t } = useI18n();
@@ -60,6 +63,15 @@ export function ConversationMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          {onNewSession && (
+            <>
+              <DropdownMenuItem onSelect={onNewSession}>
+                <Plus className="size-3.5" />
+                {t("session.new")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onSelect={onRename}>
             <Pencil className="size-3.5" />
             {t("common.rename")}

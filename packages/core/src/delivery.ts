@@ -15,7 +15,11 @@ const PRIORITY: Ask[] = ["reports", "lead", "dispatch", "discuss", "mention", "r
 /** Only the newest files ride along natively; older ones are still named in the text. */
 const ATTACHMENTS_PER_TURN = 10;
 
-/** A notice after which the roster has to be restated: who is in the group, or how it runs, changed. */
+/**
+ * A notice after which the roster has to be restated: who is in the group, or
+ * how it runs, changed. A directory change is not here: it resets every
+ * member's delivery, so each reads the roster again as a fresh one.
+ */
 const ROSTER_NOTICE = /^notice\.(joined|removed|leader|mode\.)/;
 
 /** A transcript line with its attachments found on disk. */

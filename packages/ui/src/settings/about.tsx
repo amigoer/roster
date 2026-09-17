@@ -179,6 +179,7 @@ export function AboutPanel({ about }: { about: AboutState }) {
                       [t("about.dataDir"), info.paths.data],
                       [t("about.agentsDir"), info.paths.agents],
                       [t("about.attachmentsDir"), info.paths.attachments],
+                      [t("about.chatsDir"), info.paths.chats],
                       [t("about.extensionsDir"), info.paths.extensions],
                     ] as const
                   ).map(([label, path]) => (
