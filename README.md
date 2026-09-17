@@ -43,6 +43,8 @@ pnpm build
 pnpm start
 ```
 
+On macOS the first run asks whether Roster may send notifications. Say yes: macOS asks once, and until it is allowed, replies and approval requests arrive with nothing to show for them.
+
 Settings (设置) > Harness shows which harnesses were found and offers to download the rest. Add API keys under Settings > 模型 API. An agent (a harness plus its subscription or a model API) can be made under Settings > Agent, or straight from the bot editor.
 
 To run without Electron, use `pnpm core` and open http://127.0.0.1:7788 in a browser. Without the desktop app there is no keychain, so saved keys are stored unencrypted; read them from environment variables instead.
@@ -56,6 +58,8 @@ pnpm -C packages/ui dev      # Vite on :5173, proxying /api to core on :7788
 ```
 
 The desktop app serves the built UI from `packages/ui/dist`, so after UI changes run `pnpm --filter @roster/ui build` and reload the window. `ROSTER_SCRIPTED=1` swaps real agents for a scripted one, which helps when working on the interface.
+
+On macOS `pnpm start` first builds `packages/desktop/.mac/Roster.app`, a clone of the Electron bundle carrying Roster's name, identifier and signature: macOS reads a notification's sender and permission off the bundle it came from, and refuses the one npm ships outright. APFS clones the files, so it costs no disk, and it is rebuilt when Electron changes.
 
 | Variable | Default | Purpose |
 |---|---|---|

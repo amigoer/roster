@@ -19,6 +19,7 @@ import { t, type Key, type ParamsFor } from "./i18n/index.js";
 import type { ParamValue } from "./i18n/translate.js";
 import type { CoreEvent, Quote } from "./log.js";
 import { findMentions } from "./mentions.js";
+import { notificationOf, type Waiting } from "./notify.js";
 import type { Registry } from "./registry.js";
 import type { Sources } from "./sources.js";
 import { cropQuote, isTier, TIERS, titleFrom, UNTITLED } from "./store.js";
@@ -126,6 +127,8 @@ interface Group {
   /** some member has been running since the conversation was last idle */
   busy: boolean;
   failed: boolean;
+  /** what went wrong, so the notification the failure ends in can say it */
+  error: { name: string; message: string } | null;
   /** talking is concurrent, writing is not */
   lease: { holder: string | null; queue: Array<{ memberId: string; grant: (ok: boolean) => void }> };
 }
@@ -133,6 +136,7 @@ interface Group {
 interface Pending {
   conversationId: string;
   memberId: string;
+  call: ToolCall;
   resolve: (d: ToolDecision) => void;
 }
 
@@ -671,6 +675,7 @@ export class Orchestrator {
     if (!g.busy) {
       g.busy = true;
       g.failed = false;
+      g.error = null;
     }
     const turnId = randomUUID();
     Object.assign(live, { running: true, asks, turnId, since: Date.now(), buffer: "", thought: null, aborted: false, errored: false });
@@ -828,11 +833,9 @@ export class Orchestrator {
   }
 
   #fail(live: Live, turnId: string, err: unknown): void {
-    this.#event(live, {
-      type: "error",
-      display: "message",
-      message: err instanceof Error ? err.message : String(err),
-    });
+    const message = err instanceof Error ? err.message : String(err);
+    this.#event(live, { type: "error", display: "message", message });
+    this.#group(live.conversationId).error = { name: this.#nameOf(live.memberId), message };
     this.#drop(live);
     if (live.running && live.turnId === turnId) {
       live.errored = true;
@@ -1001,7 +1004,7 @@ export class Orchestrator {
     this.#event(live, { type: "permission.request", display: "card", call, at: this.#written(live) });
     this.#setPresence(live, "waiting_permission", call.name);
     const decided = new Promise<ToolDecision>((resolve) =>
-      this.#pending.set(call.id, { conversationId: live.conversationId, memberId: live.memberId, resolve }),
+      this.#pending.set(call.id, { conversationId: live.conversationId, memberId: live.memberId, call, resolve }),
     );
     this.#sync(live.conversationId);
     return decided;
@@ -1149,16 +1152,28 @@ export class Orchestrator {
     const g = this.#group(conversationId);
     const running = this.#livesOf(conversationId).some((l) => l.running || l.queued.size > 0);
     this.store.setRunState(conversationId, running ? "running" : "idle");
-    const asking = [...this.#pending.values()].some((p) => p.conversationId === conversationId);
+    const asking = [...this.#pending.values()].find((p) => p.conversationId === conversationId);
     if (asking) {
-      this.store.setAttention(conversationId, "waiting_permission");
+      this.#attend(conv, { reason: "waiting_permission", name: this.#nameOf(asking.memberId), call: asking.call });
     } else if (!running && g.busy) {
       g.busy = false;
-      this.store.setAttention(conversationId, g.failed ? "error" : "waiting_input");
+      const failure = g.failed ? (g.error ?? { message: t("notify.failed") }) : null;
+      this.#attend(conv, failure ? { reason: "error", ...failure } : { reason: "waiting_input" });
     } else if (conv.attention === "waiting_permission") {
       this.store.setAttention(conversationId, "none");
     }
     this.#pushConversations();
+  }
+
+  /**
+   * What a conversation waits for, and -- only as it starts waiting -- the one
+   * notification its clients show. Already waiting for the same thing is not
+   * news: a second approval request while one is up adds no second interruption.
+   */
+  #attend(conv: ConversationRow, waiting: Waiting): void {
+    const news = conv.attention !== waiting.reason;
+    this.store.setAttention(conv.id, waiting.reason);
+    if (news) this.broadcast({ kind: "notify", notification: notificationOf(conv, waiting) });
   }
 
   #group(conversationId: string): Group {
@@ -1170,6 +1185,7 @@ export class Orchestrator {
         halted: false,
         busy: false,
         failed: false,
+        error: null,
         lease: { holder: null, queue: [] },
       };
       this.#groups.set(conversationId, g);

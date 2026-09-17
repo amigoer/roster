@@ -30,6 +30,7 @@ import { MessageCard, TurnView, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
 import { ConversationMenu, RenameInput } from "./conversation-menu";
+import { desktop } from "./desktop";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
@@ -532,6 +533,15 @@ export default function App() {
     setNav("messages");
     setActive(id);
   };
+
+  // the shell shows the notifications; what it cannot see for itself is which
+  // conversation is on screen, which is the one it must not interrupt you about
+  useEffect(() => {
+    desktop()?.showing(nav === "messages" ? active : null);
+  }, [nav, active]);
+
+  // a notification is a way in: clicking one lands on that conversation
+  useEffect(() => desktop()?.onOpen(openConversation), []);
 
   /** archived or deleted: it leaves the list, and the chat if it was open */
   const dropConversation = (id: string) => {

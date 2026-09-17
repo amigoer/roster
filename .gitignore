@@ -5,6 +5,8 @@ dist/
 
 # macOS
 .DS_Store
+# the app bundle packages/desktop/start.cjs builds to run Roster under its own name
+packages/desktop/.mac/
 
 # local data
 *.db

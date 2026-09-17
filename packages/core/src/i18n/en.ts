@@ -17,6 +17,10 @@ export const en = {
   "preview.images": "[{count} images]",
   "preview.files": { one: "[file] {names}", other: "[files] {names}" },
 
+  "notify.replied": "New reply",
+  "notify.permission": "Waiting for your approval: {what}",
+  "notify.failed": "Something went wrong",
+
   "notice.noMembers": "There are no members yet. Add one, then send your message.",
   "notice.joined": "{name} joined the group",
   "notice.removed": "{name} was removed from the group",

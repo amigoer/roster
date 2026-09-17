@@ -4,6 +4,6 @@
   "private": true,
   "license": "Apache-2.0",
   "main": "main.cjs",
-  "scripts": { "start": "electron .", "typecheck": "echo ok" },
+  "scripts": { "start": "node start.cjs", "typecheck": "echo ok" },
   "devDependencies": { "electron": "^44.3.0" }
 }

@@ -282,6 +282,21 @@ export type ProviderBody = {
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
 
+/**
+ * A conversation that has just started waiting for you, in the words core wrote
+ * for it. The desktop shell shows these natively off the same stream; the page
+ * only reports what is on screen and opens what a click lands on (see desktop.ts).
+ */
+export interface Waiting {
+  conversationId: string;
+  reason: Exclude<Attention, "none">;
+  /** the conversation, as the list names it */
+  title: string;
+  /** why it waits: what was said, or what it wants decided */
+  body: string;
+  at: number;
+}
+
 export interface Member {
   id: string;
   bot: Bot;
@@ -519,6 +534,7 @@ export type ServerMsg =
   | { kind: "quota"; executor: string; quota: Quota | null }
   | { kind: "executors"; executors: Executor[]; capabilities: Record<string, Capabilities> }
   | { kind: "extensions" }
+  | { kind: "notify"; notification: Waiting }
   | ({ kind: "preferences" } & Preferences)
   | ({ kind: "presence" } & Omit<Presence, "state"> & { state: PresenceState | "idle" });
 

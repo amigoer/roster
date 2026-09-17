@@ -580,6 +580,95 @@ describe("orchestrator", () => {
   });
 });
 
+/** A backend that cannot answer at all, so the turn ends as a failure. */
+function broken(message) {
+  const scripted = scriptedFactory("pi", 1);
+  return {
+    ...scripted,
+    create: () => ({
+      capabilities: scripted.capabilities,
+      resumeToken: undefined,
+      subscribe: () => () => {},
+      start: async () => {},
+      send: async () => {
+        throw new Error(message);
+      },
+      abort: async () => {},
+      dispose: async () => {},
+    }),
+  };
+}
+
+describe("notifications", () => {
+  let h;
+  beforeEach(() => {
+    h = harness();
+  });
+
+  const notified = () => h.pushed.filter((m) => m.kind === "notify").map((m) => m.notification);
+  const direct = (bot) =>
+    h.store.createConversation({ title: "与 Pi 的会话", repoPath: h.dir, worktreePath: h.dir, dirKind: "chat", botIds: [bot.id] });
+
+  test("a 1:1 reply is one notification: the conversation it came in, and what was said", async () => {
+    const conv = direct(h.bot("Pi"));
+    await h.orch.send(conv.id, "写个 hello");
+    await settle(h.store, conv.id);
+
+    assert.deepEqual(
+      notified().map((n) => [n.reason, n.conversationId, n.title, n.body]),
+      [["waiting_input", conv.id, "写个 hello", "收到：写个 hello"]],
+    );
+  });
+
+  test("a group reply names who spoke, the way the list does", async () => {
+    const conv = h.group([h.bot("Pi")]);
+    await h.orch.send(conv.id, "写个 hello");
+    await settle(h.store, conv.id);
+
+    assert.deepEqual(notified().map((n) => n.body), ["Pi：收到：写个 hello"]);
+  });
+
+  test("an approval request says what it wants to run; a second one while that one waits is not news", async () => {
+    const conv = h.group([h.bot("甲"), h.bot("乙")], { mode: "discussion" });
+    await h.orch.send(conv.id, "看看目录 #exec");
+    await until(() => h.store.listMessages(conv.id).filter((m) => m.status === "pending").length === 2);
+
+    const asked = notified();
+    assert.equal(asked.length, 1, `two members asking is still one interruption: ${JSON.stringify(asked)}`);
+    assert.equal(asked[0].reason, "waiting_permission");
+    assert.match(asked[0].body, /^[甲乙]：等你批准：ls -la$/);
+
+    for (const card of h.store.listMessages(conv.id).filter((m) => m.status === "pending")) {
+      h.orch.resolvePermission(conv.id, JSON.parse(card.body_json).requestId, false);
+    }
+    await settle(h.store, conv.id);
+    // deciding it does not end the wait: the turn then finishes, and that is worth one more
+    assert.deepEqual(notified().map((n) => n.reason), ["waiting_permission", "waiting_input"]);
+  });
+
+  test("a turn that failed says why, not just that something is waiting", async () => {
+    h = harness({ pi: broken("模型没答应") });
+    const conv = direct(h.bot("Pi"));
+    await h.orch.send(conv.id, "写个 hello");
+    await settle(h.store, conv.id);
+
+    assert.deepEqual(
+      notified().map((n) => [n.reason, n.body]),
+      [["error", "模型没答应"]],
+    );
+  });
+
+  test("every turn you start is worth telling you about once it lands", async () => {
+    const conv = direct(h.bot("Pi"));
+    await h.orch.send(conv.id, "第一句");
+    await settle(h.store, conv.id);
+    await h.orch.send(conv.id, "第二句");
+    await settle(h.store, conv.id);
+
+    assert.deepEqual(notified().map((n) => n.body), ["收到：第一句", "收到：第二句"]);
+  });
+});
+
 describe("session status", () => {
   const usage = (usedPercent) => ({ plan: "pro", windows: [{ kind: "session", usedPercent }] });
 

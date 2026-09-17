@@ -12,6 +12,10 @@ let core = null;
 let win = null;
 /** Core's language, from its handshake and then its stream; the shell's own words follow it. */
 let locale = "en";
+/** The conversation the window is showing, as the page reports it. */
+let shown = null;
+/** The notification each conversation has up: a newer one replaces it, and a settled one is taken down. */
+const posted = new Map();
 
 const WORDS = {
   en: {
@@ -20,7 +24,6 @@ const WORDS = {
     paste: "Paste",
     selectAll: "Select All",
     copyLink: "Copy Link",
-    waiting: (n) => (n === 1 ? "1 conversation is waiting for you" : `${n} conversations are waiting for you`),
   },
   "zh-CN": {
     cut: "剪切",
@@ -28,7 +31,6 @@ const WORDS = {
     paste: "粘贴",
     selectAll: "全选",
     copyLink: "复制链接",
-    waiting: (n) => `${n} 个会话在等你`,
   },
 };
 
@@ -137,6 +139,10 @@ app.whenReady().then(async () => {
     if (typeof dir !== "string" || !path.isAbsolute(dir)) return false;
     return (await shell.openPath(dir)) === "";
   });
+  // the one thing the shell cannot see for itself: which conversation is on screen
+  ipcMain.on("roster:showing", (_e, id) => {
+    shown = typeof id === "string" ? id : null;
+  });
   // a link out of the app belongs in the user's browser, not in a bare Electron window
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:\/\//.test(target)) void shell.openExternal(target);
@@ -168,36 +174,92 @@ app.whenReady().then(async () => {
   if (dark !== null) win.setBackgroundColor(dark ? "#0a0b0d" : "#eef0f4");
 
   // desktop capability lives here and nowhere else: main subscribes to the same
-  // SSE stream over plain HTTP, so the renderer needs no privileged bridge
-  watchAttention(url);
+  // SSE stream over plain HTTP, so the page keeps no privileged channel of its
+  // own -- it only says what is on screen, and takes the conversation a click lands on
+  watchCore(url);
 });
 
-function watchAttention(url) {
+/** How long a dropped stream waits before dialling core again. */
+const STREAM_RETRY_MS = 1000;
+
+/**
+ * Core decides what is worth interrupting someone for and writes the words; the
+ * shell only shows them natively, and knows the two things core cannot see --
+ * whether the window has focus and what is on screen.
+ */
+function watchCore(url) {
   const http = require("node:http");
-  // a group pushes the list on every turn; only a newly waiting conversation is news
-  let lastWaiting = 0;
+  let retry = null;
+  const again = () => {
+    if (stopping || retry) return;
+    retry = setTimeout(() => {
+      retry = null;
+      watchCore(url);
+    }, STREAM_RETRY_MS);
+  };
   const req = http.get(new URL("/api/stream", url), (res) => {
     res.setEncoding("utf8");
+    let buf = "";
     res.on("data", (chunk) => {
-      for (const line of chunk.split("\n")) {
+      // a frame can be split across chunks; what follows the last newline is the start of the next one
+      buf += chunk;
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        // core also writes comments, which is what its keepalives are
         if (!line.startsWith("data: ")) continue;
+        let msg;
         try {
-          const msg = JSON.parse(line.slice(6));
-          if (msg.kind === "preferences" && msg.locale?.resolved) locale = msg.locale.resolved;
-          if (msg.kind !== "conversations") continue;
-          const waiting = msg.conversations.filter((c) => c.attention !== "none").length;
-          if (process.platform === "darwin") app.dock.setBadge(waiting ? String(waiting) : "");
-          if (waiting > lastWaiting && Notification.isSupported()) {
-            new Notification({ title: "Roster", body: words().waiting(waiting) }).show();
-          }
-          lastWaiting = waiting;
+          msg = JSON.parse(line.slice(6));
         } catch {
-          /* ignore keepalives */
+          continue;
+        }
+        if (msg.kind === "preferences" && msg.locale?.resolved) locale = msg.locale.resolved;
+        else if (msg.kind === "notify") post(msg.notification);
+        else if (msg.kind === "conversations") {
+          const waiting = msg.conversations.filter((c) => c.attention !== "none");
+          if (process.platform === "darwin") app.dock.setBadge(waiting.length ? String(waiting.length) : "");
+          settled(new Set(waiting.map((c) => c.id)));
         }
       }
     });
+    res.on("end", again);
   });
-  req.on("error", () => {});
+  req.on("error", again);
+}
+
+function post(n) {
+  if (!n || !Notification.isSupported()) return;
+  // nobody needs to be told what is already on their screen
+  if (shown === n.conversationId && win?.isFocused()) return;
+  posted.get(n.conversationId)?.close();
+  const note = new Notification({ title: n.title, body: n.body });
+  note.on("click", () => openConversation(n.conversationId));
+  // the system turning one down is silent otherwise, and looks exactly like core never sending it
+  note.on("failed", (_e, error) => console.error(`[roster] the system turned a notification down: ${error}`));
+  note.on("close", () => {
+    if (posted.get(n.conversationId) === note) posted.delete(n.conversationId);
+  });
+  posted.set(n.conversationId, note);
+  note.show();
+}
+
+/** A notification is a way into the conversation: clicking one brings the window forward on it. */
+function openConversation(conversationId) {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  app.focus({ steal: true });
+  win.webContents.send("roster:open", conversationId);
+}
+
+/** Read, decided or deleted: a conversation that no longer waits takes its notification down with it. */
+function settled(waiting) {
+  for (const [id, note] of posted) {
+    if (waiting.has(id)) continue;
+    note.close();
+    posted.delete(id);
+  }
 }
 
 /** A little past core's own shutdown deadline, so this only fires when core cannot run its timers at all. */

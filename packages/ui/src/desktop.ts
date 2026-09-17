@@ -4,6 +4,10 @@ export interface DesktopBridge {
   pickDirectory(defaultPath?: string): Promise<string | null>;
   /** opens the folder in the system's file manager */
   revealDirectory(path: string): Promise<boolean>;
+  /** which conversation is on screen, so the shell leaves that one's notifications out; null when none is */
+  showing(conversationId: string | null): void;
+  /** a notification was clicked: open that conversation. Returns the unsubscribe. */
+  onOpen(fn: (conversationId: string) => void): () => void;
 }
 
 declare global {

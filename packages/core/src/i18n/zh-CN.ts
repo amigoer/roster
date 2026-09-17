@@ -15,6 +15,10 @@ export const zhCN = translation<typeof en>()({
   "preview.images": "[图片 ×{count}]",
   "preview.files": "[文件] {names}",
 
+  "notify.replied": "有新回复",
+  "notify.permission": "等你批准：{what}",
+  "notify.failed": "出错了",
+
   "notice.noMembers": "群里还没有成员，先添加一个再发消息。",
   "notice.joined": "{name} 加入了群聊",
   "notice.removed": "{name} 被移出了群聊",

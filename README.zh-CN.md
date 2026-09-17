@@ -43,6 +43,8 @@ pnpm build
 pnpm start
 ```
 
+macOS 第一次启动会问 Roster 能不能发通知，选允许——系统只问这一次，没允许的话回复和权限请求都不会有任何提示。
+
 打开后在「设置 > Harness」看本机检测到了哪些 harness，没有的可以直接下载；在「设置 > 模型 API」添加密钥。agent（harness 加上订阅或模型 API）可以在「设置 > Agent」里建，也可以在建 bot 时直接建。
 
 不想用 Electron 的话，运行 `pnpm core`，再用浏览器打开 http://127.0.0.1:7788。没有桌面端就没有系统钥匙串，存下的密钥不会加密，这时建议从环境变量读密钥。
@@ -56,6 +58,8 @@ pnpm -C packages/ui dev      # Vite 开在 :5173，/api 转发到 :7788 的 core
 ```
 
 桌面端加载的是构建好的 `packages/ui/dist`，改完界面要运行 `pnpm --filter @roster/ui build`，再刷新窗口。设置 `ROSTER_SCRIPTED=1` 会用一个脚本化的假 agent 代替真实 agent，调界面时方便。
+
+macOS 上 `pnpm start` 会先构建 `packages/desktop/.mac/Roster.app`：把 Electron 的应用包克隆一份，换成 Roster 的名字、标识和签名。系统是按应用包来认通知的发送者和权限的，npm 发的那个包会被直接拒收。APFS 是克隆不是复制，不额外占空间；Electron 版本变了会自动重建。
 
 | 环境变量 | 默认值 | 作用 |
 |---|---|---|
