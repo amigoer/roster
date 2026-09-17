@@ -1,11 +1,11 @@
-import { Children, createContext, isValidElement, memo, useContext, useRef } from "react";
+import { Children, isValidElement, memo, useContext, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { CopyIcon, useCopy } from "./copy";
 import { useI18n } from "./i18n";
-import { segments } from "./mentions";
+import { MentionBots, MentionText } from "./mention-chip";
 
 /**
  * A Markdown passage as one line of plain text, for a preview: fences, block
@@ -23,29 +23,10 @@ export function plain(md: string): string {
     .trim();
 }
 
-/** Member names in the current conversation, so @name renders as an address. */
-export const MentionNames = createContext<readonly string[]>([]);
-
-/** How a mention is marked, in a message and in the composer. */
-export const MENTION = "rounded bg-sky-500/10 text-sky-700 dark:text-sky-300";
-
-export function MentionChip({ children }: { children: React.ReactNode }) {
-  return <span className={cn(MENTION, "px-0.5 font-medium")}>{children}</span>;
-}
-
-/** Highlights mentions in the plain-string children of a block; everything else passes through. */
+/** Marks mentions in the plain-string children of a block; everything else passes through. */
 function Mentions({ children }: { children?: React.ReactNode }) {
-  const names = useContext(MentionNames);
-  if (names.length === 0) return <>{children}</>;
-  return (
-    <>
-      {Children.map(children, (child) =>
-        typeof child === "string"
-          ? segments(child, names).map((s, i) => (s.mention ? <MentionChip key={i}>{s.text}</MentionChip> : s.text))
-          : child,
-      )}
-    </>
-  );
+  if (useContext(MentionBots).length === 0) return <>{children}</>;
+  return <>{Children.map(children, (child) => (typeof child === "string" ? <MentionText text={child} /> : child))}</>;
 }
 
 function Strong({ children }: { children?: React.ReactNode }) {

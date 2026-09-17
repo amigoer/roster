@@ -34,7 +34,7 @@ import { fitImage, isImage, MAX_BYTES, MAX_FILES, PendingTray, type Pending } fr
 import { BotAvatar, LogoImage, logoOf, useLogos } from "./bot-avatar";
 import { useExecutor } from "./executors";
 import { useI18n } from "./i18n";
-import { MentionTextarea } from "./mention-textarea";
+import { MENTION_MARK, MentionEditor, type EditorHandle } from "./mention-editor";
 import { plain } from "./markdown";
 import { Collapse, ICON_IN, Pop } from "./motion";
 import { ALL_ALIASES, recipients } from "./mentions";
@@ -49,7 +49,7 @@ type Action = { kind: "action"; name: string; label: string; icon: LucideIcon; r
 type Suggestion = { kind: "member"; bot: Bot } | { kind: "all" } | Action | { kind: "command"; command: SlashCommand };
 
 /** What is being typed right before the caret that a list can finish. */
-type Trigger = { type: "@" | "/"; query: string; start: number };
+type Trigger = { type: "@" | "/"; query: string };
 
 /** Roster's own commands; a backend's command of the same name is left out, so one name does one thing. */
 const OWN = new Set(["attach", "model", "effort", "mode", "compact", "context", "rename", "stop"]);
@@ -58,16 +58,16 @@ const OWN = new Set(["attach", "model", "effort", "mode", "compact", "context", 
 const ROUND =
   "inline-flex size-8 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,scale] duration-120 focus-visible:ring-2 focus-visible:ring-ring/50";
 
-/** The @ being typed right before the caret, if any. */
-function mentionAt(value: string, caret: number): Trigger | null {
-  const m = /(^|[^A-Za-z0-9_])@([^\s@]{0,24})$/.exec(value.slice(0, caret));
-  return m ? { type: "@", query: m[2]!, start: caret - m[2]!.length - 1 } : null;
+/** The @ being typed right before the caret, if any; a mention already in place is not a query. */
+function mentionAt(before: string): Trigger | null {
+  const m = new RegExp(`(^|[^A-Za-z0-9_])@([^\\s@${MENTION_MARK}]{0,24})$`).exec(before);
+  return m ? { type: "@", query: m[2]! } : null;
 }
 
 /** A command only counts at the very start of a message, which is where a backend looks for one. */
-function slashAt(value: string, caret: number): Trigger | null {
-  const m = /^\/([^\s/]{0,40})$/.exec(value.slice(0, caret));
-  return m ? { type: "/", query: m[1]!, start: 0 } : null;
+function slashAt(before: string): Trigger | null {
+  const m = /^\/([^\s/]{0,40})$/.exec(before);
+  return m ? { type: "/", query: m[1]! } : null;
 }
 
 /** A pasted screenshot arrives as image.png every time; the time in its name tells them apart. */
@@ -107,7 +107,7 @@ export function Composer({
   /** the message being replied to, until it is sent or dropped */
   quote: Quote | null;
   setQuote: (q: Quote | null) => void;
-  inputRef: RefObject<HTMLTextAreaElement | null>;
+  inputRef: RefObject<EditorHandle | null>;
   /** how files dropped anywhere on the conversation reach this composer */
   handle?: RefObject<ComposerHandle | null>;
   onRename: () => void;
@@ -242,23 +242,14 @@ export function Composer({
     for (const p of batch) if (p.preview) URL.revokeObjectURL(p.preview);
   };
 
-  const detect = (el: HTMLTextAreaElement) => {
-    const caret = el.selectionStart ?? el.value.length;
-    const at = slashAt(el.value, caret) ?? mentionAt(el.value, caret);
+  const detect = () => {
+    const before = inputRef.current?.beforeCaret() ?? "";
+    const at = slashAt(before) ?? mentionAt(before);
     setMenu((prev) => (at ? { ...at, index: prev?.type === at.type && prev.query === at.query ? prev.index : 0 } : null));
   };
 
-  /** Sets the text and puts the caret where the edit ended, then looks again for something to finish. */
-  const place = (value: string, caret: number) => {
-    setDraft(value);
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(caret, caret);
-      detect(el);
-    });
-  };
+  /** Sets the text and puts the caret where the edit ended; the change looks again for something to finish. */
+  const place = (value: string, caret: number) => inputRef.current?.reset(value, caret);
 
   const focusInput = () => inputRef.current?.focus();
   const openPicker = (p: Picker) => setPicker((r) => ({ picker: p, nonce: (r?.nonce ?? 0) + 1 }));
@@ -310,34 +301,39 @@ export function Composer({
 
   /** Enter runs what it can run as it is; Tab only fills it in. */
   const pick = (s: Suggestion, go: boolean) => {
-    if (!menu) return;
-    const caret = inputRef.current?.selectionStart ?? draft.length;
-    const rest = draft.slice(caret).replace(/^\s+/, "");
+    const editor = inputRef.current;
+    if (!menu || !editor) return;
+    // the query runs up to the caret, and a "/" only counts at the start, where nothing before it is a mention
+    const back = menu.query.length + 1;
     setMenu(null);
+    if (s.kind === "member" || s.kind === "all") {
+      const name = s.kind === "all" ? t("composer.everyone") : s.bot.name;
+      // right after another mention the @ would read as the tail of that address, the way foo@bar is an email
+      const pad = editor.beforeCaret().slice(0, -back).endsWith(MENTION_MARK) ? " " : "";
+      return editor.insert([pad, { mention: `@${name}` }, " "], back);
+    }
+    const rest = draft.slice(back).replace(/^\s+/, "");
     if (s.kind === "action") {
       // the typed "/…" was only the way to the action; focus stays with whatever the action opens
       setDraft(rest);
       s.run();
       return;
     }
-    if (s.kind === "command") {
-      const text = `/${s.command.name}`;
-      if (go && !s.command.hint && !rest) return void submit(text);
-      return place(`${text} ${rest}`, text.length + 1);
-    }
-    const name = s.kind === "all" ? t("composer.everyone") : s.bot.name;
-    place(`${draft.slice(0, menu.start)}@${name} ${draft.slice(caret)}`, menu.start + name.length + 2);
+    const text = `/${s.command.name}`;
+    if (go && !s.command.hint && !rest) return void submit(text);
+    place(`${text} ${rest}`, text.length + 1);
   };
 
-  const insert = (trigger: "@" | "/") => {
-    const el = inputRef.current;
-    if (trigger === "/") return place(draft.startsWith("/") ? draft : `/${draft}`, 1);
-    const start = el?.selectionStart ?? draft.length;
-    const end = el?.selectionEnd ?? start;
-    // an @ glued to a word reads as an email, not a mention
-    const pad = start > 0 && !/\s/.test(draft[start - 1]!) ? " " : "";
-    place(`${draft.slice(0, start)}${pad}@${draft.slice(end)}`, start + pad.length + 1);
-  };
+  const insert = (trigger: "@" | "/") =>
+    // a frame late: a menu this was picked from hands focus back first
+    requestAnimationFrame(() => {
+      const editor = inputRef.current;
+      if (!editor) return;
+      const text = draftRef.current;
+      if (trigger === "/") return place(text.startsWith("/") ? text : `/${text}`, 1);
+      // an @ glued to a word reads as an email, not a mention
+      editor.insert([/^$|\s$/.test(editor.beforeCaret()) ? "@" : " @"]);
+    });
 
   const typed = (() => {
     const m = /^\/(\S+) $/.exec(draft);
@@ -363,7 +359,7 @@ export function Composer({
           )}
         </Pop>
         {/* a container, so the toolbar can drop labels before it runs out of room */}
-        <div className="bg-background has-[textarea:focus]:border-ring/60 has-[textarea:focus]:ring-[3px] has-[textarea:focus]:ring-ring/20 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow]">
+        <div className="bg-background has-[[role=textbox]:focus]:border-ring/60 has-[[role=textbox]:focus]:ring-[3px] has-[[role=textbox]:focus]:ring-ring/20 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow]">
           <Collapse open={quote !== null}>
             {quote && (
               <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
@@ -393,17 +389,16 @@ export function Composer({
             )}
           </Collapse>
           <Collapse open={pending.length > 0}>{pending.length > 0 && <PendingTray items={pending} onRemove={remove} />}</Collapse>
-          <MentionTextarea
-            // the names the transcript marks, so a mention looks the same before it is sent as after
-            names={conv.members.map((m) => m.bot.name)}
+          <MentionEditor
+            // whom the transcript marks, so a mention looks the same before it is sent as after
+            bots={conv.members.map((m) => m.bot)}
             ref={inputRef}
             value={draft}
-            rows={1}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              detect(e.target);
+            onChange={(value) => {
+              setDraft(value);
+              detect();
             }}
-            onSelect={(e) => detect(e.currentTarget)}
+            onSelect={detect}
             onBlur={() => setMenu(null)}
             onPaste={(e) => {
               const files = [...e.clipboardData.files];
@@ -453,7 +448,7 @@ export function Composer({
                   ? t("composer.placeholderGroup")
                   : t("composer.placeholderDirect", { name: members[0]?.bot.name ?? "" })
             }
-            className="placeholder:text-muted-foreground block max-h-60 min-h-13 w-full resize-none bg-transparent px-4 pt-3 pb-1.5 text-message leading-relaxed outline-none field-sizing-content"
+            className="block max-h-60 min-h-13 w-full px-4 pt-3 pb-1.5 text-message leading-relaxed outline-none"
           />
           {/* only while there is something to say: a failure, or how the command just typed is used */}
           <Collapse open={Boolean(error || typed?.hint)}>

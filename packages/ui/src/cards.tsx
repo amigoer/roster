@@ -1,12 +1,12 @@
-import { useContext, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Bird, Bot, Loader, QuoteIcon, ShieldAlert, User } from "lucide-react";
 import { api, type AttachmentRef, type Member, type Message, type Quote } from "./api";
 import { MessageAttachments } from "./attachments";
 import { BotAvatar, HumanAvatar } from "./bot-avatar";
 import { BotCardTrigger } from "./bot-card";
 import { useI18n, type I18n } from "./i18n";
-import { Markdown, MentionChip, MentionNames, plain, StreamingMarkdown } from "./markdown";
-import { segments } from "./mentions";
+import { Markdown, plain, StreamingMarkdown } from "./markdown";
+import { MentionText } from "./mention-chip";
 import { ProviderIcon, type Provider } from "./provider-icon";
 import { CopyIcon, useCopy } from "./copy";
 import { CallInput, StepsGroup } from "./steps";
@@ -168,22 +168,6 @@ function Bubble({
         <Actions text={raw} at={at} align={who === "human" ? "end" : "start"} onQuote={onQuote} />
       </div>
     </div>
-  );
-}
-
-/** What the human typed stays verbatim; only the addresses in it are marked. */
-function HumanText({ text }: { text: string }) {
-  const names = useContext(MentionNames);
-  return (
-    <>
-      {segments(text, names).map((s, i) =>
-        s.mention ? (
-          <MentionChip key={i}>{s.text}</MentionChip>
-        ) : (
-          s.text
-        ),
-      )}
-    </>
   );
 }
 
@@ -425,8 +409,8 @@ export function MessageCard({
           }
           quoted={quote?.text ? <Quoted quote={quote} onJump={onJump} /> : undefined}
         >
-          {/* what the human typed is shown verbatim; the bot answers in Markdown */}
-          {human ? <HumanText text={raw} /> : <Markdown>{raw}</Markdown>}
+          {/* what the human typed is shown verbatim, only its addresses marked; the bot answers in Markdown */}
+          {human ? <MentionText text={raw} /> : <Markdown>{raw}</Markdown>}
         </Bubble>
       );
     }

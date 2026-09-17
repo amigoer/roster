@@ -238,6 +238,16 @@
     background-color: var(--selection);
   }
 
+  /* an @name typed out in the composer rather than picked: a chip's colours, since it addresses someone all the same */
+  ::highlight(mention) {
+    color: --theme(--color-sky-700);
+    background-color: --alpha(var(--color-sky-500) / 10%);
+  }
+
+  .dark ::highlight(mention) {
+    color: --theme(--color-sky-300);
+  }
+
   /* an avatar is part of the interface, not a picture to drag out of it */
   img {
     -webkit-user-drag: none;

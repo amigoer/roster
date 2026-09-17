@@ -33,8 +33,9 @@ import { ConversationMenu, RenameInput } from "./conversation-menu";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
 import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
-import { MentionNames } from "./markdown";
 import { MembersPanel } from "./members-panel";
+import { MentionBots } from "./mention-chip";
+import type { EditorHandle } from "./mention-editor";
 import { leaderOf } from "./mentions";
 import { PAGE_IN, useAtLeast } from "./motion";
 import { SelectionMenu } from "./selection";
@@ -187,7 +188,7 @@ export default function App() {
   const activeRef = useRef<string | null>(null);
   const scrollRoot = useRef<HTMLDivElement>(null);
   const transcriptRoot = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<EditorHandle>(null);
   const composerHandle = useRef<ComposerHandle | null>(null);
   /** a file is being dragged over the conversation */
   const [dropping, setDropping] = useState(false);
@@ -616,7 +617,7 @@ export default function App() {
     setQuoting({ messageId, name: author?.bot.name, text });
     composer.current?.focus();
   };
-  const names = useMemo(() => (conv?.members ?? []).map((m) => m.bot.name), [conv]);
+  const mentionable = useMemo(() => (conv?.members ?? []).map((m) => m.bot), [conv]);
   const group = conv?.shape === "group";
   const panelOpen = conv ? panel[conv.shape] : false;
   const selectedBot = contact?.kind === "bot" ? bots.find((b) => b.id === contact.id) : undefined;
@@ -1039,7 +1040,7 @@ export default function App() {
                   </Button>
                 </header>
 
-                <MentionNames.Provider value={names}>
+                <MentionBots.Provider value={mentionable}>
                   {/* no rules above or below: the stream fades out under the header and composer instead */}
                   <ScrollArea
                     className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_1rem,black_calc(100%_-_1rem),transparent)]"
@@ -1099,7 +1100,7 @@ export default function App() {
                       <SelectionMenu host={transcriptRoot} onQuote={quote} />
                     </div>
                   </ScrollArea>
-                </MentionNames.Provider>
+                </MentionBots.Provider>
 
                 <PresenceStrip conv={conv} presence={presence} />
                 <Composer
