@@ -126,6 +126,8 @@ class ScriptedRuntime implements BotRuntime {
   #turns = 0;
   #running = false;
   #aborting = false;
+  /** the roster comes with the first turn and after a change; a real agent keeps it in its context */
+  #roster: { self: string; others: string[] } | null = null;
 
   constructor(private delayMs: number) {}
 
@@ -249,12 +251,17 @@ class ScriptedRuntime implements BotRuntime {
 
   #reply(text: string, said: string): string {
     // member lines read "- name (tags): title", in whichever brackets and colon the language uses
-    const members = /<members>\n([\s\S]*?)\n<\/members>/.exec(text)?.[1] ?? "";
-    const roster = [...members.matchAll(/^- ([^\s（(：:]+)(?:（([^）]*)）| \(([^)]*)\))?/gm)]
-      .map((m) => ({ name: m[1]!, self: (m[2] ?? m[3] ?? "").includes(t("delivery.tag.self")) }))
-      .filter((m) => m.name !== t("delivery.user"));
-    const self = roster.find((m) => m.self)?.name ?? t("scripted.self");
-    const others = roster.filter((m) => !m.self).map((m) => m.name);
+    const members = /<members>\n([\s\S]*?)\n<\/members>/.exec(text)?.[1];
+    if (members !== undefined) {
+      const roster = [...members.matchAll(/^- ([^\s（(：:]+)(?:（([^）]*)）| \(([^)]*)\))?/gm)]
+        .map((m) => ({ name: m[1]!, self: (m[2] ?? m[3] ?? "").includes(t("delivery.tag.self")) }))
+        .filter((m) => m.name !== t("delivery.user"));
+      this.#roster = {
+        self: roster.find((m) => m.self)?.name ?? t("scripted.self"),
+        others: roster.filter((m) => !m.self).map((m) => m.name),
+      };
+    }
+    const { self, others } = this.#roster ?? { self: t("scripted.self"), others: [] };
 
     if (text.includes(t("delivery.ask.lead"))) {
       if (others.length === 0) return t("scripted.alone");

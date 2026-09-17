@@ -218,6 +218,7 @@ describe("delivery", () => {
     members: [{ id: "a", name: "甲", title: "前端" }, { id: "b", name: "乙", title: null }],
     names: new Map([["a", "甲"], ["b", "乙"]]),
     asks: new Set(["mention"]),
+    fresh: true,
   };
   const item = (kind, text, memberId = null) => ({ seq: 1, memberId, kind, text, at: 0 });
 
@@ -248,6 +249,35 @@ describe("delivery", () => {
     assert.match(out, /- 甲（你）：前端/);
     assert.match(out, /<message from="乙"/);
     assert.match(out, /用户在群里 @ 了你/);
+  });
+
+  test("a later turn carries only the new lines and who you are; the roster returns when the group changes", () => {
+    const later = composeDelivery({
+      ...base,
+      shape: "group",
+      fresh: false,
+      items: [item("human", "继续"), item("bot", "好", "b")],
+    }).text;
+    assert.doesNotMatch(later, /<members>|<group_chat/);
+    assert.match(later, /^<messages>\n<message from="用户"/);
+    assert.match(later, /\n\n你是甲。用户在群里 @ 了你/);
+
+    const changed = composeDelivery({
+      ...base,
+      shape: "group",
+      fresh: false,
+      items: [{ ...item("notice", "丙 加入了群聊"), notice: "notice.joined" }, item("human", "欢迎")],
+    }).text;
+    assert.match(changed, /<group_chat title="t" mode="人主导">\n<members>\n- 甲（你）：前端/);
+    assert.match(changed, /<notice time="[0-9:]+">丙 加入了群聊<\/notice>/);
+
+    const synced = composeDelivery({
+      ...base,
+      shape: "group",
+      fresh: false,
+      items: [{ ...item("notice", "乙 切换到了更新后的设定"), notice: "notice.synced" }, item("human", "继续")],
+    }).text;
+    assert.doesNotMatch(synced, /<members>/);
   });
 
   test("nothing owed means no turn", () => {
@@ -1627,6 +1657,7 @@ describe("languages", () => {
         names: new Map([["a", "Alice"], ["b", "Bob"]]),
         items: [{ seq: 1, memberId: null, kind: "human", text: "@Alice build the login page", at: 0 }, { seq: 2, memberId: "b", kind: "bot", text: "on it", at: 0 }],
         asks: new Set(["lead"]),
+        fresh: true,
       }).text,
     );
     assert.match(out, /mode="leader-led"/);
@@ -1634,7 +1665,7 @@ describe("languages", () => {
     assert.match(out, /- User: /);
     assert.match(out, /<message from="User"/);
     assert.match(out, /<message from="Bob"/);
-    assert.match(out, /You are the leader of this group\./);
+    assert.match(out, /You are Alice\. You are the leader of this group\./);
   });
 
   test("a notice reads in the language it is opened in, and a bot catching up reads it that way too", async () => {

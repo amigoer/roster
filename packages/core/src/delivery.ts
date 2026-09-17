@@ -15,6 +15,9 @@ const PRIORITY: Ask[] = ["reports", "lead", "dispatch", "discuss", "mention", "r
 /** Only the newest files ride along natively; older ones are still named in the text. */
 const ATTACHMENTS_PER_TURN = 10;
 
+/** A notice after which the roster has to be restated: who is in the group, or how it runs, changed. */
+const ROSTER_NOTICE = /^notice\.(joined|removed|leader|mode\.)/;
+
 /** A transcript line with its attachments found on disk. */
 export type DeliveryItem = TranscriptItem & { files?: readonly Delivered[] };
 
@@ -36,6 +39,8 @@ export interface DeliveryInput {
   names: ReadonlyMap<string, string>;
   items: DeliveryItem[];
   asks: ReadonlySet<Ask>;
+  /** the backend session has read nothing yet: joined, or restarted after a sync */
+  fresh: boolean;
 }
 
 /** What one member reads at the start of its turn, or null when nothing is owed. */
@@ -77,21 +82,35 @@ function direct(d: DeliveryInput, items: DeliveryItem[], omitted: number): strin
   return lines.join("\n");
 }
 
+/**
+ * Everything handed over stays in the backend's context for the rest of the
+ * session, so the roster and the rules go over once, when the session is new or
+ * they changed; an ordinary turn is the new lines and one line of instruction.
+ */
 function group(d: DeliveryInput, items: DeliveryItem[], omitted: number): string {
-  const lines = [`<group_chat title="${attr(d.title)}" mode="${t(`delivery.mode.${d.mode}`)}">`, "<members>"];
-  for (const m of d.members) {
-    const tags = [
-      m.id === d.selfId ? t("delivery.tag.self") : null,
-      d.mode === "leader" && m.id === d.leaderId ? t("delivery.tag.leader") : null,
-    ].filter((tag) => tag !== null);
-    const tagged = tags.length ? t("delivery.tags", { tags: tags.join(t("delivery.tagSeparator")) }) : "";
-    lines.push(`- ${m.name}${tagged}${m.title ? t("delivery.title", { title: m.title }) : ""}`);
+  const roster = d.fresh || items.some((i) => i.kind === "notice" && i.notice !== undefined && ROSTER_NOTICE.test(i.notice));
+  const lines: string[] = [];
+  if (roster) {
+    lines.push(`<group_chat title="${attr(d.title)}" mode="${t(`delivery.mode.${d.mode}`)}">`, "<members>");
+    for (const m of d.members) {
+      const tags = [
+        m.id === d.selfId ? t("delivery.tag.self") : null,
+        d.mode === "leader" && m.id === d.leaderId ? t("delivery.tag.leader") : null,
+      ].filter((tag) => tag !== null);
+      const tagged = tags.length ? t("delivery.tags", { tags: tags.join(t("delivery.tagSeparator")) }) : "";
+      lines.push(`- ${m.name}${tagged}${m.title ? t("delivery.title", { title: m.title }) : ""}`);
+    }
+    lines.push(t("delivery.userLine"), "</members>");
   }
-  lines.push(t("delivery.userLine"), "</members>", open("messages", omitted));
+  lines.push(open("messages", omitted));
   for (const i of items) lines.push(...render(d, i));
-  lines.push("</messages>", "</group_chat>", "");
+  lines.push("</messages>");
+  if (roster) lines.push("</group_chat>");
+  lines.push("");
   const ask = PRIORITY.find((a) => d.asks.has(a)) ?? "reply";
-  lines.push(t(`delivery.ask.${ask}`));
+  // the name comes every turn: a session that has run for hours must not have to find it in its first message
+  const self = d.names.get(d.selfId) ?? d.members.find((m) => m.id === d.selfId)?.name;
+  lines.push(`${self ? t("delivery.self", { name: self }) : ""}${t(`delivery.ask.${ask}`)}`);
   return lines.join("\n");
 }
 

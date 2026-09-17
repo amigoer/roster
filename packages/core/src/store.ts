@@ -163,6 +163,8 @@ export interface TranscriptItem {
   at: number;
   /** what the human attached; a line can be files alone */
   attachments?: AttachmentRef[];
+  /** a notice's key, so delivery can tell a roster change from any other line */
+  notice?: string;
 }
 
 const now = () => Date.now();
@@ -1017,6 +1019,7 @@ export class Store {
         text,
         at: r.created_at,
         ...(attachments?.length ? { attachments } : {}),
+        ...(e.type === "system.notice" && e.notice ? { notice: e.notice.key } : {}),
       });
     }
     return { items, upTo };

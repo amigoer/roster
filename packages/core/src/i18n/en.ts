@@ -43,6 +43,7 @@ export const en = {
   "delivery.userLine": "- User: the person who sets the tasks and makes the final decisions",
   "delivery.departed": "a member who left",
   "delivery.quoted": "In reply to what {name} said:",
+  "delivery.self": "You are {name}. ",
   "delivery.history": "Here is what came earlier in this conversation, so you can pick up the context:",
   "delivery.continue": "Please continue from where things left off.",
   "delivery.ask.reply":

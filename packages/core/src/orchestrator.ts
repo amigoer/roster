@@ -650,6 +650,7 @@ export class Orchestrator {
       names: new Map(this.store.members(conv.id).map((m) => [m.id, m.bot.name])),
       items: items.map((i) => (i.attachments && store ? { ...i, files: store.deliver(conv.id, i.attachments) } : i)),
       asks: live.asks,
+      fresh: member.delivered_seq === 0,
     });
     if (!delivery) return this.#finish(live, "done");
     this.store.setDelivered(member.id, upTo);
