@@ -131,8 +131,19 @@ export function PresetTile({ preset, size }: { preset: Pick<ProviderPreset, "id"
 /** A protocol's name without the wire detail, where a line has no room for it. */
 export const apiShort = (t: Translate, api: string | null | undefined): string => apiLabel(t, api).replace(/\s*[（(].*[）)]$/, "");
 
-export function HarnessTile({ type, brand, size }: { type: string; brand?: string; size?: keyof typeof SIZE }) {
-  return <Mark brand={brandOfType(type, brand)} fallback={<Puzzle />} size={size} />;
+/** absent: its program is not on this machine yet, so the mark waits greyed in an empty slot */
+export function HarnessTile({ type, brand, size, absent }: { type: string; brand?: string; size?: keyof typeof SIZE; absent?: boolean }) {
+  return (
+    <Mark
+      brand={brandOfType(type, brand)}
+      fallback={<Puzzle />}
+      size={size}
+      className={cn(
+        "[&>svg]:transition-[filter,opacity] [&>svg]:duration-300",
+        absent && "border-foreground/25 border border-dashed bg-transparent ring-0 dark:bg-transparent [&>svg]:opacity-45 [&>svg]:grayscale",
+      )}
+    />
+  );
 }
 
 /** A page of Roster's own settings: no vendor behind it, but it is no less there than a known mark. */

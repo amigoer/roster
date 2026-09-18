@@ -296,9 +296,9 @@ export function SettingsPage({
           id={id}
           view={view}
           ext={ext}
+          home={about && "home" in about ? about.home : ""}
           onSaved={() => onReload({ page: "harness", id })}
           onChanged={onChanged}
-          onCancel={() => onRoute({ page: "harness" })}
           onRoute={onRoute}
         />
       );

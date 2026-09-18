@@ -92,6 +92,9 @@ export function harnessStatus(t: Translate, h: HarnessView): { tone: "ok" | "war
   return h.state.version ? { tone: "ok", text: h.state.version } : null;
 }
 
+/** A path under the home directory, written the way a shell would. */
+export const tilde = (path: string, home: string) => (home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path);
+
 /** The amber every page uses for a line that says something is wrong but not broken. */
 export const WARN_TEXT = "text-amber-600 dark:text-amber-400";
 

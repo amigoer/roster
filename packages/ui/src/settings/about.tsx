@@ -3,6 +3,7 @@ import { Check, Copy, TriangleAlert } from "lucide-react";
 import type { About } from "../api";
 import { LogoImage, useLogos } from "../bot-avatar";
 import { useI18n } from "../i18n";
+import { tilde } from "./shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,8 +26,6 @@ const runtimeLine = (r: About["runtime"]) =>
 
 const systemLine = (r: About["runtime"]) =>
   [OS[r.platform] ?? r.platform, r.platform === "darwin" ? `Darwin ${r.release}` : r.release, r.arch].join(" · ");
-
-const tilde = (path: string, home: string) => (home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path);
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
