@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Archive, Loader, MessageSquarePlus, Plus, Users, WifiOff } from "lucide-react";
+import { Archive, Loader, MessageSquarePlus, Pin, Plus, Users, WifiOff } from "lucide-react";
 import {
   activeMembers,
   api,
@@ -29,7 +29,7 @@ import { CapabilityBadge } from "./capabilities";
 import { MessageCard, TurnView, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
 import { BotEditor, BotProfile, ContactList, forgetModels, GroupProfile, TemplateGallery, type Contact } from "./contacts";
-import { ConversationMenu, RenameInput } from "./conversation-menu";
+import { ConversationContextMenu, ConversationMenu, RenameInput, type ConversationActions } from "./conversation-menu";
 import { desktop } from "./desktop";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
@@ -436,6 +436,10 @@ export default function App() {
     window.addEventListener("focus", read);
     return () => window.removeEventListener("focus", read);
   }, [conv?.id, conv?.attention, nav]);
+  // a mark set by hand is read by opening the conversation, not by looking on: set while it is open, it lasts until it is opened again
+  useEffect(() => {
+    if (nav === "messages" && conv?.attention === "unread") void api.markRead(conv.id);
+  }, [conv?.id, nav]);
 
   useEffect(() => {
     if (nav !== "messages" || !conv || !focusComposer.current) return;
@@ -768,10 +772,24 @@ export default function App() {
                           ? `${t(`attention.${first.attention}`)}${waitingOnes.length > 1 ? ` · ${waitingOnes.length}` : ""}`
                           : null;
                       const busy: Busy = all.map(busyOfConv).find((b) => b === "needs_you") ?? all.map(busyOfConv).find(Boolean) ?? null;
-                      const open = () => setActive(target.id);
+                      const open = () => {
+                        // clicking the one already open is opening it too, as far as a mark set on it goes
+                        if (target.id === active && target.attention === "unread") void api.markRead(target.id);
+                        setActive(target.id);
+                      };
+                      const actions: ConversationActions = {
+                        conv: menuFor,
+                        sessions: all,
+                        onRename: () => {
+                          setActive(menuFor.id);
+                          setRenaming(menuFor.id);
+                        },
+                        onGone: dropConversation,
+                        onNewSession: many && face ? () => void newSession(face.bot) : undefined,
+                      };
                       return (
+                        <ConversationContextMenu key={many && face ? `bot:${face.bot.id}` : c.id} {...actions}>
                         <div
-                          key={many && face ? `bot:${face.bot.id}` : c.id}
                           role="button"
                           tabIndex={0}
                           aria-current={current || undefined}
@@ -783,7 +801,16 @@ export default function App() {
                             }
                           }}
                           // a div, not a button: the row holds a menu button and nesting buttons is invalid markup
-                          className={cn(ROW, "group/item cursor-default py-2.5", c.archived && "opacity-60", rowState(current))}
+                          className={cn(
+                            ROW,
+                            "group/item cursor-default py-2.5",
+                            c.archived && "opacity-60",
+                            rowState(current),
+                            // the row a right click is about stays lit while its menu is open
+                            !current && "data-[state=open]:bg-accent",
+                            // pinned rows stand up off the list, each apart from the next so their shadows do not run together
+                            c.pinned && cn("shadow-pinned mb-1.5", !current && "bg-pinned"),
+                          )}
                         >
                           {c.shape === "group" ? (
                             <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} />
@@ -809,7 +836,8 @@ export default function App() {
                                 </span>
                               )}
                               {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
-                              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
+                              <span className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
+                                {c.pinned && <Pin className="size-3" aria-label={t("conversation.pinned")} />}
                                 {listTime(i18n, Math.max(...all.map((s) => s.last_activity_at)))}
                               </span>
                             </div>
@@ -836,17 +864,9 @@ export default function App() {
                               )}
                             </div>
                           </div>
-                          <ConversationMenu
-                            conv={menuFor}
-                            className="absolute top-2 right-1.5"
-                            onRename={() => {
-                              setActive(menuFor.id);
-                              setRenaming(menuFor.id);
-                            }}
-                            onGone={dropConversation}
-                            onNewSession={many && face ? () => void newSession(face.bot) : undefined}
-                          />
+                          <ConversationMenu {...actions} className="absolute top-2 right-1.5" />
                         </div>
+                        </ConversationContextMenu>
                       );
                     })}
                   </div>

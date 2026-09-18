@@ -43,6 +43,9 @@
 
   /* a hairline and a soft drop, so the panel reads as raised without a hard border */
   --panel-shadow: 0 0 0 1px hsl(225 20% 20% / 0.06), 0 1px 3px hsl(225 20% 20% / 0.06);
+  /* a pinned row stands up off the list: the same hairline, over a drop plainly deeper than a panel's */
+  --pinned: var(--background);
+  --pinned-shadow: 0 0 0 1px hsl(225 20% 20% / 0.07), 0 1px 2px hsl(225 20% 20% / 0.06), 0 6px 16px -6px hsl(225 20% 20% / 0.32);
   --selected: hsl(221 100% 60% / 0.09);
 
   --selection: hsl(221 100% 60% / 0.2);
@@ -90,6 +93,9 @@
 
   /* a shadow does not show on a dark chrome; the hairline does the lifting */
   --panel-shadow: 0 0 0 1px hsl(0 0% 100% / 0.07);
+  /* no drop shows on a dark list either: a lighter face under the hairline lifts a pinned row */
+  --pinned: hsl(222 12% 11.5%);
+  --pinned-shadow: 0 0 0 1px hsl(0 0% 100% / 0.08), 0 3px 10px -3px hsl(0 0% 0% / 0.6);
   --selected: hsl(221 100% 68% / 0.16);
 
   --selection: hsl(221 100% 68% / 0.3);
@@ -168,11 +174,13 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-selected: var(--selected);
+  --color-pinned: var(--pinned);
   --color-code-foreground: var(--code-foreground);
   --color-code-background: var(--code-background);
   --color-code-border: var(--code-border);
 
   --shadow-panel: var(--panel-shadow);
+  --shadow-pinned: var(--pinned-shadow);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

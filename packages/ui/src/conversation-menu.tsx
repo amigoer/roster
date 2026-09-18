@@ -1,5 +1,16 @@
-import { useState } from "react";
-import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  Archive,
+  ArchiveRestore,
+  MessageSquareCheck,
+  MessageSquareDot,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { api, type Conversation } from "./api";
 import { useI18n } from "./i18n";
 import {
@@ -13,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,29 +34,139 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-export function ConversationMenu({
-  conv,
-  className,
-  onRename,
-  onGone,
-  onNewSession,
-}: {
+export interface ConversationActions {
   conv: Conversation;
-  className?: string;
+  /** the sessions a bot's row stands for; marking the row read reads every one of them */
+  sessions?: Conversation[];
   onRename: () => void;
   /** archived or deleted: the caller decides what to select next */
   onGone: (id: string) => void;
   /** a direct chat can start another session with the same bot */
   onNewSession?: () => void;
-}) {
+}
+
+/** The ... menu and the right-click menu list the same actions; each lends the parts that belong to it. */
+interface Kit {
+  Item: React.ComponentType<{ onSelect?: () => void; variant?: "default" | "destructive"; children: React.ReactNode }>;
+  Separator: React.ComponentType;
+}
+
+const DROPDOWN: Kit = { Item: DropdownMenuItem, Separator: DropdownMenuSeparator };
+const CONTEXT: Kit = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
+
+function useActions({ conv, sessions, onRename, onGone, onNewSession }: ConversationActions) {
   const [confirming, setConfirming] = useState(false);
+  // a bot's row moves on to its next session once one is deleted; the dialog fading out still names the one it asked about
+  const [asked, setAsked] = useState(conv);
   const { t } = useI18n();
+  // a pick that puts the caret somewhere runs once the menu has closed: run at once, the closing menu pulls focus back to where it was
+  const pending = useRef<(() => void) | null>(null);
+  const later = (fn: () => void) => () => {
+    pending.current = fn;
+  };
+  const onCloseAutoFocus = (e: Event) => {
+    const fn = pending.current;
+    pending.current = null;
+    if (!fn) return;
+    e.preventDefault();
+    fn();
+  };
 
   const archive = async () => {
     await api.archive(conv.id, !conv.archived);
     if (!conv.archived) onGone(conv.id);
   };
 
+  // what reading clears; a pending approval or a stuck run is not settled by looking at it
+  const readable = (sessions ?? [conv]).filter(
+    (c) => c.attention === "waiting_input" || c.attention === "error" || c.attention === "unread",
+  );
+
+  const items = ({ Item, Separator }: Kit) => (
+    <>
+      {onNewSession && (
+        <>
+          <Item onSelect={later(onNewSession)}>
+            <Plus className="size-3.5" />
+            {t("session.new")}
+          </Item>
+          <Separator />
+        </>
+      )}
+      {/* an archived conversation is out of the list these two arrange */}
+      {!conv.archived && (
+        <>
+          <Item onSelect={() => void api.pin(conv.id, !conv.pinned)}>
+            {conv.pinned ? (
+              <>
+                <PinOff className="size-3.5" />
+                {t("conversation.unpin")}
+              </>
+            ) : (
+              <>
+                <Pin className="size-3.5" />
+                {t("conversation.pin")}
+              </>
+            )}
+          </Item>
+          <Item
+            onSelect={() => {
+              if (readable.length > 0) for (const c of readable) void api.markRead(c.id);
+              else void api.markUnread(conv.id);
+            }}
+          >
+            {readable.length > 0 ? (
+              <>
+                <MessageSquareCheck className="size-3.5" />
+                {t("conversation.markRead")}
+              </>
+            ) : (
+              <>
+                <MessageSquareDot className="size-3.5" />
+                {t("conversation.markUnread")}
+              </>
+            )}
+          </Item>
+          <Separator />
+        </>
+      )}
+      <Item onSelect={later(onRename)}>
+        <Pencil className="size-3.5" />
+        {t("common.rename")}
+      </Item>
+      <Item onSelect={() => void archive()}>
+        {conv.archived ? (
+          <>
+            <ArchiveRestore className="size-3.5" />
+            {t("common.unarchive")}
+          </>
+        ) : (
+          <>
+            <Archive className="size-3.5" />
+            {t("common.archive")}
+          </>
+        )}
+      </Item>
+      <Separator />
+      <Item
+        variant="destructive"
+        onSelect={() => {
+          setAsked(conv);
+          setConfirming(true);
+        }}
+      >
+        <Trash2 className="size-3.5" />
+        {t("common.delete")}
+      </Item>
+    </>
+  );
+
+  const dialog = <DeleteConversation conv={asked} open={confirming} onOpenChange={setConfirming} onDeleted={onGone} />;
+  return { items, onCloseAutoFocus, dialog };
+}
+
+export function ConversationMenu({ className, ...actions }: ConversationActions & { className?: string }) {
+  const menu = useActions(actions);
   return (
     <>
       <DropdownMenu>
@@ -62,42 +184,37 @@ export function ConversationMenu({
             <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-          {onNewSession && (
-            <>
-              <DropdownMenuItem onSelect={onNewSession}>
-                <Plus className="size-3.5" />
-                {t("session.new")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem onSelect={onRename}>
-            <Pencil className="size-3.5" />
-            {t("common.rename")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void archive()}>
-            {conv.archived ? (
-              <>
-                <ArchiveRestore className="size-3.5" />
-                {t("common.unarchive")}
-              </>
-            ) : (
-              <>
-                <Archive className="size-3.5" />
-                {t("common.archive")}
-              </>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
-            <Trash2 className="size-3.5" />
-            {t("common.delete")}
-          </DropdownMenuItem>
+        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()} onCloseAutoFocus={menu.onCloseAutoFocus}>
+          {menu.items(DROPDOWN)}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DeleteConversation conv={conv} open={confirming} onOpenChange={setConfirming} onDeleted={onGone} />
+      {menu.dialog}
+    </>
+  );
+}
+
+/** A right click anywhere on the row opens the ... menu's actions at the pointer, without opening the conversation. */
+export function ConversationContextMenu({ children, ...actions }: ConversationActions & { children: React.ReactElement }) {
+  const menu = useActions(actions);
+  return (
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger
+          asChild
+          // React bubbles through portals: a right click on the row's own open ... menu or dialog must not open this one too
+          onContextMenu={(e) => {
+            if (!e.currentTarget.contains(e.target as Node)) e.preventDefault();
+          }}
+        >
+          {children}
+        </ContextMenuTrigger>
+        <ContextMenuContent onCloseAutoFocus={menu.onCloseAutoFocus}>
+          {menu.items(CONTEXT)}
+        </ContextMenuContent>
+      </ContextMenu>
+
+      {menu.dialog}
     </>
   );
 }

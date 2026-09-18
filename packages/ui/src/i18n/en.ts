@@ -41,6 +41,7 @@ export const en = {
   "attention.waiting_input": "Your turn",
   "attention.error": "Error",
   "attention.stalled": "Stuck",
+  "attention.unread": "Unread",
 
   "app.coreSilent": "core didn't answer",
   "app.startFailed": "Couldn't start the conversation right away",
@@ -522,6 +523,11 @@ export const en = {
   "conversation.clickToRename": "Click to rename",
   "conversation.groupSubtitle": { one: "{count} member · {mode}", other: "{count} members · {mode}" },
   "conversation.leaderSuffix": " (leader: {name})",
+  "conversation.pin": "Pin",
+  "conversation.unpin": "Unpin",
+  "conversation.pinned": "Pinned",
+  "conversation.markRead": "Mark as read",
+  "conversation.markUnread": "Mark as unread",
 
   "location.chat": "Chat space",
   "location.chatHint": "Roster's own folder, for a chat that isn't about a repository",

@@ -394,6 +394,8 @@ export class Orchestrator {
     g.halted = false;
     g.relays = 0;
     this.store.setAttention(conversationId, "none");
+    // writing in it is reading it, a mark set by hand included
+    this.store.setUnread(conversationId, false);
 
     if (members.length === 0) this.#notice(conversationId, "notice.noMembers");
     for (const [memberId, ask] of this.#route(conv, members, mentioned)) {

@@ -565,8 +565,8 @@ export function startServer(opts: {
         throw err;
       }
       pushConversations();
-      // same shape as the list endpoint, so the UI can insert it optimistically
-      return json(res, { conversation: { ...conv, members: store.members(conv.id), archived: false } });
+      // the list's own entry, so the UI can insert it optimistically: a new 1:1 with a pinned bot is pinned already
+      return json(res, { conversation: store.listConversations().find((c) => c.id === conv.id) });
     }
 
     const archive = route(/^\/api\/conversations\/([^/]+)\/archive$/, "POST");
@@ -585,6 +585,23 @@ export function startServer(opts: {
       const changed = store.markRead(read[1]);
       if (changed) pushConversations();
       return json(res, { ok: changed });
+    }
+
+    // a mark of the person's own: no notification, and it is cleared by reading like one
+    const unread = route(/^\/api\/conversations\/([^/]+)\/unread$/, "POST");
+    if (unread?.[1]) {
+      const changed = store.setUnread(unread[1], true);
+      if (changed) pushConversations();
+      return json(res, { ok: changed });
+    }
+
+    const pin = route(/^\/api\/conversations\/([^/]+)\/pin$/, "POST");
+    if (pin?.[1]) {
+      const body = await readBody(req);
+      const on = body["pinned"] !== false;
+      store.setPinned(pin[1], on);
+      pushConversations();
+      return json(res, { ok: true, pinned: on });
     }
 
     const abort = route(/^\/api\/conversations\/([^/]+)\/abort$/, "POST");

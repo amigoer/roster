@@ -102,7 +102,9 @@ CREATE TABLE IF NOT EXISTS bots (
   tools_json      TEXT NOT NULL DEFAULT '[]',
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
-  archived_at     INTEGER
+  archived_at     INTEGER,
+  -- its 1:1 sessions are one row in the list, so pinning that row is the bot's rather than any one session's
+  pinned_at       INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -124,6 +126,10 @@ CREATE TABLE IF NOT EXISTS conversations (
   avatar        TEXT,
   created_at    INTEGER NOT NULL,
   archived_at   INTEGER,
+  -- a group's own pin; a 1:1 goes by its bot's
+  pinned_at     INTEGER,
+  -- marked unread by a person, cleared once it is read; the list shows it as one more kind of waiting
+  unread_at     INTEGER,
 
   -- projections
   last_seq         INTEGER NOT NULL DEFAULT 0,

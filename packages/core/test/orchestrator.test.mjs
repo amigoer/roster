@@ -669,6 +669,136 @@ describe("notifications", () => {
   });
 });
 
+describe("the list", () => {
+  let h;
+  beforeEach(() => {
+    h = harness();
+  });
+
+  const direct = (bot) =>
+    h.store.createConversation({ title: `与 ${bot.name} 的会话`, repoPath: h.dir, worktreePath: h.dir, dirKind: "chat", botIds: [bot.id] });
+  // creation times a few milliseconds apart, so recency has an order to go by
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  const listed = (archived = false) => h.store.listConversations(archived);
+  const titles = () => listed().map((c) => c.title);
+
+  test("pinned comes first, even above what waits on you; among the pinned, what waits still leads", async () => {
+    const pi = h.bot("Pi");
+    const first = h.group([pi], { title: "一" });
+    await tick();
+    const second = h.group([pi], { title: "二" });
+    await tick();
+    const third = h.group([pi], { title: "三" });
+    assert.deepEqual(titles(), ["三", "二", "一"]);
+
+    h.store.setPinned(first.id, true);
+    h.store.setAttention(second.id, "waiting_input");
+    assert.deepEqual(titles(), ["一", "二", "三"]);
+    assert.deepEqual(listed().map((c) => c.pinned), [true, false, false]);
+
+    h.store.setPinned(third.id, true);
+    assert.deepEqual(titles(), ["三", "一", "二"], "the pinned ones by recency");
+    await tick();
+    h.store.setAttention(first.id, "waiting_input");
+    assert.deepEqual(titles(), ["一", "三", "二"]);
+
+    h.store.setPinned(first.id, false);
+    h.store.setPinned(third.id, false);
+    assert.deepEqual(titles(), ["二", "一", "三"], "unpinned, the longest waiting leads again");
+  });
+
+  test("a 1:1 is pinned as its bot's row: later sessions share the pin, and it outlives the one it was pinned from", async () => {
+    const pi = h.bot("Pi");
+    const gpt = h.bot("GPT");
+    const old = direct(pi);
+    direct(gpt);
+    h.group([pi, gpt], { title: "群" });
+    h.store.setPinned(old.id, true);
+    await tick();
+    const fresh = direct(pi);
+    const pinned = () => listed().filter((c) => c.pinned).map((c) => c.id).sort();
+    assert.deepEqual(pinned(), [old.id, fresh.id].sort(), "every session with Pi, and no group Pi is in");
+
+    h.store.delete(old.id);
+    assert.deepEqual(pinned(), [fresh.id]);
+    h.store.setArchived(fresh.id, true);
+    assert.equal(listed(true).find((c) => c.id === fresh.id).pinned, false, "archived is out of the list it was pinned in");
+    h.store.setArchived(fresh.id, false);
+    assert.deepEqual(pinned(), [fresh.id], "and back in it once restored");
+    h.store.setPinned(fresh.id, false);
+    assert.deepEqual(pinned(), []);
+  });
+
+  test("marked unread waits until it is read: after what the bots wait on, and a live wait shows through it", async () => {
+    const pi = h.bot("Pi");
+    const marked = h.group([pi], { title: "标" });
+    await tick();
+    h.group([pi], { title: "新" });
+    await tick();
+    const replied = h.group([pi], { title: "回" });
+    h.store.setAttention(replied.id, "waiting_input");
+    const shown = () => listed().find((c) => c.id === marked.id).attention;
+
+    assert.equal(h.store.setUnread(marked.id, true), true);
+    assert.equal(shown(), "unread");
+    assert.deepEqual(titles(), ["回", "标", "新"]);
+    const since = h.store.getConversation(marked.id).unread_at;
+    await tick();
+    assert.equal(h.store.setUnread(marked.id, true), false);
+    assert.equal(h.store.getConversation(marked.id).unread_at, since, "marking it again keeps its place in line");
+
+    h.store.setAttention(marked.id, "waiting_permission");
+    assert.equal(shown(), "waiting_permission");
+    assert.equal(h.store.markRead(marked.id), true);
+    assert.equal(shown(), "waiting_permission", "reading does not decide a pending permission");
+    h.store.setAttention(marked.id, "none");
+    assert.equal(shown(), "none", "but the mark went with the reading");
+    assert.equal(h.store.markRead(marked.id), false);
+  });
+
+  test("writing in a marked conversation reads it", async () => {
+    const conv = h.group([h.bot("Pi")]);
+    h.store.setUnread(conv.id, true);
+    await h.orch.send(conv.id, "继续");
+    assert.equal(h.store.getConversation(conv.id).unread_at, null);
+    await settle(h.store, conv.id);
+  });
+
+  test("pins and marks go through the API, and a new 1:1 with a pinned bot comes back pinned", { timeout: 20_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "roster-list-"));
+    dirs.push(dir);
+    const { core, url } = startCore(dir);
+    try {
+      const base = await url;
+      const call = async (path, method = "GET", body) => {
+        const res = await fetch(new URL(path, base), {
+          method,
+          ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+        });
+        return res.json();
+      };
+      const entry = async (id) => (await call("/api/state")).conversations.find((c) => c.id === id);
+      const bot = (await call("/api/state")).bots[0];
+      const first = (await call("/api/conversations", "POST", { botIds: [bot.id] })).conversation;
+      assert.equal(first.pinned, false);
+
+      assert.deepEqual(await call(`/api/conversations/${first.id}/pin`, "POST", { pinned: true }), { ok: true, pinned: true });
+      const second = (await call("/api/conversations", "POST", { botIds: [bot.id] })).conversation;
+      assert.equal(second.pinned, true);
+
+      assert.deepEqual(await call(`/api/conversations/${first.id}/unread`, "POST"), { ok: true });
+      assert.equal((await entry(first.id)).attention, "unread");
+      assert.deepEqual(await call(`/api/conversations/${first.id}/read`, "POST"), { ok: true });
+      assert.equal((await entry(first.id)).attention, "none");
+
+      assert.deepEqual(await call(`/api/conversations/${second.id}/pin`, "POST", { pinned: false }), { ok: true, pinned: false });
+      assert.equal((await entry(first.id)).pinned, false, "unpinned from either session, the row is");
+    } finally {
+      core.kill("SIGKILL");
+    }
+  });
+});
+
 describe("session status", () => {
   const usage = (usedPercent) => ({ plan: "pro", windows: [{ kind: "session", usedPercent }] });
 

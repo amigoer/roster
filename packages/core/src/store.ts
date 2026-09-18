@@ -15,6 +15,8 @@ import {
 } from "./steps.js";
 
 export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
+/** What the list shows: the stored kinds, and "unread" for one a person marked so while nothing else waits in it. */
+export type ListAttention = Attention | "unread";
 /** Narrowest first: a tier covers everything before it. */
 export const TIERS = ["read", "write", "execute"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -119,6 +121,10 @@ export interface ConversationRow {
   preview: string | null;
   attention: Attention;
   run_state: "idle" | "running";
+  /** a group's own pin; a 1:1 goes by its bot's, see listConversations */
+  pinned_at: number | null;
+  /** when a person marked it unread; null again once it is read */
+  unread_at: number | null;
 }
 
 export interface MemberRow {
@@ -149,7 +155,13 @@ export interface MemberView {
   stale: boolean;
 }
 
-export type ConversationView = ConversationRow & { members: MemberView[]; archived: boolean };
+export type ConversationView = Omit<ConversationRow, "attention"> & {
+  attention: ListAttention;
+  members: MemberView[];
+  archived: boolean;
+  /** listed first, even above what waits on you */
+  pinned: boolean;
+};
 
 export interface MessageRow {
   id: string;
@@ -276,12 +288,12 @@ const json = <T,>(text: string): T => JSON.parse(text) as T;
 
 type RawExecutor = ExecutorRow & { config_json: string; provider_ids_json: string };
 type RawProvider = Omit<ProviderRow, "models" | "headers"> & { models_json: string; headers_json: string };
-type RawBot = BotRow & { model_source?: string | null; tools_json?: string };
+type RawBot = BotRow & { model_source?: string | null; tools_json?: string; pinned_at?: number | null };
 
 const executorOf = ({ config_json: _program, provider_ids_json: _legacy, ...rest }: RawExecutor): ExecutorRow => rest;
 
-// the legacy columns only the migrations read stay out of everything else
-const botOf = ({ model_source: _source, tools_json: _tools, ...rest }: RawBot): BotRow => rest;
+// the legacy columns only the migrations read stay out of everything else, and so does the list's pin, which conversations carry
+const botOf = ({ model_source: _source, tools_json: _tools, pinned_at: _pinned, ...rest }: RawBot): BotRow => rest;
 
 const providerOf = ({ models_json, headers_json, ...rest }: RawProvider): ProviderRow => ({
   ...rest,
@@ -737,6 +749,16 @@ export class Store {
       .run(archived ? now() : null, id);
   }
 
+  /** A 1:1 is its bot's row in the list, so it pins the bot: the row stays pinned through sessions started and deleted. */
+  setPinned(id: string, pinned: boolean): void {
+    const conv = this.getConversation(id);
+    if (!conv) return;
+    const at = pinned ? now() : null;
+    const bot = conv.shape === "direct" ? this.activeMembers(id)[0]?.bot_id : undefined;
+    if (bot) this.db.prepare(`UPDATE bots SET pinned_at = ? WHERE id = ?`).run(at, bot);
+    else this.db.prepare(`UPDATE conversations SET pinned_at = ? WHERE id = ?`).run(at, id);
+  }
+
   setAvatar(id: string, avatar: string | null): void {
     this.db.prepare(`UPDATE conversations SET avatar = ? WHERE id = ?`).run(avatar, id);
   }
@@ -785,19 +807,31 @@ export class Store {
     return row !== undefined;
   }
 
-  /** Sort order is the product rule: needs-a-human first, longest-waiting first, then recency. */
+  /**
+   * Sort order is the product rule: needs-a-human first, longest-waiting first, then recency. A pin is a person
+   * overruling it, so pinned ones come before everything, and the rule orders each part on its own.
+   */
   listConversations(includeArchived = false): ConversationView[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM conversations ${includeArchived ? "" : "WHERE archived_at IS NULL"}
-         ORDER BY (archived_at IS NOT NULL),
-                  CASE attention
-                    WHEN 'waiting_permission' THEN 0 WHEN 'error' THEN 1
-                    WHEN 'stalled' THEN 2 WHEN 'waiting_input' THEN 3 ELSE 4 END,
-                  attention_since ASC,
-                  last_activity_at DESC`,
+        // pinned is decided the way setPinned stores it: a 1:1 with its bot still in it goes by the bot's pin
+        `SELECT c.*,
+                CASE WHEN c.archived_at IS NOT NULL THEN 0
+                     WHEN c.shape = 'direct' AND EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.left_at IS NULL)
+                       THEN EXISTS (SELECT 1 FROM members m JOIN bots b ON b.id = m.bot_id
+                                     WHERE m.conversation_id = c.id AND m.left_at IS NULL AND b.pinned_at IS NOT NULL)
+                     ELSE c.pinned_at IS NOT NULL END AS pinned
+           FROM conversations c ${includeArchived ? "" : "WHERE c.archived_at IS NULL"}
+          ORDER BY (c.archived_at IS NOT NULL),
+                   pinned DESC,
+                   CASE c.attention
+                     WHEN 'waiting_permission' THEN 0 WHEN 'error' THEN 1
+                     WHEN 'stalled' THEN 2 WHEN 'waiting_input' THEN 3
+                     ELSE CASE WHEN c.unread_at IS NOT NULL THEN 4 ELSE 5 END END,
+                   COALESCE(c.attention_since, c.unread_at) ASC,
+                   c.last_activity_at DESC`,
       )
-      .all() as unknown as ConversationRow[];
+      .all() as unknown as Array<ConversationRow & { pinned: number }>;
 
     // two queries for the whole list rather than two per conversation
     const bots = new Map((this.db.prepare(`SELECT * FROM bots`).all() as unknown as RawBot[]).map((b) => [b.id, botOf(b)]));
@@ -811,9 +845,16 @@ export class Store {
       list.push(this.#view(m, bot));
       byConv.set(m.conversation_id, list);
     }
-    return rows.map((c) => {
+    return rows.map(({ pinned, ...c }) => {
       const members = byConv.get(c.id) ?? [];
-      return { ...c, title: shownTitle(c.title, members), members, archived: c.archived_at !== null };
+      return {
+        ...c,
+        title: shownTitle(c.title, members),
+        attention: c.attention === "none" && c.unread_at !== null ? "unread" : c.attention,
+        members,
+        archived: c.archived_at !== null,
+        pinned: pinned === 1,
+      };
     });
   }
 
@@ -977,13 +1018,24 @@ export class Store {
   /**
    * Opening a conversation clears the notification kinds of attention but not
    * the live ones: reading about a pending permission does not decide it, and a
-   * stalled run is still stalled after you have looked at it.
+   * stalled run is still stalled after you have looked at it. A mark set by hand
+   * goes the way of a notification.
    */
   markRead(id: string): boolean {
     const c = this.getConversation(id);
-    if (!c || (c.attention !== "waiting_input" && c.attention !== "error")) return false;
+    if (!c) return false;
+    const unmarked = this.setUnread(id, false);
+    if (c.attention !== "waiting_input" && c.attention !== "error") return unmarked;
     this.setAttention(id, "none");
     return true;
+  }
+
+  /** Marked unread by a person; marking it again keeps the time it was first marked, which is its place in line. */
+  setUnread(id: string, unread: boolean): boolean {
+    const r = unread
+      ? this.db.prepare(`UPDATE conversations SET unread_at = ? WHERE id = ? AND unread_at IS NULL`).run(now(), id)
+      : this.db.prepare(`UPDATE conversations SET unread_at = NULL WHERE id = ? AND unread_at IS NOT NULL`).run(id);
+    return Number(r.changes) > 0;
   }
 
   setRunState(id: string, state: "idle" | "running"): void {

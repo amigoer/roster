@@ -43,6 +43,7 @@ export const zhCN = translation<typeof en>()({
   "attention.waiting_input": "等你回复",
   "attention.error": "出错了",
   "attention.stalled": "卡住了",
+  "attention.unread": "未读",
 
   "app.coreSilent": "core 没有回答",
   "app.startFailed": "没能直接开始会话",
@@ -510,6 +511,11 @@ export const zhCN = translation<typeof en>()({
   "conversation.clickToRename": "点击重命名",
   "conversation.groupSubtitle": "{count} 位成员 · {mode}",
   "conversation.leaderSuffix": "（群主 {name}）",
+  "conversation.pin": "置顶",
+  "conversation.unpin": "取消置顶",
+  "conversation.pinned": "已置顶",
+  "conversation.markRead": "标为已读",
+  "conversation.markUnread": "标为未读",
 
   "location.chat": "聊天空间",
   "location.chatHint": "Roster 数据目录下专属的文件夹，不涉及仓库时用",

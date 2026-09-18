@@ -280,7 +280,8 @@ export type ProviderBody = {
   key_env?: string | null;
 };
 
-export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled";
+/** "unread" is a mark a person set; it shows only while nothing else waits in the conversation. */
+export type Attention = "none" | "waiting_input" | "waiting_permission" | "error" | "stalled" | "unread";
 
 /**
  * A conversation that has just started waiting for you, in the words core wrote
@@ -289,7 +290,7 @@ export type Attention = "none" | "waiting_input" | "waiting_permission" | "error
  */
 export interface Waiting {
   conversationId: string;
-  reason: Exclude<Attention, "none">;
+  reason: Exclude<Attention, "none" | "unread">;
   /** the conversation, as the list names it */
   title: string;
   /** why it waits: what was said, or what it wants decided */
@@ -337,6 +338,8 @@ export interface Conversation {
   attention: Attention;
   run_state: "idle" | "running";
   archived: boolean;
+  /** listed first, even above what waits on you; a bot's 1:1s share one pin */
+  pinned: boolean;
   /** former members included, so history can still say who spoke */
   members: Member[];
 }
@@ -689,6 +692,9 @@ export const api = {
     j<{ ok: boolean }>(`/api/conversations/${id}/archive`, body("POST", { archived })),
   remove: (id: string) => j<{ ok: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
   markRead: (id: string) => j<{ ok: boolean }>(`/api/conversations/${id}/read`, { method: "POST" }),
+  markUnread: (id: string) => j<{ ok: boolean }>(`/api/conversations/${id}/unread`, { method: "POST" }),
+  pin: (id: string, pinned: boolean) =>
+    j<{ ok: boolean; pinned: boolean }>(`/api/conversations/${id}/pin`, body("POST", { pinned })),
   rename: (id: string, title: string) =>
     j<{ ok?: boolean; error?: string }>(`/api/conversations/${id}`, body("PATCH", { title })),
   setMode: (id: string, mode: Mode, leaderMemberId?: string) =>
