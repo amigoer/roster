@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { ExtensionManifest, HarnessType, ProgramManifest } from "@roster/adapter-api";
+import type { ExtensionManifest, HarnessType, ProgramManifest, ProviderPreset } from "@roster/adapter-api";
 import { acpHarness } from "./acp.js";
 import { t } from "./i18n/index.js";
 
@@ -128,6 +128,15 @@ export class Extensions {
     return found;
   }
 
+  /** The presets harnesses with code of their own report; a manifest-only agent takes some of them by id. */
+  async #presetCatalog(): Promise<ProviderPreset[]> {
+    const coded = this.#loaded.filter((e) => e.kind !== "acp" && e.harness?.presets);
+    const lists = await Promise.all(coded.map((e) => e.harness!.presets!().catch(() => [])));
+    const byId = new Map<string, ProviderPreset>();
+    for (const p of lists.flat()) if (!byId.has(p.id)) byId.set(p.id, p);
+    return [...byId.values()];
+  }
+
   /** A directory is either an extension package itself, or a wrapper the installer made around one. */
   #packageDir(dir: string): string | null {
     const pkg = readPackage(dir);
@@ -168,7 +177,14 @@ export class Extensions {
     if (manifest.acp) {
       const missing = missingProgram(dir, manifest.acp.command);
       if (missing) return { ...base, type, label, kind, error: t("error.extension.missingDependency", { missing }) };
-      const acp = acpHarness({ type, label: code?.label ?? label, dir, manifest: manifest.acp, own: true });
+      const acp = acpHarness({
+        type,
+        label: code?.label ?? label,
+        dir,
+        manifest: manifest.acp,
+        own: manifest.acp.own !== false,
+        presetCatalog: () => this.#presetCatalog(),
+      });
       harness = code ? compose(code, acp) : acp;
     }
     if (!harness) return { ...base, type, label, kind, error: t("error.extension.empty") };

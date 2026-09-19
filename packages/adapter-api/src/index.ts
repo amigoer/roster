@@ -490,6 +490,19 @@ export interface AcpManifest {
   command: readonly string[];
   /** per wire protocol, the environment variables that carry an endpoint's address and key */
   env?: Readonly<Record<string, { baseUrl?: string; key: string }>>;
+  /**
+   * Presets the agent takes by id, and the environment variables their key
+   * and address go into. The address and protocol come from the preset
+   * catalog the other harnesses report; an endpoint's own address wins.
+   */
+  presets?: Readonly<Record<string, { baseUrl?: string; key: string }>>;
+  /** False when the agent has no sign-in of its own and runs only on a model API. Defaults to true. */
+  own?: boolean;
+  /**
+   * What each tool does, by the title the agent gives its calls, for an agent
+   * that reports a tool's kind as other or not at all. The gate goes by it.
+   */
+  toolEffects?: Readonly<Record<string, ToolEffect>>;
   /** how the person signs the agent in when it advertises no in-protocol method */
   login?: { terminal?: readonly string[] };
   /**

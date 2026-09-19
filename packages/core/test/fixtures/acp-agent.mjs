@@ -18,18 +18,28 @@ const request = (method, params) =>
   });
 
 const loggedOut = process.env.FAKE_ACP_LOGGED_OUT === "1";
+// an agent that can only resume a session, never load one
+const resumable = process.env.FAKE_ACP_RESUME === "1";
+// an agent routing to several providers names each model as a provider/model pair
+const paired = process.env.FAKE_ACP_PAIRED === "1";
+const modelId = (id) => (paired ? JSON.stringify(["fake", id]) : id);
+let resumed = false;
 let options = [
   {
     id: "model",
     name: "Model",
     category: "model",
     type: "select",
-    currentValue: "m1",
+    currentValue: modelId("m1"),
     options: [
-      { value: "m1", name: "Model One" },
-      { value: "m2", name: "Model Two" },
+      { value: modelId("m1"), name: "Model One" },
+      { value: modelId("m2"), name: "Model Two" },
     ],
   },
+];
+const ONCE = [
+  { optionId: "allow", name: "Yes", kind: "allow_once" },
+  { optionId: "reject", name: "No", kind: "reject_once" },
 ];
 const modes = { currentModeId: "ask", availableModes: [{ id: "ask", name: "Ask" }, { id: "yolo", name: "Yolo" }] };
 let cancelPrompt = null;
@@ -63,6 +73,8 @@ async function prompt(id, params) {
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
   if (text.includes("#meta")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `meta ${JSON.stringify(sessionMeta)} ` } });
   if (text.includes("#env")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `env ${process.env.FAKE_PINNED} ${process.env.FAKE_PLAIN} ` } });
+  if (text.includes("#vars")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `key=${process.env.FAKE_KEY} url=${process.env.FAKE_URL} ` } });
+  if (text.includes("#session")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `session ${sessionId} resumed ${resumed} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);
   if (images.length > 0) {
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `saw ${images.map((b) => b.mimeType).join(",")} ` } });
@@ -73,16 +85,12 @@ async function prompt(id, params) {
   };
   if (text.includes("#write")) {
     update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit notes.md", kind: "edit", status: "pending", rawInput: { path: "notes.md" } });
-    const once = [
-      { optionId: "allow", name: "Yes", kind: "allow_once" },
-      { optionId: "reject", name: "No", kind: "reject_once" },
-    ];
     const always = [
       { optionId: "allow-always", name: "Always", kind: "allow_always" },
       { optionId: "reject-always", name: "Never", kind: "reject_always" },
     ];
     // some agents list the lasting choices first, and #always-only offers nothing else; either way it says what it got
-    const offered = text.includes("#always-only") ? always : text.includes("#always-first") ? [...always, ...once] : once;
+    const offered = text.includes("#always-only") ? always : text.includes("#always-first") ? [...always, ...ONCE] : ONCE;
     const r = await request("session/request_permission", {
       sessionId,
       toolCall: { toolCallId: "t1", kind: "edit", rawInput: { path: "notes.md" } },
@@ -90,8 +98,15 @@ async function prompt(id, params) {
     });
     const picked = r?.outcome?.outcome === "selected" ? offered.find((o) => o.optionId === r.outcome.optionId) : undefined;
     const allowed = picked?.kind === "allow_once" || picked?.kind === "allow_always";
-    if (offered !== once) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `answered ${picked?.optionId ?? r?.outcome?.outcome} ` } });
+    if (offered !== ONCE) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `answered ${picked?.optionId ?? r?.outcome?.outcome} ` } });
     update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
+  }
+  if (text.includes("#bare")) {
+    // what the call is was said once, in tool_call; the ask names it by id alone
+    update({ sessionUpdate: "tool_call", toolCallId: "t2", title: "write", kind: "other", status: "pending", rawInput: { file_path: "notes.md" } });
+    const r = await request("session/request_permission", { sessionId, toolCall: { toolCallId: "t2" }, options: ONCE });
+    const allowed = r?.outcome?.outcome === "selected" && r.outcome.optionId === "allow";
+    update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
   }
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: cancelled ? "" : "done" } });
   update({ sessionUpdate: "usage_update", used: 1200, size: 100000 });
@@ -118,7 +133,7 @@ rl.on("line", (line) => {
       }
       reply(id, {
         protocolVersion: 1,
-        agentCapabilities: { loadSession: false, promptCapabilities: { image: true } },
+        agentCapabilities: { loadSession: false, promptCapabilities: { image: true }, ...(resumable ? { sessionCapabilities: { resume: {} } } : {}) },
         authMethods,
       });
       notify("_auth/status_update", { authStatus: loggedOut ? { kind: "none", label: "Not logged in" } : { kind: "subscription", label: "Pro" } });
@@ -138,6 +153,11 @@ rl.on("line", (line) => {
           ],
         },
       });
+      return;
+    case "session/resume":
+      if (!resumable) return fail(id, -32601, "no such method session/resume");
+      resumed = true;
+      reply(id, { configOptions: options, modes });
       return;
     case "session/set_config_option":
       options = options.map((o) => (o.id === params.configId ? { ...o, currentValue: params.value } : o));

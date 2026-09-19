@@ -28,7 +28,7 @@ import { Orchestrator } from "../dist/orchestrator.js";
 import { Registry } from "../dist/registry.js";
 import { scriptedFactory } from "../dist/scripted.js";
 import { NO_VAULT, Secrets } from "../dist/secrets.js";
-import { sourceOf, Sources } from "../dist/sources.js";
+import { fits, sourceOf, Sources } from "../dist/sources.js";
 import { Store, UNTITLED } from "../dist/store.js";
 
 // the fixtures and expectations are written in Chinese; the languages suite switches and switches back
@@ -1868,6 +1868,25 @@ function fakeAgentRoot(acp) {
   return root;
 }
 
+/** One turn on a fresh runtime: what it said, and the token to resume it by. */
+async function oneTurn(factory, opts, text) {
+  const runtime = factory.create();
+  let said = "";
+  let ended = false;
+  runtime.subscribe((e) => {
+    if (e.type === "assistant.text") said += e.delta;
+    if (e.type === "turn.end") ended = true;
+  });
+  try {
+    await runtime.start(opts);
+    await runtime.send(text);
+    await until(() => ended, 15_000);
+    return { said, token: runtime.resumeToken };
+  } finally {
+    await runtime.dispose();
+  }
+}
+
 describe("extensions", () => {
   test("a harness says which version it runs, whether a program Roster fetched or the library its adapter carries", async () => {
     const root = mkdtempSync(join(tmpdir(), "roster-harnesses-"));
@@ -2125,21 +2144,11 @@ describe("extensions", () => {
     const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
     dirs.push(dir);
     process.env.FAKE_PINNED = "loose";
-    const runtime = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }).create();
-    let text = "";
-    let ended = false;
-    runtime.subscribe((e) => {
-      if (e.type === "assistant.text") text += e.delta;
-      if (e.type === "turn.end") ended = true;
-    });
     try {
-      await runtime.start({ cwd: dir });
-      await runtime.send("#env");
-      await until(() => ended, 15_000);
-      assert.match(text, /env \{"edit":"ask"\} as is /, "an object goes as JSON, a string as it is");
+      const { said } = await oneTurn(ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }), { cwd: dir }, "#env");
+      assert.match(said, /env \{"edit":"ask"\} as is /, "an object goes as JSON, a string as it is");
     } finally {
       delete process.env.FAKE_PINNED;
-      await runtime.dispose();
     }
   });
 
@@ -2151,6 +2160,127 @@ describe("extensions", () => {
       login.methods.map((m) => [m.id, m.terminal?.command, m.terminal?.args]),
       [["terminal", "fake-cli", ["login"]]],
     );
+  });
+
+  test("an agent that can only resume is resumed after a restart, not started over", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    process.env.FAKE_ACP_RESUME = "1";
+    try {
+      const factory = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } });
+      const first = await oneTurn(factory, { cwd: dir }, "#session");
+      assert.match(first.said, /session s1 resumed false /);
+      const again = await oneTurn(factory, { cwd: dir, resumeToken: first.token }, "#session");
+      assert.match(again.said, /session s1 resumed true /);
+    } finally {
+      delete process.env.FAKE_ACP_RESUME;
+    }
+  });
+
+  test("an ask that names only its call is read against that call, with the effect the manifest declares", async () => {
+    const conversation = async (acp) => {
+      const ext = new Extensions([{ dir: fakeAgentRoot(acp), origin: "linked" }]);
+      await ext.load();
+      const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+      dirs.push(dir);
+      const db = openDb(join(dir, "roster.db"));
+      const store = new Store(db);
+      const secrets = new Secrets(db, NO_VAULT);
+      const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+      const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
+      const sources = new Sources(store, secrets, () => registry, async () => []);
+      const orch = new Orchestrator(store, () => {}, registry, sources, new AttachmentStore(join(dir, "attachments")));
+      const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: null, permission_tier: "write" });
+      const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
+      return { store, orch, conv };
+    };
+    const stepsOf = ({ store, conv }) => store.listMessages(conv.id).filter((m) => m.card_kind === "steps").flatMap((m) => JSON.parse(m.body_json).steps);
+
+    // told what write does, a bot that may write needs nobody to answer
+    const told = await conversation({ permissionModes: false, toolEffects: { write: "write" } });
+    try {
+      await told.orch.send(told.conv.id, "#bare");
+      await settle(told.store, told.conv.id, 15_000);
+      assert.equal(told.store.listMessages(told.conv.id).some((m) => m.card_kind === "permission"), false);
+      assert.deepEqual(stepsOf(told).map((s) => [s.name, s.effect, s.ok]), [["write", "write", true]]);
+    } finally {
+      await told.orch.disposeAll();
+    }
+
+    // untold, the same call is past the tier and goes to a person, who still sees what it is
+    const untold = await conversation({ permissionModes: false });
+    try {
+      await untold.orch.send(untold.conv.id, "#bare");
+      await until(() => untold.store.listMessages(untold.conv.id).some((m) => m.status === "pending"), 15_000);
+      const card = JSON.parse(untold.store.listMessages(untold.conv.id).find((m) => m.status === "pending").body_json);
+      assert.deepEqual([card.call.name, card.call.effect, card.call.input], ["write", "execute", { file_path: "notes.md" }]);
+      untold.orch.resolvePermission(untold.conv.id, card.requestId, false);
+      await settle(untold.store, untold.conv.id, 15_000);
+      assert.deepEqual(stepsOf(untold).map((s) => [s.name, s.ok]), [["write", false]]);
+    } finally {
+      await untold.orch.disposeAll();
+    }
+  });
+
+  test("an agent with no sign-in of its own takes the presets it names, keyed and addressed from the catalog", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roster-ext-"));
+    dirs.push(root);
+    const presetter = join(root, "presetter");
+    mkdirSync(presetter);
+    writeFileSync(join(presetter, "package.json"), JSON.stringify({ name: "@test/presetter", version: "1.0.0", type: "module", roster: { api: 2, entry: "./index.js" } }));
+    writeFileSync(
+      join(presetter, "index.js"),
+      `export const harness = { type: "presetter", label: "Presetter", sources: { own: false, apis: [] }, capabilities: () => ({}), create: () => ({}),
+        presets: async () => [{ id: "fakepreset", label: "Fake preset", api: "openai-completions", baseUrl: "https://fake.example/v1" }] };`,
+    );
+    const agent = fakeAgentRoot({ own: false, presets: { fakepreset: { key: "FAKE_KEY", baseUrl: "FAKE_URL" } } });
+    const ext = new Extensions([
+      { dir: root, origin: "linked" },
+      { dir: agent, origin: "linked" },
+    ]);
+    await ext.load();
+    const fake = ext.types().find((t) => t.type === "fake");
+    assert.deepEqual(fake.sources, { own: false, apis: [] });
+    assert.equal(fake.login, undefined, "there is no sign-in to ask about");
+    const presets = await fake.presets();
+    assert.deepEqual(presets.map((p) => p.id), ["fakepreset"]);
+    assert.equal(fits(fake, { preset: "fakepreset", api: null }, presets), true);
+    assert.equal(fits(fake, { preset: "otherpreset", api: null }, presets), false);
+    assert.throws(() => fake.create({ id: "x", label: "假 agent", source: { kind: "own" } }), /没有自带登录/);
+
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const endpoint = { id: "p", name: "Fake", preset: "fakepreset", apiKey: "k1" };
+    const byCatalog = await oneTurn(fake.create({ id: "x", label: "假 agent", source: { kind: "endpoint", endpoint } }), { cwd: dir }, "#vars");
+    assert.match(byCatalog.said, /key=k1 url=https:\/\/fake\.example\/v1 /);
+    // an endpoint that names its own address keeps it
+    const addressed = { ...endpoint, baseUrl: "http://127.0.0.1:9/v1" };
+    const byEndpoint = await oneTurn(fake.create({ id: "y", label: "假 agent", source: { kind: "endpoint", endpoint: addressed } }), { cwd: dir }, "#vars");
+    assert.match(byEndpoint.said, /url=http:\/\/127\.0\.0\.1:9\/v1 /);
+  });
+
+  test("a bare model id picks the one provider pair that names it", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    process.env.FAKE_ACP_PAIRED = "1";
+    const runtime = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }).create();
+    const infos = [];
+    runtime.subscribe((e) => {
+      if (e.type === "session.info") infos.push(e.info);
+    });
+    try {
+      await runtime.start({ cwd: dir, model: "m2" });
+      // what the session ran with before the pick was made is reported too, so wait for the pick itself
+      await until(() => infos.at(-1)?.model === JSON.stringify(["fake", "m2"]), 15_000);
+      assert.equal(infos.at(-1).modelLabel, "Model Two");
+    } finally {
+      delete process.env.FAKE_ACP_PAIRED;
+      await runtime.dispose();
+    }
   });
 
   test("a launcher npm left without an extension runs on the host's own runtime, and a program that cannot start is only reported", async () => {

@@ -297,7 +297,7 @@ export function AgentEditor({
       {info && (
         <Field>
           <FieldLabel>{t("agent.source")}</FieldLabel>
-          {info.sources.own && info.sources.apis.length > 0 ? (
+          {info.sources.own && (info.sources.apis.length > 0 || (view.presets[info.type]?.length ?? 0) > 0) ? (
             <RadioGroup value={source.kind} onValueChange={(v) => chooseKind(v as SourceKind)} className="grid gap-2 sm:grid-cols-2">
               <Choice value="own" selected={source.kind === "own"} disabled={Boolean(ownTaken)}>
                 <span className="min-w-0 flex-1">

@@ -118,10 +118,11 @@ export async function fetchModels(p: ProviderConfig, preset?: ProviderPreset): P
 }
 
 /** What the settings page shows of a type: its shape, never its code. */
-export function typeView(t: HarnessType) {
+export function typeView(t: HarnessType, presets: readonly ProviderPreset[] = []) {
   const caps: Partial<Record<SourceKind, ReturnType<HarnessType["capabilities"]>>> = {};
   if (t.sources.own) caps.own = t.capabilities("own");
-  if (t.sources.apis.length > 0) caps.endpoint = t.capabilities("endpoint");
+  // a model API is taken by the protocol it speaks, or by a preset the harness names
+  if (t.sources.apis.length > 0 || presets.length > 0) caps.endpoint = t.capabilities("endpoint");
   return { type: t.type, label: t.label, sources: t.sources, capabilities: caps };
 }
 
@@ -180,7 +181,7 @@ export class ExecutorSettings {
     );
     const registry = this.registry();
     return {
-      types: types.map(typeView),
+      types: types.map((t) => typeView(t, presets[t.type])),
       presets,
       executors: this.store.listExecutors().map((e) => ({
         ...e,
@@ -296,8 +297,8 @@ export class ExecutorSettings {
       if (type.sources.own && !live.some((e) => e.type === type.type && e.source_kind === "own")) {
         out.push({ type: type.type, source_kind: "own", provider_id: null, name: this.#nameFor(type, t("source.own")) });
       }
-      if (type.sources.apis.length === 0) continue;
       const presets = await this.presets(type).catch(() => []);
+      if (type.sources.apis.length === 0 && presets.length === 0) continue;
       for (const p of providers) {
         if (!fits(type, p, presets) || live.some((e) => e.type === type.type && e.provider_id === p.id)) continue;
         out.push({ type: type.type, source_kind: "endpoint", provider_id: p.id, name: this.#nameFor(type, p.name) });

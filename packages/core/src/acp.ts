@@ -38,6 +38,8 @@ import type {
   ModelOption,
   ModelSource,
   NormalizedEvent,
+  ProviderConfig,
+  ProviderPreset,
   SessionInfo,
   SessionOptions,
   SessionSettings,
@@ -50,6 +52,7 @@ import type {
 } from "@roster/adapter-api";
 import { locale, stored, t } from "./i18n/index.js";
 import { isScript } from "./scripts.js";
+import { CUSTOM_PRESET } from "./sources.js";
 
 /**
  * Any agent that speaks the Agent Client Protocol, driven over stdio. The
@@ -86,6 +89,8 @@ export interface AcpSpec {
   manifest: AcpManifest;
   /** whether the agent's own sign-in counts as a model source */
   own: boolean;
+  /** the presets the other harnesses report, for the ones this agent takes by id */
+  presetCatalog?: () => Promise<ProviderPreset[]>;
 }
 
 interface Launch {
@@ -161,7 +166,7 @@ const PROGRAM = "@program";
  * PATH still works. The program is the one the host settled on for this agent
  * type: it goes where the manifest says.
  */
-function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: ModelSource): Launch {
+function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: ModelSource, preset?: ProviderPreset): Launch {
   const req = createRequire(join(spec.dir, "package.json"));
   const program = executable?.trim() || undefined;
   const resolveItem = (item: string): string => {
@@ -194,13 +199,20 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
   const shown = program ?? (spec.manifest.command[0] === "node" ? (spec.manifest.command[1] ?? "") : (spec.manifest.command[0] ?? ""));
   if (source.kind === "endpoint") {
     const { endpoint } = source;
-    const map = endpoint.api ? spec.manifest.env?.[endpoint.api] : undefined;
+    const map = variablesFor(spec.manifest, endpoint);
     if (map) {
       if (endpoint.apiKey) env[map.key] = endpoint.apiKey;
-      if (map.baseUrl && endpoint.baseUrl) env[map.baseUrl] = endpoint.baseUrl;
+      const baseUrl = endpoint.baseUrl ?? preset?.baseUrl;
+      if (map.baseUrl && baseUrl) env[map.baseUrl] = baseUrl;
     }
   }
   return { command, args, env, program: shown };
+}
+
+/** Where an endpoint's key and address go: by its preset when it has one, else by the protocol it speaks. */
+function variablesFor(manifest: AcpManifest, endpoint: ProviderConfig): { baseUrl?: string; key: string } | undefined {
+  if (endpoint.preset !== CUSTOM_PRESET) return manifest.presets?.[endpoint.preset];
+  return endpoint.api ? manifest.env?.[endpoint.api] : undefined;
 }
 
 type SelectOption = { value: string; name: string; description?: string | null };
@@ -218,6 +230,29 @@ function selectOptions(opt: SessionConfigOption): SelectOption[] {
     }
   }
   return out;
+}
+
+/** The model a provider/model pair names, whether spelled with a slash or as a JSON pair. */
+function pairedModel(value: string): string | undefined {
+  if (!value.startsWith("[")) return value.includes("/") ? value.slice(value.lastIndexOf("/") + 1) : undefined;
+  try {
+    const pair = JSON.parse(value) as unknown;
+    return Array.isArray(pair) && typeof pair.at(-1) === "string" ? (pair.at(-1) as string) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The option a model id picks. An endpoint lists bare ids, while an agent that
+ * routes to several providers pairs each with its provider, so a bare id also
+ * picks the one pair that names it.
+ */
+function modelValue(opt: SessionConfigOption, id: string): string | undefined {
+  const values = selectOptions(opt).map((o) => o.value);
+  if (values.includes(id)) return id;
+  const paired = values.filter((v) => pairedModel(v) === id);
+  return paired.length === 1 ? paired[0] : undefined;
 }
 
 const currentOf = (opt: SessionConfigOption | undefined): string | undefined =>
@@ -394,7 +429,7 @@ class AcpRuntime implements BotRuntime {
   readonly capabilities: Capabilities;
 
   constructor(
-    private launch: Launch,
+    private launch: () => Promise<Launch>,
     private label: string,
     /** the agent's manifest entry; its type is what its English is catalogued under */
     private spec: AcpSpec,
@@ -410,7 +445,8 @@ class AcpRuntime implements BotRuntime {
   #commands: AvailableCommand[] = [];
   /** the agent said at initialize that a prompt may carry image blocks */
   #images = false;
-  #kinds = new Map<string, ToolKind>();
+  /** what each open call is, as far as the agent has said: a permission ask may carry only the id */
+  #calls = new Map<string, { title?: string; kind?: ToolKind; rawInput?: unknown }>();
   #info: SessionInfo = {};
   #running = false;
   #aborting = false;
@@ -435,7 +471,7 @@ class AcpRuntime implements BotRuntime {
     if (this.#link) throw new Error("acp runtime already started");
     this.#onToolCall = opts.onToolCall;
     this.#onPermission = opts.onPermission;
-    const link = new Link(this.launch, opts.cwd, this.#client());
+    const link = new Link(await this.launch(), opts.cwd, this.#client());
     this.#link = link;
     void link.exited.then(() => {
       this.#dead = true;
@@ -455,7 +491,17 @@ class AcpRuntime implements BotRuntime {
       });
       this.#images = init.agentCapabilities?.promptCapabilities?.image === true;
       let session: { configOptions?: SessionConfigOption[] | null; modes?: SessionModeState | null } | undefined;
-      if (opts.resumeToken && init.agentCapabilities?.loadSession) {
+      const caps = init.agentCapabilities;
+      // resume restores a session without replaying its history, so it goes before load
+      if (opts.resumeToken && caps?.sessionCapabilities?.resume) {
+        try {
+          session = await link.conn.resumeSession({ sessionId: opts.resumeToken, cwd: opts.cwd, mcpServers: [], ...metaOf(this.spec.manifest) });
+          this.#sessionId = opts.resumeToken;
+        } catch {
+          session = undefined;
+        }
+      }
+      if (!session && opts.resumeToken && caps?.loadSession) {
         this.#replaying = true;
         try {
           session = await link.conn.loadSession({ sessionId: opts.resumeToken, cwd: opts.cwd, mcpServers: [], ...metaOf(this.spec.manifest) });
@@ -504,18 +550,20 @@ class AcpRuntime implements BotRuntime {
         return;
       case "tool_call": {
         if (this.#replaying) return;
-        if (u.kind) this.#kinds.set(u.toolCallId, u.kind);
+        this.#know(u);
         this.#emit({ type: "tool.start", display: "fold", call: this.#callOf(u) });
         if (u.status === "completed" || u.status === "failed") {
           this.#emit({ type: "tool.end", display: "fold", id: u.toolCallId, isError: u.status === "failed", content: textOf(u) });
+          this.#calls.delete(u.toolCallId);
         }
         return;
       }
       case "tool_call_update":
         if (this.#replaying) return;
-        if (u.kind) this.#kinds.set(u.toolCallId, u.kind);
+        this.#know(u);
         if (u.status === "completed" || u.status === "failed") {
           this.#emit({ type: "tool.end", display: "fold", id: u.toolCallId, isError: u.status === "failed", content: textOf(u) });
+          this.#calls.delete(u.toolCallId);
         }
         return;
       case "usage_update": {
@@ -545,10 +593,25 @@ class AcpRuntime implements BotRuntime {
     }
   }
 
+  #know(u: ToolCallUpdate): void {
+    const known = this.#calls.get(u.toolCallId);
+    this.#calls.set(u.toolCallId, {
+      ...known,
+      ...(u.title ? { title: u.title } : {}),
+      ...(u.kind ? { kind: u.kind } : {}),
+      ...(u.rawInput !== undefined && u.rawInput !== null ? { rawInput: u.rawInput } : {}),
+    });
+  }
+
   #callOf(u: ToolCallUpdate | (ToolCallUpdate & { title: string })): ToolCall {
-    const kind = u.kind ?? this.#kinds.get(u.toolCallId) ?? "other";
-    const input = u.rawInput && typeof u.rawInput === "object" ? (u.rawInput as Record<string, unknown>) : {};
-    return { id: u.toolCallId, name: u.name ?? u.title ?? kind, input, effect: EFFECT_OF_KIND[kind] ?? "execute" };
+    const known = this.#calls.get(u.toolCallId);
+    const kind = u.kind ?? known?.kind ?? "other";
+    const title = u.title ?? known?.title;
+    const raw = u.rawInput ?? known?.rawInput;
+    const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+    // an agent that calls every tool other says what each one does in its manifest
+    const declared = kind === "other" && title ? this.spec.manifest.toolEffects?.[title] : undefined;
+    return { id: u.toolCallId, name: u.name ?? title ?? kind, input, effect: declared ?? EFFECT_OF_KIND[kind] ?? "execute" };
   }
 
   /**
@@ -574,8 +637,10 @@ class AcpRuntime implements BotRuntime {
     if (!link || !sessionId) return;
     const select = async (category: string, value: string | undefined) => {
       const opt = byCategory(this.#options, category);
-      if (!opt || value === undefined || !selectOptions(opt).some((o) => o.value === value)) return;
-      const r = await link.conn.setSessionConfigOption({ sessionId, configId: opt.id, value });
+      if (!opt || value === undefined) return;
+      const picked = category === "model" ? modelValue(opt, value) : selectOptions(opt).find((o) => o.value === value)?.value;
+      if (picked === undefined) return;
+      const r = await link.conn.setSessionConfigOption({ sessionId, configId: opt.id, value: picked });
       this.#options = r.configOptions;
     };
     await select("model", settings.model);
@@ -828,15 +893,20 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
 function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory {
   const { source } = instance;
   if (source.kind === "own" && !spec.own) throw new Error(t("error.source.noOwn", { label: spec.label }));
-  if (source.kind === "endpoint" && !(source.endpoint.api && spec.manifest.env?.[source.endpoint.api])) {
+  if (source.kind === "endpoint" && !variablesFor(spec.manifest, source.endpoint)) {
     throw new Error(t("error.source.mismatch", { endpoint: source.endpoint.name, label: spec.label }));
   }
-  const launch = () => resolveLaunch(spec, instance.program, source);
+  // a preset endpoint carries only its id; the address comes from the catalog, looked up when the agent starts
+  const presetOf = async (): Promise<ProviderPreset | undefined> => {
+    if (source.kind !== "endpoint" || source.endpoint.preset === CUSTOM_PRESET) return undefined;
+    return (await spec.presetCatalog?.())?.find((p) => p.id === source.endpoint.preset);
+  };
+  const launch = async () => resolveLaunch(spec, instance.program, source, await presetOf());
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
   let lastModes: Array<{ id: string; label: string }> = [];
   const snapshotOf = (maxAgeMs: number): Promise<Snapshot> => {
     if (snapshot && Date.now() - snapshot.at < maxAgeMs) return snapshot.value;
-    const entry = { at: Date.now(), value: Promise.resolve().then(() => probe(launch(), instance.label, spec.manifest)) };
+    const entry = { at: Date.now(), value: Promise.resolve().then(async () => probe(await launch(), instance.label, spec.manifest)) };
     snapshot = entry;
     entry.value.then(
       (s) => {
@@ -854,7 +924,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     type: spec.type,
     label: instance.label,
     capabilities: capabilitiesOf(spec.manifest),
-    create: () => new AcpRuntime(launch(), instance.label, spec),
+    create: () => new AcpRuntime(launch, instance.label, spec),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");
@@ -881,12 +951,8 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
 
 /** An ACP agent as a harness type: the manifest says which agent, the protocol says the rest. */
 export function acpHarness(spec: AcpSpec): HarnessType {
-  return {
-    type: spec.type,
-    label: spec.label,
-    sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
-    capabilities: () => capabilitiesOf(spec.manifest),
-    create: (instance) => acpFactory(spec, instance),
+  const taken = Object.keys(spec.manifest.presets ?? {});
+  const signIn: Pick<HarnessType, "login" | "authenticate"> = {
     // the sign-in is the program's, so it is asked afresh every time rather than cached with any executor
     async login(program): Promise<LoginState> {
       const launch = resolveLaunch(spec, program, { kind: "own" });
@@ -908,5 +974,21 @@ export function acpHarness(spec: AcpSpec): HarnessType {
         link.close();
       }
     },
+  };
+  return {
+    type: spec.type,
+    label: spec.label,
+    sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
+    capabilities: () => capabilitiesOf(spec.manifest),
+    ...(taken.length > 0
+      ? {
+          async presets() {
+            const catalog = (await spec.presetCatalog?.()) ?? [];
+            return taken.flatMap((id) => catalog.find((p) => p.id === id) ?? []);
+          },
+        }
+      : {}),
+    create: (instance) => acpFactory(spec, instance),
+    ...(spec.own ? signIn : {}),
   };
 }
