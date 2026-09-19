@@ -62,6 +62,7 @@ async function prompt(id, params) {
   const update = (u) => notify("session/update", { sessionId, update: u });
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
   if (text.includes("#meta")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `meta ${JSON.stringify(sessionMeta)} ` } });
+  if (text.includes("#env")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `env ${process.env.FAKE_PINNED} ${process.env.FAKE_PLAIN} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);
   if (images.length > 0) {
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `saw ${images.map((b) => b.mimeType).join(",")} ` } });
@@ -109,14 +110,20 @@ rl.on("line", (line) => {
   }
   const { id, method, params } = msg;
   switch (method) {
-    case "initialize":
+    case "initialize": {
+      const authMethods = [{ id: "fake-login", name: "Log in", description: "Run fake login", type: "terminal", args: ["login"] }];
+      // the older terminal-auth convention: an agent method naming a command, offered to a client that says it shows one
+      if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
+        authMethods.push({ id: "fake-meta-login", name: "Log in with fake", _meta: { "terminal-auth": { command: "fake-cli", args: ["auth", "login"] } } });
+      }
       reply(id, {
         protocolVersion: 1,
         agentCapabilities: { loadSession: false, promptCapabilities: { image: true } },
-        authMethods: [{ id: "fake-login", name: "Log in", description: "Run fake login", type: "terminal", args: ["login"] }],
+        authMethods,
       });
       notify("_auth/status_update", { authStatus: loggedOut ? { kind: "none", label: "Not logged in" } : { kind: "subscription", label: "Pro" } });
       return;
+    }
     case "session/new":
       if (loggedOut) return fail(id, -32000, "Authentication required");
       sessionMeta = params._meta ?? null;

@@ -506,4 +506,11 @@ export interface AcpManifest {
   permissionModes?: boolean;
   /** Sent as `_meta` with every session the host opens or loads: settings the agent takes nowhere else. */
   sessionMeta?: Readonly<Record<string, unknown>>;
+  /**
+   * Environment variables set on every launch, whatever the source, over any
+   * the host inherited: settings the agent reads only from its environment,
+   * such as a permission policy pinned to asking. A value that is not a
+   * string is passed as JSON.
+   */
+  fixedEnv?: Readonly<Record<string, unknown>>;
 }

@@ -1969,7 +1969,14 @@ describe("extensions", () => {
     const login = await ext.types().find((t) => t.type === "fake").login();
     assert.equal(login.state, "ok");
     assert.equal(login.account, "Pro");
-    assert.deepEqual(login.methods.map((m) => [m.id, m.terminal?.args.at(-1)]), [["fake-login", "login"]]);
+    // a method typed terminal runs the agent itself; one under the older convention names its own command
+    assert.deepEqual(
+      login.methods.map((m) => [m.id, m.terminal?.command, m.terminal?.args.at(-1)]),
+      [
+        ["fake-login", "./agent.mjs", "login"],
+        ["fake-meta-login", "fake-cli", "login"],
+      ],
+    );
     } finally {
       await orch.disposeAll();
     }
@@ -2110,6 +2117,40 @@ describe("extensions", () => {
     } finally {
       await orch.disposeAll();
     }
+  });
+
+  test("a manifest's fixed environment is set on every launch, over what the host inherited", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ fixedEnv: { FAKE_PINNED: { edit: "ask" }, FAKE_PLAIN: "as is" } }), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    process.env.FAKE_PINNED = "loose";
+    const runtime = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }).create();
+    let text = "";
+    let ended = false;
+    runtime.subscribe((e) => {
+      if (e.type === "assistant.text") text += e.delta;
+      if (e.type === "turn.end") ended = true;
+    });
+    try {
+      await runtime.start({ cwd: dir });
+      await runtime.send("#env");
+      await until(() => ended, 15_000);
+      assert.match(text, /env \{"edit":"ask"\} as is /, "an object goes as JSON, a string as it is");
+    } finally {
+      delete process.env.FAKE_PINNED;
+      await runtime.dispose();
+    }
+  });
+
+  test("a manifest's own sign-in command stands in for the agent's terminal methods, whichever convention marks them", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ login: { terminal: ["fake-cli", "login"] } }), origin: "linked" }]);
+    await ext.load();
+    const login = await ext.types()[0].login();
+    assert.deepEqual(
+      login.methods.map((m) => [m.id, m.terminal?.command, m.terminal?.args]),
+      [["terminal", "fake-cli", ["login"]]],
+    );
   });
 
   test("a launcher npm left without an extension runs on the host's own runtime, and a program that cannot start is only reported", async () => {

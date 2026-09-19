@@ -12,6 +12,7 @@ import {
   type AuthMethod,
   type AvailableCommand,
   type Client,
+  type ClientCapabilities,
   type ContentBlock,
   type PermissionOptionKind,
   type RequestPermissionRequest,
@@ -104,6 +105,16 @@ const AUTH_STATUS_WAIT_MS = 1_500;
 const COMMANDS_WAIT_MS = 400;
 const SNAPSHOT_REUSE_MS = 10 * 60_000;
 const AUTH_STATUS_METHOD = "_auth/status_update";
+/**
+ * The host keeps files and terminals to itself. The terminal-auth flag is the
+ * older convention by which an agent marks a sign-in as a command to run,
+ * which the host shows rather than runs.
+ */
+const CLIENT_CAPABILITIES: ClientCapabilities = {
+  fs: { readTextFile: false, writeTextFile: false },
+  terminal: false,
+  _meta: { "terminal-auth": true },
+};
 /** JSON-RPC code an agent answers with when nobody is signed in */
 const AUTH_REQUIRED = -32000;
 /** what JSON-RPC calls a failure the agent did not name; the reason, if any, is in the error's data */
@@ -174,6 +185,7 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
   // a program that is a script runs on the host's runtime, whatever shim npm made for it
   if (items[0] && items[0] !== process.execPath && isScript(items[0])) items = [process.execPath, ...items];
   const env = cleanEnv();
+  for (const [key, value] of Object.entries(spec.manifest.fixedEnv ?? {})) env[key] = typeof value === "string" ? value : JSON.stringify(value);
   if (items[0] === process.execPath && process.versions["electron"]) env["ELECTRON_RUN_AS_NODE"] = "1";
   if (program && spec.manifest.executable?.env) env[spec.manifest.executable.env] = program;
 
@@ -438,7 +450,7 @@ class AcpRuntime implements BotRuntime {
     try {
       const init = await link.conn.initialize({
         protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientCapabilities: CLIENT_CAPABILITIES,
         clientInfo: { name: "roster", version: "0.1.0" },
       });
       this.#images = init.agentCapabilities?.promptCapabilities?.image === true;
@@ -747,7 +759,7 @@ async function probe(launch: Launch, label: string, manifest: AcpManifest): Prom
       (async () => {
         const init = await link.conn.initialize({
           protocolVersion: PROTOCOL_VERSION,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientCapabilities: CLIENT_CAPABILITIES,
           clientInfo: { name: "roster", version: "0.1.0" },
         });
         snapshot.authMethods = init.authMethods ?? [];
@@ -780,6 +792,15 @@ async function probe(launch: Launch, label: string, manifest: AcpManifest): Prom
   return snapshot;
 }
 
+/** The command a method names under the older terminal-auth convention, where it is otherwise an agent method. */
+function terminalAuth(m: AuthMethod): { command: string; args: string[] } | null {
+  const meta = m._meta?.["terminal-auth"];
+  if (!meta || typeof meta !== "object") return null;
+  const { command, args } = meta as { command?: unknown; args?: unknown };
+  if (typeof command !== "string" || !command) return null;
+  return { command, args: Array.isArray(args) ? args.filter((a): a is string => typeof a === "string") : [] };
+}
+
 /** Sign-in methods a person can act on, from the agent's own list and the manifest's hint. */
 function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMethod[]): LoginMethod[] {
   const out: LoginMethod[] = [];
@@ -788,13 +809,14 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
     out.push({ id: "terminal", label: t("login.terminal"), terminal: { command: hint[0]!, args: hint.slice(1) } });
   }
   for (const m of methods) {
-    if ("type" in m && m.type === "terminal") {
+    const byMeta = terminalAuth(m);
+    if (("type" in m && m.type === "terminal") || byMeta) {
       if (hint) continue;
       out.push({
         id: m.id,
         label: m.name,
         ...(m.description ? { description: m.description } : {}),
-        terminal: { command: launch.program, args: [...launch.args, ...(m.args ?? [])] },
+        terminal: byMeta ?? { command: launch.program, args: [...launch.args, ...("args" in m ? (m.args ?? []) : [])] },
       });
     } else {
       out.push({ id: m.id, label: m.name, ...(m.description ? { description: m.description } : {}) });
@@ -880,7 +902,7 @@ export function acpHarness(spec: AcpSpec): HarnessType {
         sessionUpdate: () => {},
       });
       try {
-        await link.conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: "roster", version: "0.1.0" } });
+        await link.conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: CLIENT_CAPABILITIES, clientInfo: { name: "roster", version: "0.1.0" } });
         await link.conn.authenticate({ methodId });
       } finally {
         link.close();
