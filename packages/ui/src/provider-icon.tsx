@@ -72,6 +72,7 @@ export function providerOf(bot: Pick<BotRow, "model"> | undefined, executorType?
   if (m.startsWith("claude") || executorType === "claude-code") return "claude";
   if (executorType === "grok-build") return "grok";
   if (executorType === "opencode") return "opencode";
+  if (executorType === "deepseek-harness") return "deepseek";
   return "unknown";
 }
 

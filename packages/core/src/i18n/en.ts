@@ -211,6 +211,8 @@ export const en = {
   "catalog.grok-build": "SpaceXAI's coding agent, over ACP. Sign in with a Grok account, or connect an OpenAI-compatible API.",
   "catalog.opencode":
     "The open source coding agent, over ACP. Its free models work without signing in; sign in to use OpenCode Zen, ChatGPT, Copilot and the other providers it supports.",
+  "catalog.deepseek-harness":
+    "DeepSeek's coding agent, over ACP. It has no sign-in of its own; connect the DeepSeek model API. It is a developer preview, so its version is pinned.",
 
   // effort levels agents share the ids of, so one word each; an agent's own description of a level passes through
   "effort.minimal": "Minimal",

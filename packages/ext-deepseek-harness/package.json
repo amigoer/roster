@@ -1,0 +1,42 @@
+{
+  "name": "@roster/ext-deepseek-harness",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "DeepSeek Harness for Roster: DeepSeek's coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 2,
+    "type": "deepseek-harness",
+    "label": "DeepSeek Harness",
+    "acp": {
+      "command": [
+        "@program",
+        "--profile",
+        "acp"
+      ],
+      "own": false,
+      "presets": {
+        "deepseek": {
+          "baseUrl": "DEEPSEEK_BASE_URL",
+          "key": "DEEPSEEK_API_KEY"
+        }
+      },
+      "permissionModes": false,
+      "fixedEnv": {
+        "DSH_PERMISSION_MODE": "read-only"
+      },
+      "toolEffects": {
+        "read": "read",
+        "read_image": "read",
+        "glob": "read",
+        "grep": "read",
+        "web_fetch": "read",
+        "web_search": "read",
+        "todo_write": "read",
+        "write": "write",
+        "edit": "write",
+        "bash": "execute"
+      }
+    }
+  }
+}

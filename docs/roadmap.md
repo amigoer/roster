@@ -1,12 +1,12 @@
 # 路线图
 
-> 第二轮 · 2026-09-17 · 最近改动 2026-09-20（接入 OpenCode；更多 agent 改按热度排）
+> 第二轮 · 2026-09-17 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness；更多 agent 改按热度排）
 
 按里程碑排，不按日期：一个人做，日期只会失信。每个里程碑一句**做完的标志**——能当场演示的一件事，不是一串功能名。顺序是建议，不是承诺；里程碑里的取舍写在各自的文档里，这里只说先后和为什么。
 
 ## 已到：桌面雏形（第一轮）
 
-Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build 和 OpenCode 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
+Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build、OpenCode 和 DeepSeek Harness 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
 
 ## M1 · 窄屏与路由
 
@@ -58,7 +58,7 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 ## 另一条线：更多 agent（第三轮）
 
-和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode 已经接上，下面 A1 到 A4 待照这条重排。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
+和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode、DeepSeek Harness 已经接上，下面 A1 到 A4 待照这条重排。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
 
 ### A1 · Kimi Code 订阅
 
@@ -68,7 +68,7 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 ### A2 · ACP 通道补齐
 
-不接新 agent，只补通道：程序不一定来自 npm、验明正身、没有登录的类型、预设接到 ACP 类型、优先 `session/resume`、档位到模式明写。全用测试里的假 agent 覆盖。只答一次性的权限选项已经先做了。
+不接新 agent，只补通道：程序不一定来自 npm、验明正身、档位到模式明写。全用测试里的假 agent 覆盖。只答一次性的权限选项、没有登录的类型、预设接到 ACP 类型、优先 `session/resume` 已经随 OpenCode 和 DeepSeek Harness 做了。
 
 **做完的标志**：假 agent 只靠清单声明「没有登录、只接 DeepSeek 预设、只有 resume」，就能建出 agent、跑一轮、重启 core 后接着原会话；Grok Build 直接用 xAI 预设建出 agent。
 
@@ -78,11 +78,11 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 **做完的标志**：curl 脚本装的 Cursor 被认出来，PATH 上另一个叫 `agent` 的程序不会被当成它；`agent login` 之后跑一轮，只读、可写、可执行三档各自放行得对；Cursor 想问问题时，这一轮不会卡死。
 
-### A4 · Kimi Code 接 API，DeepSeek Harness
+### A4 · Kimi Code 接 API
 
-启动时带上模型和定值，核对程序要的 node 版本；DeepSeek Harness 钉版本、标实验。
+启动时带上模型和定值，核对程序要的 node 版本。DeepSeek Harness 已经先接了（2026-09-20）。
 
-**做完的标志**：只加一个 DeepSeek 预设，就能建出「DeepSeek Harness · DeepSeek」跑一轮、重启后接着；「Kimi Code · Moonshot」在会话里换了模型，下一条消息就用上。
+**做完的标志**：「Kimi Code · Moonshot」在会话里换了模型，下一条消息就用上。
 
 ZCode 暂缓，等智谱给出官方的 ACP 入口；排队的 Qwen Code、Qoder CLI、Copilot CLI 照接入清单一家一家来。
 

@@ -199,6 +199,7 @@ export const zhCN = translation<typeof en>()({
   "catalog.gemini-cli": "Google 的编码 agent，走 ACP。用 Google 账号登录，或接 Gemini API 密钥。",
   "catalog.grok-build": "SpaceXAI 的编码 agent，走 ACP。用 Grok 账号登录，或接 OpenAI 兼容的 API。",
   "catalog.opencode": "开源的编码 agent，走 ACP。不登录就能用它的免费模型；登录后能用 OpenCode Zen、ChatGPT、Copilot 等它支持的服务。",
+  "catalog.deepseek-harness": "DeepSeek 的编码 agent，走 ACP。没有自带登录，接 DeepSeek 的模型 API。还是开发者预览版，所以钉住了版本。",
 
   "effort.minimal": "最低",
   "effort.low": "低",

@@ -60,6 +60,8 @@ importers:
 
   packages/ext-codex: {}
 
+  packages/ext-deepseek-harness: {}
+
   packages/ext-gemini-cli: {}
 
   packages/ext-grok-build: {}

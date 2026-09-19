@@ -99,6 +99,16 @@ export const CATALOG: readonly CatalogEntry[] = [
       versionArgs: ["--version"],
     },
   },
+  {
+    id: "deepseek-harness",
+    label: "DeepSeek Harness",
+    get description() {
+      return t("catalog.deepseek-harness");
+    },
+    brand: "deepseek",
+    // a developer preview that warns of breaking changes, so the version stays pinned
+    program: { npm: "@deepseek-ai/dsh", version: "0.1.5-rc.2", bin: "dsh", versionArgs: ["--version"] },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

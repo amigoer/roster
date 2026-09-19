@@ -58,6 +58,7 @@ export const HARNESS_BRAND: Record<string, Provider> = {
   "gemini-cli": "google",
   "grok-build": "grok",
   opencode: "opencode",
+  "deepseek-harness": "deepseek",
 };
 
 export const brandOfType = (type: string, brand?: string): Provider =>

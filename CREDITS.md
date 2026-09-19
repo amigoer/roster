@@ -10,7 +10,7 @@ The main projects Roster is built on. Licenses are as each package declares them
 |---|---|---|
 | [pi](https://github.com/earendil-works/pi) | pi-agent itself, a coding agent packaged as a library | MIT |
 | [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | Claude Code, on a Claude subscription or a model API | [Anthropic terms](https://code.claude.com/docs/en/legal-and-compliance) |
-| [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | Driving Codex, Gemini CLI, Grok Build, OpenCode and other ACP agents | Apache-2.0 |
+| [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | Driving Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness and other ACP agents | Apache-2.0 |
 | [npm](https://github.com/npm/cli) | Downloading agents that are missing from your machine | Artistic-2.0 |
 
 ## Desktop and interface
@@ -46,3 +46,4 @@ These are not part of this repository. When an agent is missing from your machin
 | Gemini CLI | [`@google/gemini-cli`](https://github.com/google-gemini/gemini-cli) | Apache-2.0 |
 | Grok Build | [`@xai-official/grok`](https://github.com/xai-org/grok-build) | Apache-2.0 |
 | OpenCode | [`opencode-ai`](https://github.com/anomalyco/opencode) | MIT |
+| DeepSeek Harness | [`@deepseek-ai/dsh`](https://github.com/deepseek-ai/deepseek-harness) | MIT |

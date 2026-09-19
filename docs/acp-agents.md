@@ -1,6 +1,6 @@
 # 接入更多 ACP agent
 
-> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode；改按热度排；第 10 条已做）
+> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness；改按热度排；第 3、4、6、10 条已做）
 
 **下一批 harness 还是按清单接：先补通道，不给哪一家单写适配代码。** 这一批四家：Cursor、Kimi Code、DeepSeek Harness、ZCode，后面还排着 Qwen Code、Qoder CLI、Copilot CLI 这些。它们大多原生支持 ACP，但形状各不一样：有的没有 npm 包，有的没有登录，有的恢复会话只认 `resume`。与其逐家写适配器，不如把这些差别做成清单里能声明的字段：通道补一次，之后每家还是一份清单。接 ACP agent 的基本做法见 [底层执行器](harness.md)，这一册只写新东西：各家现状、通道要补的几件事、先后、接入清单、还没查清的。
 
@@ -28,6 +28,27 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - **还没做**：接模型 API，要按协议拼出 `OPENCODE_CONFIG_CONTENT` 里的 provider 配置，和第 4、5 条一起做。一键更新：`opencode upgrade` 没有只查不装的模式，认不出安装方式时还会停下来问。验明正身：npm 上的 `@opencode/cli` 2.0 也会装出一个 `opencode`，见第 2 条。
 - **拦不住的**：用户配置里按 agent 写的权限（`agent.build.permission`）排在环境变量后面，会盖过「先问」。本机配置里的 MCP 工具默认放行，闸门看不见。
 
+## DeepSeek Harness：第二个接进来的
+
+2026-09-20 接上。只有清单，但通道补了五样，下面单列。只接 DeepSeek 预设。
+
+- **程序**：npm `@deepseek-ai/dsh`，命令 `dsh`，`--version` 只打版本号。入口 `dsh --profile acp`：第一次用时在 `$DSH_HOME/profiles/acp`（默认 `~/.dsh`）下从模板建出 profile。还是开发者预览，版本钉在 0.1.5-rc.2，标实验。
+- **来源**：没有登录，`authMethods` 是空的，所以清单写 `own: false`，只接模型 API。接的是 DeepSeek 预设：密钥进 `DEEPSEEK_API_KEY`，地址进 `DEEPSEEK_BASE_URL`，地址取自 pi 的预设目录，端点自己写了地址的以端点为准。它也能接 OpenAI 兼容的网关，但会话里只列 DeepSeek 的四个模型，接别家端点选不了那家的模型，所以不收自定义端点。
+- **权限**：它管权限的是沙箱，没有模式。默认 `workspace-write`：工作区里改文件、在沙箱里跑命令都不问，只有越出沙箱才发审批，闸门什么都看不见。清单的 `fixedEnv` 把 `DSH_PERMISSION_MODE` 钉在 `read-only`：改动先被沙箱拒掉，模型照提示带上 `sandbox_permissions` 和 `justification` 重试，这一步才走 `request_permission`，闸门就都看得到了。代价是每次改动多一轮模型调用。只读的命令照常直接跑；不写文件、只动网络的命令，闸门也看不见。
+- **工具**：`tool_call` 带标题（write、bash 这样的工具名）和参数，kind 一律是 other；权限请求只带 `toolCallId`。
+- **会话**：没有 `session/load`，有 `resume`、`list`、`close`。模型和思考级别走 `configOptions`，模型的值是 `["deepseek-official","deepseek-v4-pro"]` 这样的 JSON 对，思考级别是 off / low / high / max。消息整段提交，不逐字流出。
+- **验证**：真程序接本地的假 OpenAI 端点，`DSH_HOME` 指到临时目录，走 DeepSeek 预设那条路：密钥和地址都按预设传进去；改动先被沙箱拒、放宽后才问，问到的写文件按「写」、命令按「执行」过闸门；闸门拒掉的没有落盘，模型接着回话；bot 选的 `deepseek-v4-pro` 对上了那个 JSON 对；重启后 `resume` 接回原会话。
+- **还没做**：验明正身：`dsh` 也是经典的 distributed shell 的名字，PATH 上那个会被当成它，见第 2 条。按档位换沙箱：可执行档其实不必走 read-only 的两步，要等档位能换环境变量。
+- **拦不住的**：只读沙箱里不写文件的命令，比如只发网络请求的。
+
+通道补的五样，都先用假 agent 覆盖：
+
+- **`own: false`**（第 3 条）：没有自带登录的类型，只接模型 API，设置页不给登录那栏。
+- **`presets`**（第 4 条）：清单按预设 id 声明能接哪些、密钥和地址各进哪个变量。预设目录由带代码的 harness 汇总，现在就是 pi 报的那份；接预设的类型也算能接模型 API，能力、建 agent、bot 编辑器里的组合都认它。
+- **先 `session/resume`**（第 6 条）：agent 声明了就用它，失败或没声明再退回 `session/load`。
+- **权限请求按 id 合并**：`tool_call` 先报过的标题、kind、参数都记着，权限请求只带 id 时补上，卡片上看得到要批的是什么。
+- **`toolEffects`**：kind 报 other 的 agent，由清单按工具标题说它是读、写还是执行，闸门照这个管。另外，bot 选的是端点列出的裸模型 id，agent 用的是「provider + 模型」时，只要正好有一个对得上，就选那一个。
+
 ## 各家现状
 
 2026-09-19 查的，出处列在文末。
@@ -36,7 +57,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 |---|---|---|---|---|---|
 | Cursor | Cursor | `agent acp` | Cursor 账号，`agent login` | 不接 | 接；先补程序识别 |
 | Kimi Code | 月之暗面 | `kimi acp` | Kimi Code 会员，`kimi login` | `KIMI_MODEL_*` 一组变量 | 订阅现在就接；接 API 等通道 |
-| DeepSeek Harness | DeepSeek | `dsh --profile acp` | 无 | 只认 `DEEPSEEK_API_KEY` | 接，标实验；先补三样 |
+| DeepSeek Harness | DeepSeek | `dsh --profile acp` | 无 | DeepSeek 预设 | 已接，见上文 |
 | ZCode | 智谱 | 没有官方入口 | app 里的 Z.ai / BigModel 账号 | app 里配 | 暂缓 |
 
 ### Cursor
@@ -59,12 +80,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ### DeepSeek Harness
 
-- **程序**：npm `@deepseek-ai/dsh`，命令 `dsh`。开发者预览，README 明说会有不兼容的改动：钉版本、标实验。
-- **入口**：`dsh --profile acp`，是 DSH 自己定位为「只面向自动化」的 ACP 子集：会话 new / list / resume / close，`set_config_option` 选模型和思考级别，权限请求，`usage_update`；没有 `session/load`、模式、斜杠命令。消息整段提交，不逐字流出，聊天里看到的是一段一段出来。这是它有意的取舍，照实声明，不去补。
-- **登录**：没有，`authenticate` 直接成功，只能接模型 API（通道第 3 条）。
-- **模型 API**：官方的 provider 读 `DEEPSEEK_API_KEY`；能不能换地址、接别家端点待查。所以它最该接的是用户已经加过的 DeepSeek 预设（通道第 4 条）。选模型的值是「provider/模型」的不透明串，怎么和端点列出的模型 id 对上要实测。
-- **权限**：没有模式，审批由启动配置决定：测试 profile 读 `DSH_PERMISSION_MODE`，workspace-write 先问，danger-full-access 不问。钉在先问，交给闸门按档位管。
-- **会话**：只有 `resume`（通道第 6 条），不补的话重启一次丢一次上下文。
+已接，见上文。接之前这里写过「workspace-write 先问」，实测不是：工作区里的改动它都不问。
 
 ### ZCode
 
@@ -78,10 +94,10 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 1. **程序不一定来自 npm。** 目录现在假定程序都能用 npm 装；Cursor 只有 curl 脚本，ZCode 是 app 包。目录项里的 npm 改成可选：没有时 Harness 卡片不给「下载」，只给官方的安装命令让人复制，和终端登录一样，Roster 不代跑。检测照旧，PATH 和常见位置之外再加 app 包里的路径。（Cursor，以后的 ZCode）
 2. **验明正身。** `agent`、`grok`、`kimi` 这种命令名谁都能叫：PATH 上叫 `agent` 的多半不是 Cursor，旧的 kimi-cli 也叫 `kimi`，社区的 grok-cli 也装出一个 `grok`。目录项加一条 `--version` 输出要满足的式子，对不上就不算检测到，卡片上说明找到的同名程序不是它。（Cursor 必须；Kimi Code、Grok Build 顺手补上）
-3. **没有自带登录的 ACP agent。** 只有清单的 ACP 类型现在一律按「有订阅」建，加载器里写死了。清单加 `own: false`：这种类型没有订阅 agent，agent 页直接选模型 API，和 pi-agent 一样。（DeepSeek Harness）
-4. **预设接到 ACP 类型上。** ACP 类型现在只收自定义端点：预设是 pi 报的，别的类型认不得。可用户最先加的往往就是预设，DeepSeek、Moonshot、xAI、OpenAI 都是；结果 DeepSeek Harness 用不上 DeepSeek 预设，Grok Build 用不上 xAI 预设，Codex 也用不上 OpenAI 预设。清单按预设 id 声明能接哪些、密钥进哪个变量；地址和协议照旧从预设目录里取，启动时补进端点，清单里不再抄一遍。（DeepSeek Harness 必须；其余 ACP agent 都受益）
+3. **没有自带登录的 ACP agent。**（已做，2026-09-20）只有清单的 ACP 类型现在一律按「有订阅」建，加载器里写死了。清单加 `own: false`：这种类型没有订阅 agent，agent 页直接选模型 API，和 pi-agent 一样。（DeepSeek Harness）
+4. **预设接到 ACP 类型上。**（已做，2026-09-20；目前只有 DeepSeek Harness 声明了预设）ACP 类型原先只收自定义端点：预设是 pi 报的，别的类型认不得。可用户最先加的往往就是预设，DeepSeek、Moonshot、xAI、OpenAI 都是；结果 DeepSeek Harness 用不上 DeepSeek 预设，Grok Build 用不上 xAI 预设，Codex 也用不上 OpenAI 预设。清单按预设 id 声明能接哪些、密钥进哪个变量；地址和协议照旧从预设目录里取，启动时补进端点，清单里不再抄一遍。（DeepSeek Harness 必须；其余 ACP agent 都受益）
 5. **启动时带上模型和定值。** 协议到环境变量的映射现在只有地址和密钥两项；Kimi Code 接 API 还要模型 id，外加一个写死的类型值。映射加上 `model` 和定值两项。不分来源、每次都带的定值已经有了，就是清单的 `fixedEnv`（OpenCode 用它）；还缺按来源的定值和模型。模型开会话时才定，所以环境变量改到开会话时解析，不在建 runtime 时；会话里换模型就是带新变量重开后端会话，能 `resume` 就接着原会话。（Kimi Code）
-6. **优先 `session/resume`。** 恢复现在只走 `session/load`，它把历史重放一遍，Roster 再全部丢掉。ACP v1 的 `session/resume` 只恢复、不重放：agent 声明了就用它，没有再退回 `load`。（DeepSeek Harness 必须；Kimi Code 也更快）
+6. **优先 `session/resume`。**（已做，2026-09-20）恢复原先只走 `session/load`，它把历史重放一遍，Roster 再全部丢掉。ACP v1 的 `session/resume` 只恢复、不重放：agent 声明了就用它，没有再退回 `load`。（DeepSeek Harness 必须；Kimi Code 也更快）
 7. **档位到模式明写。** 现在是按模式名里的 yolo、auto、edit 这些词去猜三档各对应哪个模式。Cursor 的 agent / plan / ask 管的是能做什么，猜出来是错的；Kimi Code 的 yolo 和 auto 都像「可执行」，但只有 yolo 还会把有风险的调用交给人。清单可以直接写三档各对哪个模式，猜只作兜底。模式不管审批的，就声明 `permissionModes: false` 交给闸门；讨论这种只读的场合再另指一个只读模式（Cursor 的 ask），省得它一轮轮去试着写文件再被拦下。（Cursor、Kimi Code）
 8. **要等回复的扩展方法。** Cursor 会向客户端发 `cursor/ask_question`、`cursor/create_plan` 并等回复；Roster 对不认识的请求一律回「没有这个方法」。先实测 Cursor 收到后是换条路走，还是整轮失败。最少要保证一轮不卡死、失败时说得清原因；以后可以把 ask_question 接成聊天里的一张问题卡。（Cursor）
 9. **核对程序要的 node 版本。** 脚本类的程序跑在 Roster 自己的运行时上：桌面端是 Electron 44 自带的 node 24，`pnpm core` 用的是本机的 node，README 只要求 22.13。Kimi Code 要 22.19 以上。跑之前读程序包里的 `engines.node`，不满足就说清楚缺什么，不让它半路崩。（Kimi Code）
@@ -89,7 +105,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ## 顺序
 
-**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，已经接上，见上文。下面 A1 到 A4 是按旧的排法写的，要照这条重排。
+**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，都已经接上，见上文。下面 A1 到 A4 是按旧的排法写的，要照这条重排。
 
 里程碑和做完的标志见 [路线图](roadmap.md) 的 A1 到 A4。这条线和移动端不抢先后，插空做。
 
@@ -133,7 +149,6 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 - **Cursor**：客户端不认 `cursor/ask_question`、`cursor/create_plan` 时它怎么办；会话里能不能选模型、走不走 `configOptions`；有没有 `usage_update`。
 - **Kimi Code**：ACP 里的模式 id；用 `KIMI_MODEL_*` 合成的 provider，`configOptions` 里是不是只有那一个模型。
-- **DeepSeek Harness**：正式的 acp profile 认不认 `DSH_PERMISSION_MODE`；能不能换地址；选模型的值怎么对上端点的模型 id。
 - **旧的会话模型接口**：`models` 加 `session/set_model` 这一套，grok 1.0.16 之前只有它；Roster 只认 `configOptions`，这些版本在会话里选不了模型。各家都在往 `configOptions` 走，先不补；主力 agent 里有停在旧接口的再说。
 
 ## 出处
