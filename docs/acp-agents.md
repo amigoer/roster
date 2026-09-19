@@ -1,6 +1,6 @@
 # 接入更多 ACP agent
 
-> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness；改按热度排；第 3、4、6、10 条已做）
+> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness、Kimi Code；改按热度排；第 3、4、5、6、10 条已做；Cline 暂缓）
 
 **下一批 harness 还是按清单接：先补通道，不给哪一家单写适配代码。** 这一批四家：Cursor、Kimi Code、DeepSeek Harness、ZCode，后面还排着 Qwen Code、Qoder CLI、Copilot CLI 这些。它们大多原生支持 ACP，但形状各不一样：有的没有 npm 包，有的没有登录，有的恢复会话只认 `resume`。与其逐家写适配器，不如把这些差别做成清单里能声明的字段：通道补一次，之后每家还是一份清单。接 ACP agent 的基本做法见 [底层执行器](harness.md)，这一册只写新东西：各家现状、通道要补的几件事、先后、接入清单、还没查清的。
 
@@ -49,6 +49,30 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - **权限请求按 id 合并**：`tool_call` 先报过的标题、kind、参数都记着，权限请求只带 id 时补上，卡片上看得到要批的是什么。
 - **`toolEffects`**：kind 报 other 的 agent，由清单按工具标题说它是读、写还是执行，闸门照这个管。另外，bot 选的是端点列出的裸模型 id，agent 用的是「provider + 模型」时，只要正好有一个对得上，就选那一个。
 
+## Kimi Code：第三个接进来的
+
+2026-09-20 接上，订阅和模型 API 两条都有，通道又补了五样。
+
+- **程序**：npm `@moonshot-ai/kimi-code`，命令 `kimi`，是跑在 Roster 自己运行时上的脚本，要 node ≥ 22.19。curl 脚本装到 `~/.local/bin/kimi`。`--version` 只打版本号，入口 `kimi acp`。版本钉在 2.0.2。
+- **登录**：一个 terminal 类的方法，命令是 `kimi login`，走设备码登录；没登录时开会话报 -32000 Authentication required。数据目录由 `KIMI_CODE_HOME` 指，默认 `~/.kimi-code`。
+- **模型 API**：`KIMI_MODEL_NAME`、`KIMI_MODEL_API_KEY`、`KIMI_MODEL_BASE_URL`、`KIMI_MODEL_PROVIDER_TYPE` 合成一个 provider，它成为默认模型，账号里的模型还在列表里。自定义端点按协议接：OpenAI 兼容对 openai，Anthropic 兼容对 anthropic；预设接 `moonshotai`、`moonshotai-cn`（对 kimi）和 `kimi-coding`（对 anthropic）。模型 id 只在启动时进环境变量，会话开了不再按它切：切了可能换到账号里同名的模型，走的就是订阅了。
+- **权限**：模式 default、plan、auto、yolo，管的就是审批。可是它的 `config.toml` 能把默认模式写成 yolo，那样一个都不问。所以清单写 `permissionModes: false`，交给闸门按档位管，另用 `pinnedMode` 把每个会话一开始就放回 default。实测：配置里写着 yolo，写文件和命令照样都问。读文件不问。
+- **子 agent**：Agent 工具开的子 agent 要写文件，权限请求会用父会话的 id 转出来，不会卡死；但事先没有 `tool_call`，只带标题和一句它自己的描述。标题靠清单的 `toolEffects` 定是写还是执行，描述显示在卡片上。
+- **提问**：AskUserQuestion 也走权限请求，每个答案是一个 allow_once，另有一个「Skip」。Roster 答 Skip，让它改用文字问，不替人挑答案。
+- **plan 模式**：模型能自己调 EnterPlanMode 进去；退出要批准，选项是 Approve 和两个拒绝。清单把 ExitPlanMode 算作写：可写档以上自己批，之后的写照样过闸门。
+- **工具**：`tool_call` 带 kind，参数不在 rawInput，而是 content 里一段 JSON 文本；权限请求只带标题和描述。
+- **会话**：load、resume、list、close、fork 都有，Roster 用 resume。模型、thinking（开 / 关）、模式走 `configOptions`。
+- **验证**：真程序、隔离的 `KIMI_CODE_HOME`（配置里故意写 yolo）、本地假 OpenAI 端点，走自定义端点那条路：写文件先问、参数和描述都在，命令按执行档被拒，提问被跳过，子 agent 的写先问，重启后 resume 接着原会话；界面上两张权限卡片一张有参数、一张只有它那句描述，都看得明白。没登录时登录那栏只给 `kimi login`。订阅那条要真账号，还没手测。
+- **还没做**：验明正身：旧的 Python 版 kimi-cli（1.x）也叫 `kimi`，也有 `kimi acp`，PATH 上是它就会被当成 Kimi Code，见第 2 条。node 版本：`pnpm core` 用本机 node，低于 22.19 跑不了，见第 9 条。一键更新：`kimi upgrade` 没有只查不装的模式。模型 API 的 agent 在会话里换不了模型。提问以后可以做成聊天里的问题卡。
+
+通道补的五样：
+
+- **启动时带上模型和定值**（第 5 条）：映射加 `model`，存模型 id 的变量；再加 `set`，跟着这个协议或预设一起写死的值。启动推迟到开会话时，那时才知道 bot 选了哪个模型；只探一探能做什么的时候，用端点列出的第一个模型。
+- **`pinnedMode`**：每个会话开出来、接回来，都先放进这个模式，不管 agent 自己的设置让它从哪里开始。
+- **提问不替人答**：一个权限请求里有不止一个 allow_once，就是在问问题，答它的 reject_once，没有就取消。
+- **描述上卡片**：权限请求带着的文字存成调用的 `detail`；没有参数可看时，卡片上显示它。
+- **JSON 文本当参数**：调用没有 rawInput、content 又正好是一个 JSON 对象的文字时，拿它当参数。只用于显示，闸门看的是 kind。
+
 ## 各家现状
 
 2026-09-19 查的，出处列在文末。
@@ -56,7 +80,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 | | 出品 | ACP 入口 | 自带登录 | 接模型 API | 结论 |
 |---|---|---|---|---|---|
 | Cursor | Cursor | `agent acp` | Cursor 账号，`agent login` | 不接 | 接；先补程序识别 |
-| Kimi Code | 月之暗面 | `kimi acp` | Kimi Code 会员，`kimi login` | `KIMI_MODEL_*` 一组变量 | 订阅现在就接；接 API 等通道 |
+| Kimi Code | 月之暗面 | `kimi acp` | Kimi Code 会员，`kimi login` | `KIMI_MODEL_*` 一组变量 | 已接，见上文 |
 | DeepSeek Harness | DeepSeek | `dsh --profile acp` | 无 | DeepSeek 预设 | 已接，见上文 |
 | ZCode | 智谱 | 没有官方入口 | app 里的 Z.ai / BigModel 账号 | app 里配 | 暂缓 |
 
@@ -71,12 +95,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ### Kimi Code
 
-- **程序**：npm `@moonshot-ai/kimi-code`，命令 `kimi`，入口是 `dist/main.mjs`，跑在 Roster 自己的运行时上；也有 curl 脚本，装到 `~/.local/bin/kimi`。旧的 Python 版 kimi-cli 在退场，它的命令也叫 `kimi`，要靠版本号分开。
-- **登录**：`kimi login` 是设备码登录，不进 TUI，正好当终端登录的命令；ACP 里的方法 id 是 `login`。没登录时开会话报 Authentication required，和现有的判断对得上。
-- **模型 API**：它不读壳环境里的 `KIMI_API_KEY`，要靠 `KIMI_MODEL_NAME`、`KIMI_MODEL_API_KEY`、`KIMI_MODEL_BASE_URL`、`KIMI_MODEL_PROVIDER_TYPE`（kimi / openai / anthropic）临时合成一个 provider，启动时就得知道模型 id（通道第 5 条）。Moonshot 预设对 kimi，OpenAI 兼容对 openai，Anthropic 兼容对 anthropic。
-- **权限**：有 `session/set_mode`。命令行上的几档是默认、`--yolo`（日常的改动和命令自动放行，有风险的还会问）、`--auto`（从不打断）、`--plan`（只探索）。ACP 里的模式 id 待实测，映射先定成：只读对 plan，可写对默认，可执行对 yolo。不用 auto：有风险的调用还是要交给人。
-- **会话**：`session/load` 和 `session/resume` 都有，`set_config_option` 选模型，图片、MCP 都支持；这几家里它的 ACP 做得最全。
-- **运行时**：要 node ≥ 22.19（通道第 9 条）。
+已接，见上文。接之前这里定的档位映射（只读对 plan、可执行对 yolo）没有用：yolo 什么都不问，闸门和写锁都看不见，最后是交给闸门按档位管、把模式钉在 default。
 
 ### DeepSeek Harness
 
@@ -96,7 +115,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 2. **验明正身。** `agent`、`grok`、`kimi` 这种命令名谁都能叫：PATH 上叫 `agent` 的多半不是 Cursor，旧的 kimi-cli 也叫 `kimi`，社区的 grok-cli 也装出一个 `grok`。目录项加一条 `--version` 输出要满足的式子，对不上就不算检测到，卡片上说明找到的同名程序不是它。（Cursor 必须；Kimi Code、Grok Build 顺手补上）
 3. **没有自带登录的 ACP agent。**（已做，2026-09-20）只有清单的 ACP 类型现在一律按「有订阅」建，加载器里写死了。清单加 `own: false`：这种类型没有订阅 agent，agent 页直接选模型 API，和 pi-agent 一样。（DeepSeek Harness）
 4. **预设接到 ACP 类型上。**（已做，2026-09-20；目前只有 DeepSeek Harness 声明了预设）ACP 类型原先只收自定义端点：预设是 pi 报的，别的类型认不得。可用户最先加的往往就是预设，DeepSeek、Moonshot、xAI、OpenAI 都是；结果 DeepSeek Harness 用不上 DeepSeek 预设，Grok Build 用不上 xAI 预设，Codex 也用不上 OpenAI 预设。清单按预设 id 声明能接哪些、密钥进哪个变量；地址和协议照旧从预设目录里取，启动时补进端点，清单里不再抄一遍。（DeepSeek Harness 必须；其余 ACP agent 都受益）
-5. **启动时带上模型和定值。** 协议到环境变量的映射现在只有地址和密钥两项；Kimi Code 接 API 还要模型 id，外加一个写死的类型值。映射加上 `model` 和定值两项。不分来源、每次都带的定值已经有了，就是清单的 `fixedEnv`（OpenCode 用它）；还缺按来源的定值和模型。模型开会话时才定，所以环境变量改到开会话时解析，不在建 runtime 时；会话里换模型就是带新变量重开后端会话，能 `resume` 就接着原会话。（Kimi Code）
+5. **启动时带上模型和定值。**（已做，2026-09-20）协议到环境变量的映射原先只有地址和密钥两项；Kimi Code 接 API 还要模型 id，外加一个写死的类型值。映射加上 `model` 和定值两项。不分来源、每次都带的定值已经有了，就是清单的 `fixedEnv`（OpenCode 用它）；还缺按来源的定值和模型。模型开会话时才定，所以环境变量改到开会话时解析，不在建 runtime 时；会话里换模型就是带新变量重开后端会话，能 `resume` 就接着原会话。（Kimi Code）
 6. **优先 `session/resume`。**（已做，2026-09-20）恢复原先只走 `session/load`，它把历史重放一遍，Roster 再全部丢掉。ACP v1 的 `session/resume` 只恢复、不重放：agent 声明了就用它，没有再退回 `load`。（DeepSeek Harness 必须；Kimi Code 也更快）
 7. **档位到模式明写。** 现在是按模式名里的 yolo、auto、edit 这些词去猜三档各对应哪个模式。Cursor 的 agent / plan / ask 管的是能做什么，猜出来是错的；Kimi Code 的 yolo 和 auto 都像「可执行」，但只有 yolo 还会把有风险的调用交给人。清单可以直接写三档各对哪个模式，猜只作兜底。模式不管审批的，就声明 `permissionModes: false` 交给闸门；讨论这种只读的场合再另指一个只读模式（Cursor 的 ask），省得它一轮轮去试着写文件再被拦下。（Cursor、Kimi Code）
 8. **要等回复的扩展方法。** Cursor 会向客户端发 `cursor/ask_question`、`cursor/create_plan` 并等回复；Roster 对不认识的请求一律回「没有这个方法」。先实测 Cursor 收到后是换条路走，还是整轮失败。最少要保证一轮不卡死、失败时说得清原因；以后可以把 ask_question 接成聊天里的一张问题卡。（Cursor）
@@ -105,14 +124,14 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ## 顺序
 
-**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，都已经接上，见上文。下面 A1 到 A4 是按旧的排法写的，要照这条重排。
+**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，第三个是 Kimi Code，都已经接上，见上文。Cline 暂缓：npm 上发的 macOS 二进制签名全是坏的，macOS 27 一启动就杀（[cline/cline#14209](https://github.com/cline/cline/issues/14209)），修复已合并、还没发版，发了再接。下面 A1 到 A4 是按旧的排法写的，A1、A4 已经做完。
 
 里程碑和做完的标志见 [路线图](roadmap.md) 的 A1 到 A4。这条线和移动端不抢先后，插空做。
 
-- **A1 · Kimi Code 订阅先上。** 它的 ACP 在这几家里最全，订阅那条只要一份清单，和 Grok Build 一样；顺带实测它的模式 id，看第 7 条要不要提前做。
-- **A2 · 通道补齐。** 第 1 到 4 条和第 6、7、10 条，全用假 agent 测。四家里有三家等着它；Grok Build、Codex、Gemini CLI 也借第 4 条用上各自家的预设。
+- **A1 · Kimi Code 订阅。**（已做，2026-09-20）订阅那条还要真账号手测。
+- **A2 · 通道补齐。** 还剩第 1、2、7 条，全用假 agent 测；第 3、4、5、6、10 条已经随 OpenCode、DeepSeek Harness、Kimi Code 做了。
 - **A3 · Cursor。** 用户最多，但离不开第 1、2、7 条，第 8 条还得实测，所以排在通道之后。
-- **A4 · Kimi Code 接 API，DeepSeek Harness。** 第 5、9 条只有它俩要。DeepSeek Harness 还在预览，放最后，接的时候钉住当时的版本。
+- **A4 · Kimi Code 接 API，DeepSeek Harness。**（已做，2026-09-20）还剩第 9 条，核对程序要的 node 版本。
 - **ZCode 暂缓。** 什么时候重开见「不做」。
 
 排队的，每家照「接入清单」走一遍，大致按对用户的用处排：
@@ -148,7 +167,6 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 要实测才知道的，接到那一家时先查清：
 
 - **Cursor**：客户端不认 `cursor/ask_question`、`cursor/create_plan` 时它怎么办；会话里能不能选模型、走不走 `configOptions`；有没有 `usage_update`。
-- **Kimi Code**：ACP 里的模式 id；用 `KIMI_MODEL_*` 合成的 provider，`configOptions` 里是不是只有那一个模型。
 - **旧的会话模型接口**：`models` 加 `session/set_model` 这一套，grok 1.0.16 之前只有它；Roster 只认 `configOptions`，这些版本在会话里选不了模型。各家都在往 `configOptions` 走，先不补；主力 agent 里有停在旧接口的再说。
 
 ## 出处

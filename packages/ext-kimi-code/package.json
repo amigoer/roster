@@ -1,0 +1,76 @@
+{
+  "name": "@roster/ext-kimi-code",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Kimi Code for Roster: Moonshot AI's coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 2,
+    "type": "kimi-code",
+    "label": "Kimi Code",
+    "acp": {
+      "command": [
+        "@program",
+        "acp"
+      ],
+      "env": {
+        "openai-completions": {
+          "baseUrl": "KIMI_MODEL_BASE_URL",
+          "key": "KIMI_MODEL_API_KEY",
+          "model": "KIMI_MODEL_NAME",
+          "set": {
+            "KIMI_MODEL_PROVIDER_TYPE": "openai"
+          }
+        },
+        "anthropic-messages": {
+          "baseUrl": "KIMI_MODEL_BASE_URL",
+          "key": "KIMI_MODEL_API_KEY",
+          "model": "KIMI_MODEL_NAME",
+          "set": {
+            "KIMI_MODEL_PROVIDER_TYPE": "anthropic"
+          }
+        }
+      },
+      "presets": {
+        "moonshotai": {
+          "baseUrl": "KIMI_MODEL_BASE_URL",
+          "key": "KIMI_MODEL_API_KEY",
+          "model": "KIMI_MODEL_NAME",
+          "set": {
+            "KIMI_MODEL_PROVIDER_TYPE": "kimi"
+          }
+        },
+        "moonshotai-cn": {
+          "baseUrl": "KIMI_MODEL_BASE_URL",
+          "key": "KIMI_MODEL_API_KEY",
+          "model": "KIMI_MODEL_NAME",
+          "set": {
+            "KIMI_MODEL_PROVIDER_TYPE": "kimi"
+          }
+        },
+        "kimi-coding": {
+          "baseUrl": "KIMI_MODEL_BASE_URL",
+          "key": "KIMI_MODEL_API_KEY",
+          "model": "KIMI_MODEL_NAME",
+          "set": {
+            "KIMI_MODEL_PROVIDER_TYPE": "anthropic"
+          }
+        }
+      },
+      "permissionModes": false,
+      "pinnedMode": "default",
+      "toolEffects": {
+        "Read": "read",
+        "ReadMediaFile": "read",
+        "Glob": "read",
+        "Grep": "read",
+        "FetchURL": "read",
+        "TodoList": "read",
+        "Write": "write",
+        "Edit": "write",
+        "ExitPlanMode": "write",
+        "Bash": "execute"
+      }
+    }
+  }
+}

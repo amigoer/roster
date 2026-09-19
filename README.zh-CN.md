@@ -4,7 +4,7 @@
 
 把 code agent 当联系人用：单聊就是一次会话，拉个群就是一支 agent team。
 
-Roster 是给现成编码 agent 用的桌面应用，支持 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness 和 pi-agent。它不自己写 agent 循环，而是驱动这些 agent，模型升级、提示词调优都由它们自己跟进；Roster 给它们套上 IM 的形态：会话一直都在，bot 配一次到处用，拉个群让几个 agent 在同一个仓库里干活，要你处理的事都在一个列表里。
+Roster 是给现成编码 agent 用的桌面应用，支持 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness、Kimi Code 和 pi-agent。它不自己写 agent 循环，而是驱动这些 agent，模型升级、提示词调优都由它们自己跟进；Roster 给它们套上 IM 的形态：会话一直都在，bot 配一次到处用，拉个群让几个 agent 在同一个仓库里干活，要你处理的事都在一个列表里。
 
 > [!NOTE]
 > 还在早期开发，没有安装包，需要从源码运行。
@@ -30,9 +30,10 @@ Roster 是给现成编码 agent 用的桌面应用，支持 Claude Code、Codex�
 | Grok Build | Grok 账号 | OpenAI 兼容的 API |
 | OpenCode | 它自己接的服务，从免费模型到 ChatGPT、Copilot | 暂不支持 |
 | DeepSeek Harness | 无 | DeepSeek 的 API |
+| Kimi Code | Kimi 账号 | Moonshot、Kimi Coding，或 OpenAI、Anthropic 兼容的 API |
 | pi-agent | 无 | 你添加的任意模型 API |
 
-适配器随 Roster 内置；pi-agent 是库形态，不需要另装程序。Codex、Gemini CLI、Grok Build、OpenCode 和 DeepSeek Harness 的支持还在试验阶段。
+适配器随 Roster 内置；pi-agent 是库形态，不需要另装程序。Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness 和 Kimi Code 的支持还在试验阶段。
 
 ## 快速开始
 
@@ -80,7 +81,7 @@ macOS 上 `pnpm start` 会先构建 `packages/desktop/.mac/Roster.app`：把 Ele
 | `packages/ui` | React 界面（Vite、Tailwind CSS、shadcn/ui），由 core 提供 |
 | `packages/desktop` | Electron 外壳：窗口、通知、Dock 角标、钥匙串 |
 | `packages/adapter-api` | 适配器要实现的类型 |
-| `packages/ext-*` | 适配器：Claude Code 和 pi-agent 用代码实现，Codex、Gemini CLI、Grok Build、OpenCode 和 DeepSeek Harness 只有清单 |
+| `packages/ext-*` | 适配器：Claude Code 和 pi-agent 用代码实现，Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness 和 Kimi Code 只有清单 |
 
 走 Agent Client Protocol（ACP）的 agent 只需要一份清单，写在 `package.json` 的 `roster` 字段下：启动命令、模型 API 对应哪些环境变量、怎么登录。可以参考 [`packages/ext-codex`](packages/ext-codex/package.json)。
 

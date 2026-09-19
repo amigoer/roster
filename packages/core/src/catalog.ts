@@ -109,6 +109,16 @@ export const CATALOG: readonly CatalogEntry[] = [
     // a developer preview that warns of breaking changes, so the version stays pinned
     program: { npm: "@deepseek-ai/dsh", version: "0.1.5-rc.2", bin: "dsh", versionArgs: ["--version"] },
   },
+  {
+    id: "kimi-code",
+    label: "Kimi Code",
+    get description() {
+      return t("catalog.kimi-code");
+    },
+    brand: "kimi",
+    // a script on the host's own runtime, which has to be node 22.19 or later; the install script puts one in ~/.local/bin
+    program: { npm: "@moonshot-ai/kimi-code", version: "2.0.2", bin: "kimi", paths: ["~/.local/bin/kimi"], versionArgs: ["--version"] },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

@@ -66,6 +66,8 @@ importers:
 
   packages/ext-grok-build: {}
 
+  packages/ext-kimi-code: {}
+
   packages/ext-opencode: {}
 
   packages/ext-pi-agent:

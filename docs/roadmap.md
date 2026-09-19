@@ -1,12 +1,12 @@
 # 路线图
 
-> 第二轮 · 2026-09-17 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness；更多 agent 改按热度排）
+> 第二轮 · 2026-09-17 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness、Kimi Code；更多 agent 改按热度排）
 
 按里程碑排，不按日期：一个人做，日期只会失信。每个里程碑一句**做完的标志**——能当场演示的一件事，不是一串功能名。顺序是建议，不是承诺；里程碑里的取舍写在各自的文档里，这里只说先后和为什么。
 
 ## 已到：桌面雏形（第一轮）
 
-Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build、OpenCode 和 DeepSeek Harness 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
+Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness 和 Kimi Code 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
 
 ## M1 · 窄屏与路由
 
@@ -58,11 +58,11 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 ## 另一条线：更多 agent（第三轮）
 
-和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode、DeepSeek Harness 已经接上，下面 A1 到 A4 待照这条重排。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
+和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode、DeepSeek Harness、Kimi Code 已经接上，A1 和 A4 随之做完；Cline 等它发出签名修好的 macOS 版再接。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
 
-### A1 · Kimi Code 订阅
+### A1 · Kimi Code 订阅（已做，2026-09-20）
 
-一份清单加一条目录，照 Grok Build 的路子；顺带实测它在 ACP 里的模式 id。
+一份清单加一条目录，照 Grok Build 的路子；顺带实测它在 ACP 里的模式 id。订阅那条还要用真账号手测。
 
 **做完的标志**：`kimi login` 之后建出「Kimi Code · 订阅」，在群里跑一轮：换模型生效，改文件按档位放行或出卡片；退出 Roster 再打开，接着原会话往下聊。
 
@@ -78,9 +78,9 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 **做完的标志**：curl 脚本装的 Cursor 被认出来，PATH 上另一个叫 `agent` 的程序不会被当成它；`agent login` 之后跑一轮，只读、可写、可执行三档各自放行得对；Cursor 想问问题时，这一轮不会卡死。
 
-### A4 · Kimi Code 接 API
+### A4 · Kimi Code 接 API（已做，2026-09-20）
 
-启动时带上模型和定值，核对程序要的 node 版本。DeepSeek Harness 已经先接了（2026-09-20）。
+启动时带上模型和定值。DeepSeek Harness 也已经接了。还没做的：核对程序要的 node 版本；模型 API 的 agent 在会话里换模型。
 
 **做完的标志**：「Kimi Code · Moonshot」在会话里换了模型，下一条消息就用上。
 
