@@ -549,8 +549,9 @@ class AcpRuntime implements BotRuntime {
     if (decision.action === "defer") {
       decision = (await this.#onPermission?.(call)) ?? { action: "deny", reason: "nobody to ask" };
     }
-    const pick = (kinds: PermissionOptionKind[]) => p.options.find((o) => kinds.includes(o.kind));
-    const option = decision.action === "allow" ? pick(["allow_once", "allow_always"]) : pick(["reject_once", "reject_always"]);
+    // a lasting answer would let the agent stop asking, and later calls like this one would never reach the gate
+    const kind: PermissionOptionKind = decision.action === "allow" ? "allow_once" : "reject_once";
+    const option = p.options.find((o) => o.kind === kind);
     if (!option) return { outcome: { outcome: "cancelled" } };
     return { outcome: { outcome: "selected", optionId: option.optionId } };
   }

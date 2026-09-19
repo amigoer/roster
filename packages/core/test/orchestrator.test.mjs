@@ -2067,6 +2067,51 @@ describe("extensions", () => {
     }
   });
 
+  test("an agent's ask is answered for that call alone, never with a choice it would remember", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ permissionModes: false }), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const db = openDb(join(dir, "roster.db"));
+    const store = new Store(db);
+    const secrets = new Secrets(db, NO_VAULT);
+    const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+    const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
+    const sources = new Sources(store, secrets, () => registry, async () => []);
+    const orch = new Orchestrator(store, () => {}, registry, sources, new AttachmentStore(join(dir, "attachments")));
+    const chat = (name, tier) => {
+      const bot = store.createBot({ name, title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: null, permission_tier: tier });
+      return store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
+    };
+    const reply = (conv) => JSON.parse(store.listMessages(conv.id).findLast((m) => m.card_kind === "text" && m.author_kind === "bot").body_json).text;
+    const steps = (conv) => store.listMessages(conv.id).filter((m) => m.card_kind === "steps").flatMap((m) => JSON.parse(m.body_json).steps);
+    try {
+      // "always" listed first is passed over for "once", whichever way the call goes
+      const writer = chat("甲", "write");
+      await orch.send(writer.id, "改一下 #write #always-first");
+      await settle(store, writer.id, 15_000);
+      assert.match(reply(writer), /answered allow /);
+      assert.deepEqual(steps(writer).map((s) => [s.effect, s.ok]), [["write", true]]);
+
+      const reader = chat("乙", "read");
+      await orch.send(reader.id, "改一下 #write #always-first");
+      await until(() => store.listMessages(reader.id).some((m) => m.status === "pending"), 15_000);
+      const card = store.listMessages(reader.id).find((m) => m.status === "pending");
+      orch.resolvePermission(reader.id, JSON.parse(card.body_json).requestId, false);
+      await settle(store, reader.id, 15_000);
+      assert.match(reply(reader), /answered reject /);
+
+      // with only lasting choices on offer, even an allowed call gets none of them
+      const lasting = chat("丙", "write");
+      await orch.send(lasting.id, "改一下 #write #always-only");
+      await settle(store, lasting.id, 15_000);
+      assert.match(reply(lasting), /answered cancelled /);
+      assert.deepEqual(steps(lasting).map((s) => [s.effect, s.ok]), [["write", false]]);
+    } finally {
+      await orch.disposeAll();
+    }
+  });
+
   test("a launcher npm left without an extension runs on the host's own runtime, and a program that cannot start is only reported", async () => {
     const ext = new Extensions([{ dir: fakeAgentRoot({ command: ["@program", "agent", "stdio"] }), origin: "linked" }]);
     await ext.load();

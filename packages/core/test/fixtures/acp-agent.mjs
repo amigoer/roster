@@ -72,15 +72,24 @@ async function prompt(id, params) {
   };
   if (text.includes("#write")) {
     update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit notes.md", kind: "edit", status: "pending", rawInput: { path: "notes.md" } });
+    const once = [
+      { optionId: "allow", name: "Yes", kind: "allow_once" },
+      { optionId: "reject", name: "No", kind: "reject_once" },
+    ];
+    const always = [
+      { optionId: "allow-always", name: "Always", kind: "allow_always" },
+      { optionId: "reject-always", name: "Never", kind: "reject_always" },
+    ];
+    // some agents list the lasting choices first, and #always-only offers nothing else; either way it says what it got
+    const offered = text.includes("#always-only") ? always : text.includes("#always-first") ? [...always, ...once] : once;
     const r = await request("session/request_permission", {
       sessionId,
       toolCall: { toolCallId: "t1", kind: "edit", rawInput: { path: "notes.md" } },
-      options: [
-        { optionId: "allow", name: "Yes", kind: "allow_once" },
-        { optionId: "reject", name: "No", kind: "reject_once" },
-      ],
+      options: offered,
     });
-    const allowed = r?.outcome?.outcome === "selected" && r.outcome.optionId === "allow";
+    const picked = r?.outcome?.outcome === "selected" ? offered.find((o) => o.optionId === r.outcome.optionId) : undefined;
+    const allowed = picked?.kind === "allow_once" || picked?.kind === "allow_always";
+    if (offered !== once) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `answered ${picked?.optionId ?? r?.outcome?.outcome} ` } });
     update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
   }
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: cancelled ? "" : "done" } });
