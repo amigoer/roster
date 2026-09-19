@@ -198,6 +198,7 @@ export const zhCN = translation<typeof en>()({
   "catalog.codex": "OpenAI 的编码 agent，走 ACP。用 ChatGPT 账号登录，或接 OpenAI 兼容的 API。",
   "catalog.gemini-cli": "Google 的编码 agent，走 ACP。用 Google 账号登录，或接 Gemini API 密钥。",
   "catalog.grok-build": "SpaceXAI 的编码 agent，走 ACP。用 Grok 账号登录，或接 OpenAI 兼容的 API。",
+  "catalog.opencode": "开源的编码 agent，走 ACP。不登录就能用它的免费模型；登录后能用 OpenCode Zen、ChatGPT、Copilot 等它支持的服务。",
 
   "effort.minimal": "最低",
   "effort.low": "低",

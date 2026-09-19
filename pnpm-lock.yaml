@@ -64,6 +64,8 @@ importers:
 
   packages/ext-grok-build: {}
 
+  packages/ext-opencode: {}
+
   packages/ext-pi-agent:
     dependencies:
       '@earendil-works/pi-coding-agent':

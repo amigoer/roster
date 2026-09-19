@@ -30,6 +30,9 @@ const MARKS: Record<string, { d: string; fill?: string; viewBox?: string }> = {
   grok: {
     d: "M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815",
   },
+  opencode: {
+    d: "M16 6H8v12h8V6zm4 16H4V2h16v20z",
+  },
 };
 
 const GEMINI =
@@ -59,7 +62,8 @@ export type Provider = keyof typeof MARKS | "google" | "mistral" | "unknown";
  */
 export function providerOf(bot: Pick<BotRow, "model"> | undefined, executorType?: string): Provider {
   if (!bot) return "unknown";
-  const m = (bot.model ?? "").toLowerCase();
+  // agents that route to many providers name a model provider/model; the model is the last part
+  const m = (bot.model ?? "").toLowerCase().split("/").at(-1) ?? "";
   if (m.startsWith("deepseek")) return "deepseek";
   if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3")) return "openai";
   if (m.startsWith("gemini")) return "google";
@@ -67,6 +71,7 @@ export function providerOf(bot: Pick<BotRow, "model"> | undefined, executorType?
   if (m.startsWith("grok")) return "grok";
   if (m.startsWith("claude") || executorType === "claude-code") return "claude";
   if (executorType === "grok-build") return "grok";
+  if (executorType === "opencode") return "opencode";
   return "unknown";
 }
 

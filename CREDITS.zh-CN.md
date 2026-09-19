@@ -10,7 +10,7 @@ Roster 主要建立在下面这些项目之上。许可协议以各个包自己�
 |---|---|---|
 | [pi](https://github.com/earendil-works/pi) | pi-agent 就是它，一个库形态的编码 agent | MIT |
 | [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) | 驱动 Claude Code，订阅登录和接模型 API 都走它 | [Anthropic 条款](https://code.claude.com/docs/en/legal-and-compliance) |
-| [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | 驱动 Codex、Gemini CLI、Grok Build 这类 agent 的协议 | Apache-2.0 |
+| [Agent Client Protocol](https://github.com/agentclientprotocol/typescript-sdk) | 驱动 Codex、Gemini CLI、Grok Build、OpenCode 这类 agent 的协议 | Apache-2.0 |
 | [npm](https://github.com/npm/cli) | 下载本机没有的 agent | Artistic-2.0 |
 
 ## 桌面与界面
@@ -45,3 +45,4 @@ pi 的品牌标来自 pi.dev 的媒体资料包。各品牌标的商标归各自
 | Codex | [`@agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp) | Apache-2.0 |
 | Gemini CLI | [`@google/gemini-cli`](https://github.com/google-gemini/gemini-cli) | Apache-2.0 |
 | Grok Build | [`@xai-official/grok`](https://github.com/xai-org/grok-build) | Apache-2.0 |
+| OpenCode | [`opencode-ai`](https://github.com/anomalyco/opencode) | MIT |

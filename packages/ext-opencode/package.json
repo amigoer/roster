@@ -1,0 +1,38 @@
+{
+  "name": "@roster/ext-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "OpenCode for Roster: the open source coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 2,
+    "type": "opencode",
+    "label": "OpenCode",
+    "acp": {
+      "command": [
+        "@program",
+        "acp"
+      ],
+      "login": {
+        "terminal": [
+          "opencode",
+          "auth",
+          "login"
+        ]
+      },
+      "permissionModes": false,
+      "fixedEnv": {
+        "OPENCODE_PERMISSION": {
+          "edit": "ask",
+          "bash": "ask",
+          "task": "deny"
+        },
+        "OPENCODE_CONFIG_CONTENT": {
+          "experimental": {
+            "continue_loop_on_deny": true
+          }
+        }
+      }
+    }
+  }
+}

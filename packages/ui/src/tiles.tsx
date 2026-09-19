@@ -57,6 +57,7 @@ export const HARNESS_BRAND: Record<string, Provider> = {
   codex: "openai",
   "gemini-cli": "google",
   "grok-build": "grok",
+  opencode: "opencode",
 };
 
 export const brandOfType = (type: string, brand?: string): Provider =>

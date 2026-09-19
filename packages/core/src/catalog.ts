@@ -83,6 +83,22 @@ export const CATALOG: readonly CatalogEntry[] = [
       update: { args: ["update"], check: ["update", "--check", "--json"] },
     },
   },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    get description() {
+      return t("catalog.opencode");
+    },
+    brand: "opencode",
+    // npm's copy is the platform binary its postinstall puts in place; the install script puts one in ~/.opencode/bin
+    program: {
+      npm: "opencode-ai",
+      version: "1.18.31",
+      bin: "opencode",
+      paths: ["~/.opencode/bin/opencode"],
+      versionArgs: ["--version"],
+    },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

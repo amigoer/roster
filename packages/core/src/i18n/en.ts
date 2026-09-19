@@ -209,6 +209,8 @@ export const en = {
   "catalog.codex": "OpenAI's coding agent, over ACP. Sign in with a ChatGPT account, or connect an OpenAI-compatible API.",
   "catalog.gemini-cli": "Google's coding agent, over ACP. Sign in with a Google account, or use a Gemini API key.",
   "catalog.grok-build": "SpaceXAI's coding agent, over ACP. Sign in with a Grok account, or connect an OpenAI-compatible API.",
+  "catalog.opencode":
+    "The open source coding agent, over ACP. Its free models work without signing in; sign in to use OpenCode Zen, ChatGPT, Copilot and the other providers it supports.",
 
   // effort levels agents share the ids of, so one word each; an agent's own description of a level passes through
   "effort.minimal": "Minimal",

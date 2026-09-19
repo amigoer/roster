@@ -1,6 +1,6 @@
 # 接入更多 ACP agent
 
-> 第三轮 · 2026-09-19
+> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode；改按热度排；第 10 条已做）
 
 **下一批 harness 还是按清单接：先补通道，不给哪一家单写适配代码。** 这一批四家：Cursor、Kimi Code、DeepSeek Harness、ZCode，后面还排着 Qwen Code、Qoder CLI、Copilot CLI 这些。它们大多原生支持 ACP，但形状各不一样：有的没有 npm 包，有的没有登录，有的恢复会话只认 `resume`。与其逐家写适配器，不如把这些差别做成清单里能声明的字段：通道补一次，之后每家还是一份清单。接 ACP agent 的基本做法见 [底层执行器](harness.md)，这一册只写新东西：各家现状、通道要补的几件事、先后、接入清单、还没查清的。
 
@@ -13,6 +13,20 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - **`permissionModes: false`**：有权限模式、但客户端切不了的 agent，改由闸门按档位管它问到的调用，会话里切的是档位。
 - **`sessionMeta`**：每次开会话、恢复会话都随 `_meta` 发给 agent 的设置。Grok Build 靠它把自己钉在「先问」，本机配置里的一律放行绕不过闸门。
 - **验证**：把 agent 的数据目录指到临时目录（各家都有 `*_HOME` 一类的变量），再接一个本地的假 OpenAI 端点跑一整轮：工具调用、权限卡片、放行、回复、重启后恢复。不花钱，不碰真账号；订阅那条最后用真账号手测。
+
+## OpenCode：第一个按热度接进来的
+
+2026-09-20 接上，只有清单，没写适配代码。用的是它自己的登录，接模型 API 留到通道补齐以后。
+
+- **程序**：npm `opencode-ai`，postinstall 把平台二进制放到 `bin/opencode.exe`；curl 脚本装到 `~/.opencode/bin/opencode`。`--version` 只打版本号。入口 `opencode acp`。
+- **来源**：只有订阅一种，就是它自己能登的那些：OpenCode Zen / Go、ChatGPT Plus / Pro、Copilot、GitLab Duo、SuperGrok。不登录也能用免费模型；环境变量里的密钥（比如 `DEEPSEEK_API_KEY`）它也认，这些模型一起列出来。登录命令 `opencode auth login`。它的 `authMethods` 按旧的 terminal-auth 约定写，`authenticate` 什么也不做，所以 Roster 声明认这个约定，登录那栏只给命令。
+- **权限**：它默认 `"*": "allow"`，只有设成 ask 的调用才走 `request_permission`，不钉的话闸门什么都看不见。清单的 `fixedEnv` 设了 `OPENCODE_PERMISSION`：edit、bash 先问，task 禁用。禁 task 是因为它的 ACP 桥找不到子会话时，直接不回权限请求，子 agent 会一直等下去，连只读的 explore 子 agent 也会跑 bash。build / plan 管的是能做什么，不管审批，所以声明 `permissionModes: false`，交给闸门按档位管。
+- **被拒之后**：它默认被拒一次就结束这一轮，一个字不回。讨论模式里只读的 bot 一试着改文件就没声了，所以 `fixedEnv` 另设 `OPENCODE_CONFIG_CONTENT`，打开 `experimental.continue_loop_on_deny`，被拒的结果交回给模型接着说。
+- **写文件**：放行一次编辑后，它不看客户端声明的能力，照样调 `fs/write_text_file`。Roster 不接这个方法，它也不等回复，文件由它自己的工具写。
+- **会话**：`session/load`、`resume`、`list` 都有；模型、思考级别、模式走 `configOptions`。用量随 `usage_update` 来，带费用；模型没写上下文上限时不报。
+- **验证**：用真程序接本地的假 OpenAI 端点，XDG 目录指到临时目录，跑了一整轮：写文件和命令都先问、放行后照做；闸门拒绝的写入没有落盘，模型接着回话；重启后 `session/load` 接回原会话；task 不在工具列表里。
+- **还没做**：接模型 API，要按协议拼出 `OPENCODE_CONFIG_CONTENT` 里的 provider 配置，和第 4、5 条一起做。一键更新：`opencode upgrade` 没有只查不装的模式，认不出安装方式时还会停下来问。验明正身：npm 上的 `@opencode/cli` 2.0 也会装出一个 `opencode`，见第 2 条。
+- **拦不住的**：用户配置里按 agent 写的权限（`agent.build.permission`）排在环境变量后面，会盖过「先问」。本机配置里的 MCP 工具默认放行，闸门看不见。
 
 ## 各家现状
 
@@ -66,14 +80,16 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 2. **验明正身。** `agent`、`grok`、`kimi` 这种命令名谁都能叫：PATH 上叫 `agent` 的多半不是 Cursor，旧的 kimi-cli 也叫 `kimi`，社区的 grok-cli 也装出一个 `grok`。目录项加一条 `--version` 输出要满足的式子，对不上就不算检测到，卡片上说明找到的同名程序不是它。（Cursor 必须；Kimi Code、Grok Build 顺手补上）
 3. **没有自带登录的 ACP agent。** 只有清单的 ACP 类型现在一律按「有订阅」建，加载器里写死了。清单加 `own: false`：这种类型没有订阅 agent，agent 页直接选模型 API，和 pi-agent 一样。（DeepSeek Harness）
 4. **预设接到 ACP 类型上。** ACP 类型现在只收自定义端点：预设是 pi 报的，别的类型认不得。可用户最先加的往往就是预设，DeepSeek、Moonshot、xAI、OpenAI 都是；结果 DeepSeek Harness 用不上 DeepSeek 预设，Grok Build 用不上 xAI 预设，Codex 也用不上 OpenAI 预设。清单按预设 id 声明能接哪些、密钥进哪个变量；地址和协议照旧从预设目录里取，启动时补进端点，清单里不再抄一遍。（DeepSeek Harness 必须；其余 ACP agent 都受益）
-5. **启动时带上模型和定值。** 协议到环境变量的映射现在只有地址和密钥两项；Kimi Code 接 API 还要模型 id，外加一个写死的类型值。映射加上 `model` 和定值两项。模型开会话时才定，所以环境变量改到开会话时解析，不在建 runtime 时；会话里换模型就是带新变量重开后端会话，能 `resume` 就接着原会话。（Kimi Code）
+5. **启动时带上模型和定值。** 协议到环境变量的映射现在只有地址和密钥两项；Kimi Code 接 API 还要模型 id，外加一个写死的类型值。映射加上 `model` 和定值两项。不分来源、每次都带的定值已经有了，就是清单的 `fixedEnv`（OpenCode 用它）；还缺按来源的定值和模型。模型开会话时才定，所以环境变量改到开会话时解析，不在建 runtime 时；会话里换模型就是带新变量重开后端会话，能 `resume` 就接着原会话。（Kimi Code）
 6. **优先 `session/resume`。** 恢复现在只走 `session/load`，它把历史重放一遍，Roster 再全部丢掉。ACP v1 的 `session/resume` 只恢复、不重放：agent 声明了就用它，没有再退回 `load`。（DeepSeek Harness 必须；Kimi Code 也更快）
 7. **档位到模式明写。** 现在是按模式名里的 yolo、auto、edit 这些词去猜三档各对应哪个模式。Cursor 的 agent / plan / ask 管的是能做什么，猜出来是错的；Kimi Code 的 yolo 和 auto 都像「可执行」，但只有 yolo 还会把有风险的调用交给人。清单可以直接写三档各对哪个模式，猜只作兜底。模式不管审批的，就声明 `permissionModes: false` 交给闸门；讨论这种只读的场合再另指一个只读模式（Cursor 的 ask），省得它一轮轮去试着写文件再被拦下。（Cursor、Kimi Code）
 8. **要等回复的扩展方法。** Cursor 会向客户端发 `cursor/ask_question`、`cursor/create_plan` 并等回复；Roster 对不认识的请求一律回「没有这个方法」。先实测 Cursor 收到后是换条路走，还是整轮失败。最少要保证一轮不卡死、失败时说得清原因；以后可以把 ask_question 接成聊天里的一张问题卡。（Cursor）
 9. **核对程序要的 node 版本。** 脚本类的程序跑在 Roster 自己的运行时上：桌面端是 Electron 44 自带的 node 24，`pnpm core` 用的是本机的 node，README 只要求 22.13。Kimi Code 要 22.19 以上。跑之前读程序包里的 `engines.node`，不满足就说清楚缺什么，不让它半路崩。（Kimi Code）
-10. **只答一次性的选项。** 权限应答现在取 agent 给的第一个「允许」类选项，允许一次和总是允许不分先后；哪家把总是允许排在前面，Roster 就替人答成了永久放行，之后同类调用它不再问，闸门也就看不见了。改成只选 `allow_once` / `reject_once`，没有一次性的选项就当取消。拒绝那边同理。（所有 ACP agent；和第几家无关，可以先做）
+10. **只答一次性的选项。**（已做，2026-09-20）权限应答原先取 agent 给的第一个「允许」类选项，允许一次和总是允许不分先后；哪家把总是允许排在前面，Roster 就替人答成了永久放行，之后同类调用它不再问，闸门也就看不见了。Gemini CLI 正是把「本会话都允许」排在第一个。现在只选 `allow_once` / `reject_once`，没有一次性的选项就当取消，拒绝那边同理。
 
 ## 顺序
+
+**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，已经接上，见上文。下面 A1 到 A4 是按旧的排法写的，要照这条重排。
 
 里程碑和做完的标志见 [路线图](roadmap.md) 的 A1 到 A4。这条线和移动端不抢先后，插空做。
 
