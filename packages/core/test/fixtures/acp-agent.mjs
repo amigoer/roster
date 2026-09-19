@@ -73,7 +73,11 @@ async function prompt(id, params) {
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
   if (text.includes("#meta")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `meta ${JSON.stringify(sessionMeta)} ` } });
   if (text.includes("#env")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `env ${process.env.FAKE_PINNED} ${process.env.FAKE_PLAIN} ` } });
-  if (text.includes("#vars")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `key=${process.env.FAKE_KEY} url=${process.env.FAKE_URL} ` } });
+  if (text.includes("#vars")) {
+    const said = `key=${process.env.FAKE_KEY} url=${process.env.FAKE_URL} model=${process.env.FAKE_MODEL} kind=${process.env.FAKE_KIND} `;
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: said } });
+  }
+  if (text.includes("#mode")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mode ${modes.currentModeId} ` } });
   if (text.includes("#session")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `session ${sessionId} resumed ${resumed} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);
   if (images.length > 0) {
@@ -107,6 +111,30 @@ async function prompt(id, params) {
     const r = await request("session/request_permission", { sessionId, toolCall: { toolCallId: "t2" }, options: ONCE });
     const allowed = r?.outcome?.outcome === "selected" && r.outcome.optionId === "allow";
     update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
+  }
+  if (text.includes("#question")) {
+    // a question put as a permission ask: each answer is a one-time allow
+    const answers = [
+      { optionId: "a", name: "A", kind: "allow_once" },
+      { optionId: "b", name: "B", kind: "allow_once" },
+      { optionId: "skip", name: "Skip", kind: "reject_once" },
+    ];
+    const r = await request("session/request_permission", { sessionId, toolCall: { toolCallId: "q1", title: "AskUserQuestion" }, options: answers });
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `answered ${r?.outcome?.optionId ?? r?.outcome?.outcome} ` } });
+  }
+  if (text.includes("#json-args")) {
+    // the arguments come as JSON text in the call's content, and the ask brings only its own account
+    const args = { type: "content", content: { type: "text", text: JSON.stringify({ path: "notes.md", content: "x" }) } };
+    update({ sessionUpdate: "tool_call", toolCallId: "t3", title: "Write", kind: "edit", status: "pending", content: [args] });
+    const said = { type: "content", content: { type: "text", text: "Requesting approval to Writing notes.md" } };
+    const r = await request("session/request_permission", { sessionId, toolCall: { toolCallId: "t3", title: "Write", content: [said] }, options: ONCE });
+    const allowed = r?.outcome?.outcome === "selected" && r.outcome.optionId === "allow";
+    update({ sessionUpdate: "tool_call_update", toolCallId: "t3", status: allowed ? "completed" : "failed", rawOutput: allowed ? "ok" : "denied" });
+  }
+  if (text.includes("#unannounced")) {
+    // a subagent's call, asked about before anything was said of it
+    const said = { type: "content", content: { type: "text", text: "Requesting approval to Writing other.md" } };
+    await request("session/request_permission", { sessionId, toolCall: { toolCallId: "t4", title: "Write", content: [said] }, options: ONCE });
   }
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: cancelled ? "" : "done" } });
   update({ sessionUpdate: "usage_update", used: 1200, size: 100000 });

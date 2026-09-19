@@ -31,6 +31,7 @@ import type {
   Capabilities,
   ContextUse,
   Deliver,
+  EndpointVariables,
   HarnessType,
   InstanceConfig,
   LoginMethod,
@@ -166,7 +167,7 @@ const PROGRAM = "@program";
  * PATH still works. The program is the one the host settled on for this agent
  * type: it goes where the manifest says.
  */
-function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: ModelSource, preset?: ProviderPreset): Launch {
+function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: ModelSource, preset?: ProviderPreset, model?: string): Launch {
   const req = createRequire(join(spec.dir, "package.json"));
   const program = executable?.trim() || undefined;
   const resolveItem = (item: string): string => {
@@ -204,15 +205,35 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
       if (endpoint.apiKey) env[map.key] = endpoint.apiKey;
       const baseUrl = endpoint.baseUrl ?? preset?.baseUrl;
       if (map.baseUrl && baseUrl) env[map.baseUrl] = baseUrl;
+      if (map.model && model) env[map.model] = model;
+      Object.assign(env, map.set);
     }
   }
   return { command, args, env, program: shown };
 }
 
 /** Where an endpoint's key and address go: by its preset when it has one, else by the protocol it speaks. */
-function variablesFor(manifest: AcpManifest, endpoint: ProviderConfig): { baseUrl?: string; key: string } | undefined {
+function variablesFor(manifest: AcpManifest, endpoint: ProviderConfig): EndpointVariables | undefined {
   if (endpoint.preset !== CUSTOM_PRESET) return manifest.presets?.[endpoint.preset];
   return endpoint.api ? manifest.env?.[endpoint.api] : undefined;
+}
+
+/** The text blocks of a call's content, which an agent may fill with the call's arguments or its own account of them. */
+function textsOf(u: ToolCallUpdate): string[] {
+  return (u.content ?? []).flatMap((c) => (c.type === "content" && c.content.type === "text" ? [c.content.text] : []));
+}
+
+/** The arguments of a call that carries no rawInput but spells them as one JSON object in its content. */
+function argumentsIn(u: ToolCallUpdate): Record<string, unknown> | undefined {
+  const texts = textsOf(u);
+  const text = texts.length === 1 ? texts[0]!.trim() : "";
+  if (!text.startsWith("{")) return undefined;
+  try {
+    const value = JSON.parse(text) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 type SelectOption = { value: string; name: string; description?: string | null };
@@ -429,10 +450,13 @@ class AcpRuntime implements BotRuntime {
   readonly capabilities: Capabilities;
 
   constructor(
-    private launch: () => Promise<Launch>,
+    /** the process for a session that runs this model, where the agent takes its model only when it starts */
+    private launch: (model?: string) => Promise<Launch>,
     private label: string,
     /** the agent's manifest entry; its type is what its English is catalogued under */
     private spec: AcpSpec,
+    /** the model went into the environment, so the session is not switched to it again */
+    private modelInEnv = false,
   ) {
     this.capabilities = capabilitiesOf(spec.manifest);
   }
@@ -471,7 +495,7 @@ class AcpRuntime implements BotRuntime {
     if (this.#link) throw new Error("acp runtime already started");
     this.#onToolCall = opts.onToolCall;
     this.#onPermission = opts.onPermission;
-    const link = new Link(await this.launch(), opts.cwd, this.#client());
+    const link = new Link(await this.launch(opts.model), opts.cwd, this.#client());
     this.#link = link;
     void link.exited.then(() => {
       this.#dead = true;
@@ -520,7 +544,12 @@ class AcpRuntime implements BotRuntime {
       }
       this.#options = session.configOptions ?? [];
       this.#modes = session.modes ?? null;
-      await this.#apply({ model: opts.model, effort: opts.effort, mode: opts.mode, fast: opts.fast });
+      await this.#apply({
+        ...(this.modelInEnv ? {} : { model: opts.model }),
+        effort: opts.effort,
+        mode: opts.mode ?? this.spec.manifest.pinnedMode,
+        fast: opts.fast,
+      });
     } catch (err) {
       link.close();
       throw new Error(describe(err, this.label, link));
@@ -595,11 +624,14 @@ class AcpRuntime implements BotRuntime {
 
   #know(u: ToolCallUpdate): void {
     const known = this.#calls.get(u.toolCallId);
+    // a finished call's content is its output, not its arguments
+    const settled = u.status === "completed" || u.status === "failed";
+    const rawInput = u.rawInput ?? (known?.rawInput === undefined && !settled ? argumentsIn(u) : undefined);
     this.#calls.set(u.toolCallId, {
       ...known,
       ...(u.title ? { title: u.title } : {}),
       ...(u.kind ? { kind: u.kind } : {}),
-      ...(u.rawInput !== undefined && u.rawInput !== null ? { rawInput: u.rawInput } : {}),
+      ...(rawInput !== undefined && rawInput !== null ? { rawInput } : {}),
     });
   }
 
@@ -619,7 +651,13 @@ class AcpRuntime implements BotRuntime {
    * the write lease; a deferred call goes to the human as the agent's own ask.
    */
   async #permission(p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-    const call = this.#callOf(p.toolCall);
+    // several one-time choices make it a question for a person, which has no card here yet: skip it, so the agent asks in words
+    if (p.options.filter((o) => o.kind === "allow_once").length > 1) {
+      const skip = p.options.find((o) => o.kind === "reject_once");
+      return skip ? { outcome: { outcome: "selected", optionId: skip.optionId } } : { outcome: { outcome: "cancelled" } };
+    }
+    const said = textsOf(p.toolCall).join("\n\n").trim();
+    const call = { ...this.#callOf(p.toolCall), ...(said ? { detail: said.slice(0, DETAIL_MAX * 4) } : {}) };
     let decision: ToolDecision = (await this.#onToolCall?.(call)) ?? { action: "allow" };
     if (decision.action === "defer") {
       decision = (await this.#onPermission?.(call)) ?? { action: "deny", reason: "nobody to ask" };
@@ -901,7 +939,10 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     if (source.kind !== "endpoint" || source.endpoint.preset === CUSTOM_PRESET) return undefined;
     return (await spec.presetCatalog?.())?.find((p) => p.id === source.endpoint.preset);
   };
-  const launch = async () => resolveLaunch(spec, instance.program, source, await presetOf());
+  const variables = source.kind === "endpoint" ? variablesFor(spec.manifest, source.endpoint) : undefined;
+  // with nobody's pick yet, as when the agent is only asked what it offers, the endpoint's first model stands in
+  const fallbackModel = source.kind === "endpoint" ? source.endpoint.models?.[0] : undefined;
+  const launch = async (model?: string) => resolveLaunch(spec, instance.program, source, await presetOf(), model ?? fallbackModel);
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
   let lastModes: Array<{ id: string; label: string }> = [];
   const snapshotOf = (maxAgeMs: number): Promise<Snapshot> => {
@@ -924,7 +965,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     type: spec.type,
     label: instance.label,
     capabilities: capabilitiesOf(spec.manifest),
-    create: () => new AcpRuntime(launch, instance.label, spec),
+    create: () => new AcpRuntime(launch, instance.label, spec, Boolean(variables?.model)),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");

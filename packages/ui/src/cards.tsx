@@ -216,7 +216,7 @@ const isDecided = (status: string | null): status is (typeof DECIDED)[number] =>
 
 interface PermissionBody {
   requestId: string;
-  call: { name: string; effect: string; input: Record<string, unknown> };
+  call: { name: string; effect: string; input: Record<string, unknown>; detail?: string };
 }
 
 /**
@@ -256,7 +256,12 @@ function PermissionCard({
       </div>
       <Separator />
       <div className="px-3.5 py-2.5">
-        <CallInput input={body.call.input} root={root} />
+        {/* an ask that brings no arguments to show is explained in the agent's own words */}
+        {Object.keys(body.call.input).length === 0 && body.call.detail ? (
+          <p className="text-muted-foreground line-clamp-6 text-xs leading-relaxed whitespace-pre-wrap">{body.call.detail}</p>
+        ) : (
+          <CallInput input={body.call.input} root={root} />
+        )}
       </div>
       <Separator />
       {decided ? (

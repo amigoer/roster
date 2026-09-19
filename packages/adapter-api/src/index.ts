@@ -76,6 +76,8 @@ export interface ToolCall {
   input: Record<string, unknown>;
   /** Backend-declared classification, used for the permission tier and the write lock. */
   effect: ToolEffect;
+  /** What the agent says it is asking for, in its own words; the one account of a call that comes without arguments. */
+  detail?: string;
 }
 
 /** Whether a tool only observes, mutates the worktree, or runs arbitrary commands. */
@@ -479,6 +481,18 @@ export interface ProgramManifest {
   update?: { args: readonly string[]; check?: readonly string[] };
 }
 
+/** Where an endpoint goes into an agent's environment. */
+export interface EndpointVariables {
+  /** the variable that carries the key */
+  key: string;
+  /** the variable that carries the address */
+  baseUrl?: string;
+  /** the variable that carries the model a session runs, for an agent that takes it only when it starts */
+  model?: string;
+  /** values that go with this protocol or preset, such as the kind of provider it is */
+  set?: Readonly<Record<string, string>>;
+}
+
 /** Everything the host needs to run an agent over the Agent Client Protocol. */
 export interface AcpManifest {
   /**
@@ -488,14 +502,14 @@ export interface AcpManifest {
    * way the extension's own code would resolve it.
    */
   command: readonly string[];
-  /** per wire protocol, the environment variables that carry an endpoint's address and key */
-  env?: Readonly<Record<string, { baseUrl?: string; key: string }>>;
+  /** per wire protocol, the environment variables an endpoint goes into */
+  env?: Readonly<Record<string, EndpointVariables>>;
   /**
-   * Presets the agent takes by id, and the environment variables their key
-   * and address go into. The address and protocol come from the preset
-   * catalog the other harnesses report; an endpoint's own address wins.
+   * Presets the agent takes by id, and the environment variables each goes
+   * into. The address and protocol come from the preset catalog the other
+   * harnesses report; an endpoint's own address wins.
    */
-  presets?: Readonly<Record<string, { baseUrl?: string; key: string }>>;
+  presets?: Readonly<Record<string, EndpointVariables>>;
   /** False when the agent has no sign-in of its own and runs only on a model API. Defaults to true. */
   own?: boolean;
   /**
@@ -519,6 +533,12 @@ export interface AcpManifest {
   permissionModes?: boolean;
   /** Sent as `_meta` with every session the host opens or loads: settings the agent takes nowhere else. */
   sessionMeta?: Readonly<Record<string, unknown>>;
+  /**
+   * The mode every session is put in when it opens or resumes, whatever the
+   * agent's own settings would start it in. For an agent whose modes decide
+   * what it asks, run with permissionModes false so the gate sees each call.
+   */
+  pinnedMode?: string;
   /**
    * Environment variables set on every launch, whatever the source, over any
    * the host inherited: settings the agent reads only from its environment,

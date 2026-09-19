@@ -2283,6 +2283,92 @@ describe("extensions", () => {
     }
   });
 
+  test("several one-time choices make a question, which is skipped rather than answered for a person", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const factory = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } });
+    const { said } = await oneTurn(factory, { cwd: dir, onToolCall: async () => ({ action: "allow" }) }, "#question");
+    assert.match(said, /answered skip /);
+  });
+
+  test("an ask shows what the agent said of it, and arguments sent as JSON text are read as arguments", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ permissionModes: false, toolEffects: { Write: "write" } }), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const db = openDb(join(dir, "roster.db"));
+    const store = new Store(db);
+    const secrets = new Secrets(db, NO_VAULT);
+    const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+    const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
+    const sources = new Sources(store, secrets, () => registry, async () => []);
+    const orch = new Orchestrator(store, () => {}, registry, sources, new AttachmentStore(join(dir, "attachments")));
+    const bot = store.createBot({ name: "甲", title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: null, permission_tier: "read" });
+    const conv = store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [bot.id] });
+    const askedAbout = async (text) => {
+      await orch.send(conv.id, text);
+      await until(() => store.listMessages(conv.id).some((m) => m.status === "pending"), 15_000);
+      const card = JSON.parse(store.listMessages(conv.id).find((m) => m.status === "pending").body_json);
+      orch.resolvePermission(conv.id, card.requestId, false);
+      await settle(store, conv.id, 15_000);
+      return card.call;
+    };
+    try {
+      const announced = await askedAbout("#json-args");
+      assert.deepEqual([announced.name, announced.effect, announced.input], ["Write", "write", { path: "notes.md", content: "x" }]);
+      assert.equal(announced.detail, "Requesting approval to Writing notes.md");
+      // asked about before it was announced, the call is known by its title alone
+      const unannounced = await askedAbout("#unannounced");
+      assert.deepEqual([unannounced.name, unannounced.effect, unannounced.input], ["Write", "write", {}]);
+      assert.equal(unannounced.detail, "Requesting approval to Writing other.md");
+    } finally {
+      await orch.disposeAll();
+    }
+  });
+
+  test("a pinned mode is where every session starts", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ permissionModes: false, pinnedMode: "yolo" }), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const { said } = await oneTurn(ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }), { cwd: dir }, "#mode");
+    assert.match(said, /mode yolo /);
+  });
+
+  test("a model an agent takes in its environment goes there, with the values that come with the protocol", async () => {
+    const vars = { key: "FAKE_KEY", baseUrl: "FAKE_URL", model: "FAKE_MODEL", set: { FAKE_KIND: "openai" } };
+    const ext = new Extensions([{ dir: fakeAgentRoot({ own: false, env: { "openai-completions": vars } }), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const endpoint = { id: "p", name: "Custom", preset: "custom", api: "openai-completions", apiKey: "k", baseUrl: "http://127.0.0.1:9/v1", models: ["m9"] };
+    const factory = ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "endpoint", endpoint } });
+    const runtime = factory.create();
+    let said = "";
+    let ended = false;
+    const infos = [];
+    runtime.subscribe((e) => {
+      if (e.type === "assistant.text") said += e.delta;
+      if (e.type === "turn.end") ended = true;
+      if (e.type === "session.info") infos.push(e.info);
+    });
+    try {
+      await runtime.start({ cwd: dir, model: "m2" });
+      await runtime.send("#vars");
+      await until(() => ended, 15_000);
+      assert.match(said, /key=k url=http:\/\/127\.0\.0\.1:9\/v1 model=m2 kind=openai /);
+      // the session is not switched to it as well, which could pick a same-named model from another source
+      assert.equal(infos.at(-1).model, "m1");
+    } finally {
+      await runtime.dispose();
+    }
+    // with nobody's pick, the endpoint's first model stands in
+    const unpicked = await oneTurn(factory, { cwd: dir }, "#vars");
+    assert.match(unpicked.said, /model=m9 /);
+  });
+
   test("a launcher npm left without an extension runs on the host's own runtime, and a program that cannot start is only reported", async () => {
     const ext = new Extensions([{ dir: fakeAgentRoot({ command: ["@program", "agent", "stdio"] }), origin: "linked" }]);
     await ext.load();
