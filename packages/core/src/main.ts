@@ -216,6 +216,14 @@ async function switchLocale(preference: LocalePreference): Promise<void> {
 const merged = settings.mergeStrayOwn();
 if (merged > 0) console.log(`[roster] moved ${merged} agents off a sign-in their harness does not have`);
 
+/** Whether the programs found on this machine have newer versions out, each asked through its own check. */
+async function checkUpdates(): Promise<void> {
+  const types = harnesses.view().filter((h) => h.updatable && !store.harnessProgram(h.id));
+  if (types.length === 0) return;
+  await Promise.all(types.map((h) => harnesses.checkUpdate(h.id).catch(() => null)));
+  broadcast({ kind: "extensions" });
+}
+
 // Detection runs in the background; when it lands, executors get the programs it found.
 void detector
   .detect()
@@ -224,6 +232,7 @@ void detector
     changed();
     pushExecutors();
     broadcast({ kind: "extensions" });
+    void checkUpdates();
   })
   .catch((err: unknown) => console.error("[roster] detection failed:", err instanceof Error ? err.message : String(err)));
 

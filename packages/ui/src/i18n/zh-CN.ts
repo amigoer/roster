@@ -222,6 +222,12 @@ export const zhCN = translation<typeof en>()({
   "harness.programEmptyUses": "留空就用 {path}",
   "harness.programFullPath": "{bin} 的完整路径",
   "harness.downloadAgain": "重新下载",
+  "harness.update": "更新",
+  "harness.updateTo": "更新到 {version}",
+  "harness.updateAvailable": "有新版本 {version}",
+  "harness.upToDate": "已是最新",
+  "harness.updated": "已更新到 {version}",
+  "harness.updateFailed": "更新失败，输出在下面",
   "harness.uninstall": "卸载",
   "harness.capabilities": "能做什么",
   "harness.protocols": "能接的协议：{protocols}",
@@ -239,6 +245,7 @@ export const zhCN = translation<typeof en>()({
   "harnesses.hint": "跑 agent 的程序。本机装了的直接用，没装的在这里下载。",
   "harnesses.installNote": "下载的程序只装进 Roster 自己的目录，不动系统。",
   "harnesses.version": "版本 {version}",
+  "harnesses.withUpdate": "{current} · 有新版本 {latest}",
   "harnesses.ready": "能用",
   "harnesses.agentsOn": "{count} 个 agent",
   "harnesses.programMissing": "本机没找到 {bin}",
@@ -253,6 +260,7 @@ export const zhCN = translation<typeof en>()({
   "detect.doneShellSilent": "检测完成，但登录 shell 没有回答",
 
   "install.downloading": "正在下载…",
+  "install.updating": "正在更新…",
   "install.failed": "安装失败",
   "install.noOutput": "npm 没有留下输出",
 

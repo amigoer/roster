@@ -62,6 +62,8 @@ importers:
 
   packages/ext-gemini-cli: {}
 
+  packages/ext-grok-build: {}
+
   packages/ext-pi-agent:
     dependencies:
       '@earendil-works/pi-coding-agent':

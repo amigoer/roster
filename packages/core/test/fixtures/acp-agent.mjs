@@ -33,6 +33,8 @@ let options = [
 ];
 const modes = { currentModeId: "ask", availableModes: [{ id: "ask", name: "Ask" }, { id: "yolo", name: "Yolo" }] };
 let cancelPrompt = null;
+/** what the client put in the session's _meta, said back when a prompt asks for #meta */
+let sessionMeta = null;
 
 // a real agent's log on the way down: colored, with one line carrying a whole response body
 const noise = `\x1b[2m2026-09-16T17:13:48Z\x1b[0m \x1b[31mERROR\x1b[0m models: failed to decode; body: {"models":[${'"x",'.repeat(50_000)}]}\n`;
@@ -59,6 +61,7 @@ async function prompt(id, params) {
   if (text.includes("#fail") || text.includes("#crash")) return failTurn(id, text);
   const update = (u) => notify("session/update", { sessionId, update: u });
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi " } });
+  if (text.includes("#meta")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `meta ${JSON.stringify(sessionMeta)} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);
   if (images.length > 0) {
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `saw ${images.map((b) => b.mimeType).join(",")} ` } });
@@ -107,6 +110,7 @@ rl.on("line", (line) => {
       return;
     case "session/new":
       if (loggedOut) return fail(id, -32000, "Authentication required");
+      sessionMeta = params._meta ?? null;
       reply(id, { sessionId: "s1", configOptions: options, modes });
       notify("session/update", {
         sessionId: "s1",

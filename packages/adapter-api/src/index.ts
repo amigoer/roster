@@ -471,6 +471,12 @@ export interface ProgramManifest {
   /** where an install other than npm puts it; ~ is the home directory */
   paths?: readonly string[];
   versionArgs?: readonly string[];
+  /**
+   * The program's own updater, for a copy found on the machine rather than one
+   * Roster fetched: the arguments that install the latest version, and ones
+   * that only check, printing JSON with `latestVersion` and `updateAvailable`.
+   */
+  update?: { args: readonly string[]; check?: readonly string[] };
 }
 
 /** Everything the host needs to run an agent over the Agent Client Protocol. */
@@ -492,4 +498,12 @@ export interface AcpManifest {
    * program itself otherwise.
    */
   executable?: { env: string };
+  /**
+   * False when the agent has permission modes but offers none a client can
+   * switch. The host then answers what it asks by tier, as for a backend
+   * without modes of its own. Defaults to true.
+   */
+  permissionModes?: boolean;
+  /** Sent as `_meta` with every session the host opens or loads: settings the agent takes nowhere else. */
+  sessionMeta?: Readonly<Record<string, unknown>>;
 }

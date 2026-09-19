@@ -1826,6 +1826,48 @@ function extensionRoot() {
   return root;
 }
 
+/** A program that updates itself the way grok does: `update --check --json` says what is out, `update` fetches it. */
+function selfUpdatingProgram() {
+  const dir = mkdtempSync(join(tmpdir(), "roster-updater-"));
+  dirs.push(dir);
+  const file = join(dir, "agent");
+  writeFileSync(
+    file,
+    `#!/usr/bin/env node
+const { existsSync, readFileSync, writeFileSync } = require("node:fs");
+const kept = require("node:path").join(__dirname, "version");
+const version = existsSync(kept) ? readFileSync(kept, "utf8") : "1.0.0";
+const [first, ...rest] = process.argv.slice(2);
+if (first === "--version") console.log("agent " + version);
+else if (first === "update" && rest.includes("--check")) {
+  console.log(JSON.stringify({ currentVersion: version, latestVersion: "1.1.0", updateAvailable: version !== "1.1.0", error: null }));
+} else if (first === "update") {
+  if (process.env.FAKE_UPDATE_FAIL === "1") {
+    console.error("\\x1b[31mdownload failed\\x1b[0m");
+    process.exit(3);
+  }
+  process.stdout.write("Downloading 10%\\rDownloading 100%\\n");
+  writeFileSync(kept, "1.1.0");
+  console.log("\\x1b[32mUpdated to 1.1.0\\x1b[0m");
+}
+`,
+    { mode: 0o755 },
+  );
+  return file;
+}
+
+/** A root holding just the fake agent, with whatever else its ACP block says. */
+function fakeAgentRoot(acp) {
+  const root = mkdtempSync(join(tmpdir(), "roster-ext-"));
+  dirs.push(root);
+  const dir = join(root, "agent");
+  mkdirSync(dir);
+  const manifest = { api: 2, type: "fake", label: "Fake Agent", acp: { command: ["node", "./agent.mjs"], ...acp } };
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@test/agent", version: "1.2.3", type: "module", roster: manifest }));
+  copyFileSync(fileURLToPath(new URL("./fixtures/acp-agent.mjs", import.meta.url)), join(dir, "agent.mjs"));
+  return root;
+}
+
 describe("extensions", () => {
   test("a harness says which version it runs, whether a program Roster fetched or the library its adapter carries", async () => {
     const root = mkdtempSync(join(tmpdir(), "roster-harnesses-"));
@@ -1981,6 +2023,146 @@ describe("extensions", () => {
     } finally {
       delete process.env.FAKE_ACP_LOGGED_OUT;
     }
+  });
+
+  test("an agent whose modes cannot be switched is gated by tier, and its sessions carry the manifest's meta", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ permissionModes: false, sessionMeta: { pinned: true } }), origin: "linked" }]);
+    await ext.load();
+    assert.equal(ext.types()[0].capabilities("own").permissionModes, false);
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const db = openDb(join(dir, "roster.db"));
+    const store = new Store(db);
+    const secrets = new Secrets(db, NO_VAULT);
+    const executor = store.createExecutor({ name: "假 agent", type: "fake", source_kind: "own", provider_id: null, model: null });
+    const registry = Registry.from(ext.types(), store.listExecutors(), (row) => ({ id: row.id, label: row.name, source: sourceOf(row, store, secrets) }));
+    const sources = new Sources(store, secrets, () => registry, async () => []);
+    const orch = new Orchestrator(store, () => {}, registry, sources, new AttachmentStore(join(dir, "attachments")));
+    const bot = (name, tier) =>
+      store.createBot({ name, title: null, avatar: null, system_prompt: null, executor_id: executor.id, model: null, permission_tier: tier });
+    const chat = (b) => store.createConversation({ title: "t", repoPath: dir, worktreePath: dir, botIds: [b.id] });
+    const steps = (conv) => store.listMessages(conv.id).filter((m) => m.card_kind === "steps").flatMap((m) => JSON.parse(m.body_json).steps);
+    try {
+      // the agent asks before editing, and a bot that may write needs nobody to answer
+      const writer = chat(bot("甲", "write"));
+      await orch.send(writer.id, "改一下 #write #meta");
+      await settle(store, writer.id, 15_000);
+      assert.equal(store.listMessages(writer.id).some((m) => m.card_kind === "permission"), false);
+      assert.deepEqual(steps(writer).map((s) => [s.effect, s.ok]), [["write", true]]);
+      const reply = store.listMessages(writer.id).find((m) => m.card_kind === "text" && m.author_kind === "bot");
+      assert.match(JSON.parse(reply.body_json).text, /meta \{"pinned":true\}/);
+      const [member] = store.activeMembers(writer.id);
+      assert.deepEqual((await orch.status(writer.id)).options[member.id].modes.map((m) => m.id), ["read", "write", "execute"]);
+
+      // past the tier, a person decides
+      const reader = chat(bot("乙", "read"));
+      await orch.send(reader.id, "改一下 #write");
+      await until(() => store.listMessages(reader.id).some((m) => m.status === "pending"), 15_000);
+      const card = store.listMessages(reader.id).find((m) => m.status === "pending");
+      orch.resolvePermission(reader.id, JSON.parse(card.body_json).requestId, false);
+      await settle(store, reader.id, 15_000);
+      assert.deepEqual(steps(reader).map((s) => [s.effect, s.ok]), [["write", false]]);
+    } finally {
+      await orch.disposeAll();
+    }
+  });
+
+  test("a launcher npm left without an extension runs on the host's own runtime, and a program that cannot start is only reported", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({ command: ["@program", "agent", "stdio"] }), origin: "linked" }]);
+    await ext.load();
+    const type = ext.types()[0];
+    const bin = mkdtempSync(join(tmpdir(), "roster-bin-"));
+    dirs.push(bin);
+    copyFileSync(fileURLToPath(new URL("./fixtures/acp-agent.mjs", import.meta.url)), join(bin, "agent.mjs"));
+    // a node this machine does not have: only the host's runtime can run it
+    const launcher = join(bin, "agent");
+    writeFileSync(launcher, `#!/nowhere/bin/node\nimport(require("node:url").pathToFileURL(require("node:path").join(__dirname, "agent.mjs")).href);\n`, { mode: 0o755 });
+    assert.equal((await type.login(launcher)).state, "ok");
+    await assert.rejects(type.login(join(bin, "missing")), /ENOENT/);
+  });
+});
+
+describe("program updates", () => {
+  test("a program that updates itself is asked what is out, and its updater runs as a job keeping what it printed", async () => {
+    const program = selfUpdatingProgram();
+    const root = mkdtempSync(join(tmpdir(), "roster-installer-"));
+    dirs.push(root);
+    const installer = new Installer(join(root, "extensions"), join(root, "agents"), () => {});
+    const check = ["update", "--check", "--json"];
+    assert.deepEqual(await installer.checkUpdate(program, check), { current: "1.0.0", latest: "1.1.0", available: true });
+
+    process.env.FAKE_UPDATE_FAIL = "1";
+    try {
+      const failed = await installer.updateProgram("fake", program, ["update"]);
+      assert.deepEqual([failed.state, failed.update, failed.log], ["failed", true, ["download failed"]], "colour codes stay out of the log");
+    } finally {
+      delete process.env.FAKE_UPDATE_FAIL;
+    }
+    const job = await installer.updateProgram("fake", program, ["update"]);
+    assert.equal(job.state, "done");
+    assert.deepEqual(job.log, ["Downloading 10%", "Downloading 100%", "Updated to 1.1.0"], "each redraw of a progress bar is a line of its own");
+    assert.equal((await installer.checkUpdate(program, check)).available, false);
+
+    await assert.rejects(installer.checkUpdate(program, ["--version"]), /最新的版本号/, "an answer without a version is no answer");
+    await assert.rejects(installer.checkUpdate(join(root, "missing"), check), /ENOENT/);
+  });
+
+  test("only a program found on this machine updates itself, and the view carries what its check last said", async () => {
+    const program = selfUpdatingProgram();
+    const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
+    await ext.load();
+    const root = mkdtempSync(join(tmpdir(), "roster-harnesses-"));
+    dirs.push(root);
+    const update = { args: ["update"], check: ["update", "--check", "--json"] };
+    const catalog = [{ id: "fake", label: "Fake", description: "", program: { npm: "@test/fake", bin: "roster-test-fake", update } }];
+    let found = [];
+    const detector = { current: () => ({ at: 0, programs: found, hints: [], shell: { name: "", ok: true } }) };
+    const installer = new Installer(join(root, "extensions"), join(root, "agents"), () => {});
+    const harnesses = new Harnesses(catalog, ext, detector, installer);
+    assert.equal(harnesses.updater("fake"), null, "nothing found, nothing to update");
+
+    found = [{ id: "fake", path: program, version: "1.0.0", found: "known-path" }];
+    assert.deepEqual([harnesses.view()[0].updatable, harnesses.view()[0].update], [true, undefined], "not asked yet");
+    assert.equal((await harnesses.checkUpdate("fake")).available, true);
+    assert.deepEqual(harnesses.view()[0].update, { current: "1.0.0", latest: "1.1.0", available: true });
+    await installer.updateProgram("fake", program, ["update"]);
+    assert.equal((await harnesses.checkUpdate("fake")).available, true, "the answer is kept a while");
+    assert.equal((await harnesses.checkUpdate("fake", true)).available, false, "until it is asked afresh");
+  });
+
+  test("sessions on a harness whose program was replaced let go of the old process: an idle one now, a running one when its turn ends", async () => {
+    let created = 0;
+    const edit = { id: "e1", name: "edit", effect: "write", input: { path: "notes.md" } };
+    const inner = played([{ gate: edit }, { start: edit }, { end: { id: "e1", isError: false, content: "ok" } }, "改好了。"]);
+    const h = harness({ pi: { ...inner, create: () => (created++, inner.create()) } });
+    const conv = h.group([h.bot("甲", { permission_tier: "write" })]);
+    const turn = async (text) => {
+      await h.orch.send(conv.id, text);
+      await settle(h.store, conv.id);
+    };
+    await turn("改一");
+    await turn("改二");
+    assert.equal(created, 1, "one process serves turn after turn");
+    h.orch.programChanged("other");
+    await turn("改三");
+    assert.equal(created, 1, "another harness's update leaves it alone");
+    h.orch.programChanged("scripted");
+    await turn("改四");
+    assert.equal(created, 2, "an idle session starts the new program on its next turn");
+
+    // mid-turn, waiting on a person: the turn ends on the process it began on
+    const botId = h.store.activeMembers(conv.id)[0].bot_id;
+    h.store.updateBot(botId, { permission_tier: "read" });
+    await h.orch.send(conv.id, "改五");
+    await until(() => h.store.listMessages(conv.id).some((m) => m.status === "pending"));
+    h.orch.programChanged("scripted");
+    const card = h.store.listMessages(conv.id).find((m) => m.status === "pending");
+    h.orch.resolvePermission(conv.id, JSON.parse(card.body_json).requestId, true);
+    await settle(h.store, conv.id);
+    assert.equal(created, 2, "the turn finished where it started");
+    h.store.updateBot(botId, { permission_tier: "write" });
+    await turn("改六");
+    assert.equal(created, 3, "and the next one starts the new program");
   });
 });
 

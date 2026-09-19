@@ -66,6 +66,23 @@ export const CATALOG: readonly CatalogEntry[] = [
     brand: "google",
     program: { npm: "@google/gemini-cli", version: "0.59.0", bin: "gemini", versionArgs: ["--version"] },
   },
+  {
+    id: "grok-build",
+    label: "Grok Build",
+    get description() {
+      return t("catalog.grok-build");
+    },
+    brand: "grok",
+    // a launcher for the platform binary it brings, which its install script also links into ~/.grok/bin
+    program: {
+      npm: "@xai-official/grok",
+      version: "1.0.33",
+      bin: "grok",
+      paths: ["~/.grok/bin/grok"],
+      versionArgs: ["--version"],
+      update: { args: ["update"], check: ["update", "--check", "--json"] },
+    },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

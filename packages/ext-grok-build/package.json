@@ -1,0 +1,36 @@
+{
+  "name": "@roster/ext-grok-build",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Grok Build for Roster: SpaceXAI's coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 2,
+    "type": "grok-build",
+    "label": "Grok Build",
+    "acp": {
+      "command": [
+        "@program",
+        "agent",
+        "stdio"
+      ],
+      "env": {
+        "openai-completions": {
+          "baseUrl": "GROK_MODELS_BASE_URL",
+          "key": "XAI_API_KEY"
+        }
+      },
+      "login": {
+        "terminal": [
+          "grok",
+          "login"
+        ]
+      },
+      "permissionModes": false,
+      "sessionMeta": {
+        "yoloMode": false,
+        "autoMode": false
+      }
+    }
+  }
+}

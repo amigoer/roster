@@ -222,6 +222,12 @@ export const en = {
   "harness.programEmptyUses": "Leave empty to use {path}",
   "harness.programFullPath": "Full path to {bin}",
   "harness.downloadAgain": "Download again",
+  "harness.update": "Update",
+  "harness.updateTo": "Update to {version}",
+  "harness.updateAvailable": "Version {version} is out",
+  "harness.upToDate": "Up to date",
+  "harness.updated": "Updated to {version}",
+  "harness.updateFailed": "The update failed; its output is below",
   "harness.uninstall": "Uninstall",
   "harness.capabilities": "What it can do",
   "harness.protocols": "Protocols it takes: {protocols}",
@@ -241,6 +247,7 @@ export const en = {
   "harnesses.hint": "The programs agents run in. One already on this machine is used as it is; download the rest here.",
   "harnesses.installNote": "Downloads go into Roster's own directory only; the system is left alone.",
   "harnesses.version": "Version {version}",
+  "harnesses.withUpdate": "{current} · {latest} is out",
   "harnesses.ready": "Ready",
   "harnesses.agentsOn": { one: "{count} agent", other: "{count} agents" },
   "harnesses.programMissing": "{bin} isn't on this machine",
@@ -256,6 +263,7 @@ export const en = {
   "detect.doneShellSilent": "Detection finished, but the login shell didn't answer",
 
   "install.downloading": "Downloading…",
+  "install.updating": "Updating…",
   "install.failed": "Install failed",
   "install.noOutput": "npm left no output",
 

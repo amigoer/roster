@@ -9,6 +9,7 @@ import type { ChatSpaces } from "./chats.js";
 import type { Harnesses } from "./harnesses.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { Detector } from "./detect.js";
+import { Favicons, iconMaxAge, siteOf } from "./favicons.js";
 import { isLogo, LOGO_IDS, LOGOS_DIR, logos } from "./logos.js";
 import { Rejection } from "./errors.js";
 import type { ExecutorSettings } from "./executors.js";
@@ -142,6 +143,7 @@ export function startServer(opts: {
   const { store, orchestrator, attachments, chats, uiDir, extensions, installer, harnesses, catalog, detector } = opts;
   // read per request: executors can be added and removed while the server runs
   const executors = () => Object.keys(orchestrator.capabilities());
+  const favicons = new Favicons();
 
   const json = (res: ServerResponse, body: unknown, code = 200) => {
     res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
@@ -265,6 +267,16 @@ export function startServer(opts: {
       return;
     }
 
+    // a redirect rather than the bytes: the window loads the icon itself, so a proxy only it knows still applies
+    if (path === "/api/favicon" && method === "GET") {
+      const site = siteOf(url.searchParams.get("site") ?? "");
+      if (!site) return json(res, { error: "not found" }, 404);
+      const icon = await favicons.find(site);
+      res.writeHead(302, { location: icon.url, "cache-control": `private, max-age=${iconMaxAge(icon)}` });
+      res.end();
+      return;
+    }
+
     if (path === "/api/models" && method === "GET") {
       return json(res, { models: await orchestrator.models() });
     }
@@ -374,6 +386,30 @@ export function startServer(opts: {
       const login = await opts.settings.authenticate(harnessAuth[1], String(body["method"] ?? ""));
       pushExecutors();
       return json(res, login);
+    }
+    // the program found on this machine updates itself; the copy Roster fetched is fetched again under /api/extensions
+    const harnessUpdate = /^\/api\/harnesses\/([^/]+)\/update$/.exec(path);
+    if (harnessUpdate?.[1] && method === "GET") {
+      const type = harnessUpdate[1];
+      // a program picked by hand is taken at its word, updates included
+      if (store.harnessProgram(type)) return json(res, { update: null });
+      return json(res, { update: await guardAsync(() => harnesses.checkUpdate(type, url.searchParams.get("fresh") === "1")) });
+    }
+    if (harnessUpdate?.[1] && method === "POST") {
+      const type = harnessUpdate[1];
+      const updater = store.harnessProgram(type) ? null : harnesses.updater(type);
+      if (!updater) throw new Rejection(t("error.update.unavailable", { label: catalog.find((c) => c.id === type)?.label ?? type }));
+      const job = await guardAsync(() => installer.updateProgram(type, updater.path, updater.args));
+      if (job.state === "done") {
+        // the version it now reports, then fresh probes of the new program for every agent and session on it
+        await detector.detect(true);
+        await opts.reload();
+        orchestrator.programChanged(type);
+        pushExecutors();
+        await harnesses.checkUpdate(type, true).catch(() => null);
+        opts.broadcast({ kind: "extensions" });
+      }
+      return json(res, { job, ...extensionsView() });
     }
     const harnessModels = /^\/api\/harnesses\/([^/]+)\/models$/.exec(path);
     if (harnessModels?.[1] && method === "GET") {

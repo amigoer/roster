@@ -220,6 +220,17 @@ export interface HarnessView {
   adapter: "bundled" | "installed" | "linked" | "missing" | "error";
   adapterError?: string;
   state: ProgramState;
+  /** the program found on this machine updates itself, so Roster can run its updater */
+  updatable?: boolean;
+  /** what that program's own check last said */
+  update?: ProgramUpdate;
+}
+
+/** What a program's own update check said. */
+export interface ProgramUpdate {
+  current?: string;
+  latest: string;
+  available: boolean;
 }
 
 export interface Extension {
@@ -239,6 +250,8 @@ export interface InstallJob {
   log: string[];
   startedAt: number;
   endedAt?: number;
+  /** the program's own updater ran, not an install: when it fails, the old version still works */
+  update?: boolean;
 }
 
 export interface CredentialHint {
@@ -598,6 +611,12 @@ export const api = {
     j<LoginState & { error?: string }>(`/api/harnesses/${type}/authenticate`, body("POST", { method })),
   setProgram: (type: string, program: string) =>
     j<{ program?: string | null; error?: string }>(`/api/harnesses/${type}`, body("PATCH", { program })),
+  /** asks the program found on this machine whether a newer version is out; null when it cannot say */
+  checkHarnessUpdate: (type: string, fresh = false) =>
+    j<{ update?: ProgramUpdate | null; error?: string }>(`/api/harnesses/${type}/update${fresh ? "?fresh=1" : ""}`),
+  /** runs that program's own updater */
+  updateHarness: (type: string) =>
+    j<ExtensionsView & { job?: InstallJob; error?: string }>(`/api/harnesses/${type}/update`, { method: "POST" }),
   /** what an agent on this harness and source would offer, before it exists; no provider means its own sign-in */
   harnessModels: (type: string, providerId: string | null) =>
     j<{ models?: ModelOption[]; error?: string }>(

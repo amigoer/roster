@@ -40,6 +40,7 @@ export function brandFromText(hay: string): Provider {
   if (h.includes("anthropic") || h.includes("claude")) return "claude";
   if (h.includes("mistral")) return "mistral";
   if (h.includes("google") || h.includes("gemini") || h.includes("generativelanguage")) return "google";
+  if (h.includes("grok") || /\bx\.?ai\b/.test(h)) return "grok";
   if (h.includes("openai") || h.includes("gpt")) return "openai";
   return "unknown";
 }
@@ -55,6 +56,7 @@ export const HARNESS_BRAND: Record<string, Provider> = {
   "pi-agent": "pi",
   codex: "openai",
   "gemini-cli": "google",
+  "grok-build": "grok",
 };
 
 export const brandOfType = (type: string, brand?: string): Provider =>

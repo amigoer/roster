@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Check, ChevronRight, Copy, Download, FolderDown, KeyRound, Loader, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, CircleArrowUp, Copy, Download, FolderDown, KeyRound, Loader, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import {
   api,
@@ -45,11 +45,14 @@ function stateLine(
   ready: boolean,
   custom: boolean,
 ): { text: ReactNode; tone?: string } {
-  if (running) return { text: job?.log.at(-1) ?? t("install.downloading") };
+  if (running) return { text: job?.log.at(-1) ?? (job?.update ? t("install.updating") : t("install.downloading")) };
   // a program picked by hand is what runs, whatever else was found
   if (ready && custom) return { text: t("harness.from.custom") };
   // a program that turned up since wins over the failure that came before it
-  if (ready) return { text: h.state.version ? t("harnesses.version", { version: h.state.version }) : t("harnesses.ready") };
+  if (ready) {
+    const current = h.state.version ? t("harnesses.version", { version: h.state.version }) : t("harnesses.ready");
+    return { text: h.update?.available ? t("harnesses.withUpdate", { current, latest: h.update.latest }) : current };
+  }
   if (job?.state === "failed") return { text: t("harnesses.installFailed"), tone: "text-destructive" };
   if (h.adapter === "error") return { text: h.adapterError ?? t("harness.status.adapterError"), tone: "text-destructive" };
   if (h.adapter === "missing") return { text: t("harness.status.noAdapter"), tone: WARN_TEXT };
@@ -329,6 +332,8 @@ function ProgramSection({
   home,
   onInstall,
   onUpdate,
+  onSelfUpdate,
+  onChecked,
   onRemove,
   onSaved,
 }: {
@@ -341,6 +346,10 @@ function ProgramSection({
   home: string;
   onInstall: () => void;
   onUpdate: () => void;
+  /** runs the program's own updater */
+  onSelfUpdate: () => void;
+  /** its own update check came back, which the harness view now carries */
+  onChecked: () => void;
   onRemove: () => void;
   onSaved: () => void;
 }) {
@@ -349,6 +358,7 @@ function ProgramSection({
   const [draft, setDraft] = useState(saved);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   useEffect(() => setDraft(saved), [saved]);
 
   const needsAdapter = h.adapter === "missing" || h.adapter === "error";
@@ -357,7 +367,36 @@ function ProgramSection({
   const ready = !needsAdapter && (h.state.usable || custom);
   // only the copy Roster fetched is Roster's to fetch again or remove, and only while it is the one that runs
   const fetched = !custom && Boolean(h.state.installed && !h.state.detected);
+  // a program found on this machine updates itself; one picked by hand is left alone
+  const selfUpdates = Boolean(h.updatable) && !custom && !fetched && ready;
   const version = h.state.version ? t("harnesses.version", { version: h.state.version }) : t("harnesses.ready");
+
+  // asked afresh as the page opens: what the app checked at launch may be hours old
+  useEffect(() => {
+    if (!selfUpdates) return;
+    setChecking(true);
+    void api.checkHarnessUpdate(h.id, true).finally(() => {
+      setChecking(false);
+      onChecked();
+    });
+  }, [h.id, selfUpdates]);
+
+  const update = h.update;
+  const updateFailed = job?.update === true && job.state === "failed";
+  // with no word from its check, the updater itself says whether there was anything to fetch
+  const updateAction = selfUpdates && (update?.available || updateFailed || (!update && !checking)) && (
+    <Button size="sm" variant="outline" disabled={running} onClick={onSelfUpdate}>
+      <CircleArrowUp />
+      {update?.available ? t("harness.updateTo", { version: update.latest }) : t("harness.update")}
+    </Button>
+  );
+  const updateDetail = !selfUpdates
+    ? undefined
+    : updateFailed
+      ? <span className="text-destructive">{t("harness.updateFailed")}</span>
+      : update?.available
+        ? t("harness.updateAvailable", { version: update.latest })
+        : update && t("harness.upToDate");
 
   const save = async (value: string) => {
     setSaving(true);
@@ -382,7 +421,7 @@ function ProgramSection({
   );
 
   const status: { tone: Tone; text: ReactNode; detail?: ReactNode; action?: ReactNode } = running
-    ? { tone: "quiet", text: job?.log.at(-1) ?? t("install.downloading") }
+    ? { tone: "quiet", text: job?.log.at(-1) ?? (job?.update ? t("install.updating") : t("install.downloading")) }
     : h.adapter === "error"
       ? { tone: "bad", text: t("harness.status.adapterError"), detail: h.adapterError, action: h.extension && install(t("harness.installAdapter")) }
       : h.adapter === "missing"
@@ -395,7 +434,8 @@ function ProgramSection({
               ? {
                   tone: "ok",
                   text: `${version} · ${fetched ? t("harness.from.roster") : t("harness.from.machine")}`,
-                  action: fetched && (
+                  detail: updateDetail,
+                  action: fetched ? (
                     <>
                       <Button size="sm" variant="outline" onClick={onUpdate}>
                         <RefreshCw />
@@ -406,6 +446,8 @@ function ProgramSection({
                         {t("harness.uninstall")}
                       </Button>
                     </>
+                  ) : (
+                    updateAction
                   ),
                 }
               : job?.state === "failed"
@@ -426,7 +468,7 @@ function ProgramSection({
         <StatusRow tone={status.tone} busy={running} detail={status.detail} action={status.action}>
           {status.text}
         </StatusRow>
-        {job?.state === "failed" && !ready && !running && (
+        {job?.state === "failed" && (!ready || job.update) && !running && (
           <pre className="text-muted-foreground max-h-40 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
             {job.log.join("\n") || t("install.noOutput")}
           </pre>
@@ -696,6 +738,15 @@ export function HarnessPanel({
             home={home}
             onInstall={() => void run(() => api.installExtension(id))}
             onUpdate={() => void run(() => api.updateExtension(id))}
+            onSelfUpdate={() =>
+              void run(async () => {
+                const r = await api.updateHarness(id);
+                const version = r.job?.state === "done" ? r.harnesses?.find((h) => h.id === id)?.state.version : undefined;
+                if (version) toast.success(t("harness.updated", { version }));
+                return r;
+              })
+            }
+            onChecked={onChanged}
             onRemove={() => setRemoving(true)}
             onSaved={onSaved}
           />

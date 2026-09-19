@@ -1,13 +1,13 @@
 # 底层执行器
 
-> 第一轮 · 2026-09-12 · 最近改动 2026-09-17（第二轮：补「事件模型」）
+> 第一轮 · 2026-09-12 · 最近改动 2026-09-19（接入 Grok Build；本机程序一键更新）
 
 session 背后真正干活的是现成的 code agent，Roster 不自写 agent loop，只做适配；为什么这样选见 [总体设计](design.md#底层执行器)。这一册讲怎么接：harness、agent、模型来源的层级，适配器怎么装，设置页长什么样，两个后端的控制面，以及事件模型。
 
 ## Harness、agent、模型来源：层级是严格的
 
 ```
-Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / pi-agent）
+Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / Grok Build / pi-agent）
         └──→ 模型来源：订阅登录，或者一个模型 API
 ```
 
@@ -32,13 +32,13 @@ Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / pi-agent）
 |---|---|---|
 | pi-agent | 进程内注册；pi 自己的 auth 文件不再算数 | 无 |
 | Claude Code | Claude Agent SDK，环境变量注入，不读本机设置 | Claude Agent SDK，用程序自己的登录和本机设置 |
-| ACP agent（Codex、Gemini CLI、OpenCode、自定义命令） | ACP，按清单映射环境变量 | ACP |
+| ACP agent（Codex、Gemini CLI、Grok Build、OpenCode、自定义命令） | ACP，按清单映射环境变量 | ACP |
 
 **Claude Code 只走 Agent SDK。** 订阅和模型 API 都是同一条通道：PreToolUse 闸门、上下文占用（分类、自动压缩预留、按需加载的工具、各分组明细）、思考级别、fast mode 两边都有。区别只在环境：接模型 API 时是隔离模式，不读 `~/.claude`，免得本机的放行规则和 env 盖过闸门和端点；用订阅时就是本人的 Claude Code，加载 CLAUDE.md、MCP、技能和权限规则，闸门仍然看得到每个调用，只有闸门交给模式决定的调用会碰到本人的放行规则。订阅另外能读套餐用量：先问 SDK 的 `get_usage`（程序用自己的登录去取）；程序太旧答不了时，读程序存下的 OAuth token（macOS 钥匙串或 `~/.claude/.credentials.json`）直接问用量接口，token 只在这一步内存里用，不记日志、不缓存、不给界面。token 过期不替程序刷新，免得和它抢着改同一份凭据。
 
 **以前订阅走过 ACP（claude-agent-acp）。** 换到 SDK 是因为 ACP 只报总量：没有分类明细、没有套餐用量、闸门拦不全。ACP 上建的会话 id 就是 Claude Code 自己的会话 id，同一工作目录下 SDK 能直接接着恢复。
 
-**ACP 通道的能力要老实声明。** 闸门退化成 agent 自己的 `request_permission`：agent 不问的调用拦不住、改不了参数，档位只能靠选模式近似，讨论模式只读因此是尽力而为。上下文占用来自 `usage_update`，套餐配额读不到，中途注入没有。界面照旧按能力降级并说明。**能力随 agent**：同一个 harness 上订阅和接 API 的能力声明可以不同；两份一样时界面只列一份。
+**ACP 通道的能力要老实声明。** 闸门退化成 agent 自己的 `request_permission`：agent 不问的调用拦不住、改不了参数，档位只能靠选模式近似，讨论模式只读因此是尽力而为。有权限模式却不让客户端切的 agent（Grok Build）在清单里写 `permissionModes: false`，档位就回到闸门上：它问到的调用按档位放行，超出的转给人。清单的 `sessionMeta` 随每次开会话、恢复会话发给 agent，Grok Build 靠它把自己的模式钉在「先问」，免得本机配置里的一律放行绕过闸门。上下文占用来自 `usage_update`，套餐配额读不到，中途注入没有。界面照旧按能力降级并说明。**能力随 agent**：同一个 harness 上订阅和接 API 的能力声明可以不同；两份一样时界面只列一份。
 
 **登录是 harness 的属性。** 它属于这台机器上的程序，不属于哪个 agent，同一个 harness 上用订阅的 agent 共用它。ACP 的 `authMethods` 说怎么登：terminal 类的 Roster 不代劳，把命令给用户；agent 类的直接发 `authenticate`。Claude Code 由 SDK 读账号信息判断登没登，登录命令 `claude auth login` 交给用户在终端跑。设置页上，有订阅的 harness 在自己的页面上显示登录状态；agent 页的测试连接测的是这个 agent 实际要跑的组合：订阅登录或模型 API 的密钥，再加程序能不能启动。
 
@@ -60,7 +60,7 @@ Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / pi-agent）
 扩展分两种：
 
 - **有代码的**：导出一个 `HarnessType`（Claude Code、pi-agent）。契约就是 `@roster/adapter-api`，纯类型，扩展运行时不依赖 Roster 任何东西；清单里声明契约大版本，对不上的 core 不加载并在设置页说明。
-- **只有清单的**：ACP agent 只需要三样东西——命令、协议→环境变量名、登录方式——加一个 npm 依赖（agent 程序本身）。几十种 agent 里大多数是这种：**加一个 agent 是写一份清单，不是写代码。**
+- **只有清单的**：ACP agent 只需要三样东西——命令、协议→环境变量名、登录方式——加一个 npm 依赖（agent 程序本身）。几十种 agent 里大多数是这种：**加一个 agent 是写一份清单，不是写代码。** 下一批的现状和通道要补的几件事见 [接入更多 ACP agent](acp-agents.md)。
 
 所以 **ACP 客户端进 core**：它是协议不是某家 agent，自定义命令不装扩展也能跑。core 自带契约、ACP 客户端、加载器和安装器。
 
@@ -70,9 +70,11 @@ Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / pi-agent）
 
 **先看本机有什么，检测到就直接用。** 用户多半已经装了 claude、codex 或 gemini。第一次打开先检测：PATH 上的命令、npm 全局包、常见安装路径，读版本；环境变量从登录 shell 读一次（桌面图标启动的 app 读不到 .zshrc，模型 API「从环境变量读」以前就栽在这里）。检测到的程序不需要任何安装动作，harness 的「程序」按用户指定的 > 检测到的 > Roster 自己装的这个顺序找。只有本机没有的 harness 才显示「下载安装」。**界面只说版本，不说从哪来**：程序是本机检测到的还是 Roster 下载的，用户不关心，能用就显示版本号（pi 这种库形态的显示它带的库版本），用不了才说缺什么；从哪来只留在 harness 页的「程序」设置和总览里的检测结果里。**凭据不搬**：Claude 的登录由 claude 自己用，Roster 只在程序报不出套餐用量时读一次它的 token 去问用量；pi 的 auth.json 和环境变量里的 key 检测到只提示导入成模型 API，导不导由人定。
 
+**更新走程序自己的更新命令。** 本机找到的程序由它自己的安装方式管着，Roster 不另起一套：目录项可以声明程序自带的更新命令，外加一个只查不装、输出 JSON 的检查（Grok Build 是 `grok update` 和 `grok update --check --json`）。core 启动时查一次，打开这个 harness 的页面时再查一次，有新版本就在总览那一行和「程序」里说，点一下跑它自己的更新，输出一行行显示在同一个位置，失败了留着输出、旧版本照常能用。Roster 下载的那份不走这条路，照旧按目录里钉的版本重新下载；人手指定的程序照它的话办，也不代为更新。更新完先重新检测版本、重建 agent；这个 harness 上空闲的会话丢掉旧进程，下一轮用新程序接着原会话，正在跑的等这一轮结束再换。
+
 ## 设置页的样子
 
-设置沿用三列，但中列只放页面，不放实例：通用（外观、语言、关于）和 Agent 与模型（Harness、Agent、模型 API）六行，装多少 harness、建多少 agent 它都不变长；每行第二行是一句摘要——主题、语言、能用的 harness 数、agent 数和其中用不了的数、模型 API 数，core 有问题的行用琥珀色提醒。右列是这一项的总览：Harness 页最上面是检测结果，下面每个 harness 一张卡，本机有的直接可用，没有的卡上一键下载；Agent 页按 harness 分组列 agent，每行说来源、默认模型、几个 bot 在用，用不了的说原因；模型 API 页列每个 API 的预设和密钥来源、几个 agent 接着，本机找到还没添加的密钥在下面提示一键添加，密钥存在哪一行放页脚。**在总览里点一项才进它的页面，标题栏带返回**：harness 页有程序（留空用检测到的，Roster 下载的可以重新下载或卸载）、订阅登录、能做什么、这个 harness 上的 agent；agent 页有来源（订阅或选一个模型 API）、默认模型、名字、测试连接、能做什么、在用的 bot。首启还没有 agent 时直接落在 Harness 页。第二轮在通用下加第七行「手机」：允许手机连接的开关、配对码、已配对的设备（见 [移动端](mobile.md)）。**「外观」管主题、字体和字号，点卡片就生效**：字体只列本机装了的，另有一格填别的名字；字号只改消息和输入框里的文字，界面不跟着缩放。**「关于」只讲 Roster 自己：版本和数据目录，也报 core 在不在跑旧代码**：core 启动后代码又构建过，界面刷新了也没用，这一行会提醒完全退出重开。用到的开源项目不进界面，列在仓库根目录的 `CREDITS.md`，由 README 引用。
+设置沿用三列，但中列只放页面，不放实例：通用（外观、语言、关于）和 Agent 与模型（Harness、Agent、模型 API）六行，装多少 harness、建多少 agent 它都不变长；每行第二行是一句摘要——主题、语言、能用的 harness 数、agent 数和其中用不了的数、模型 API 数，core 有问题的行用琥珀色提醒。右列是这一项的总览：Harness 页最上面是检测结果，下面每个 harness 一张卡，本机有的直接可用，没有的卡上一键下载；Agent 页按 harness 分组列 agent，每行说来源、默认模型、几个 bot 在用，用不了的说原因；模型 API 页列每个 API 的预设和密钥来源、几个 agent 接着，本机找到还没添加的密钥在下面提示一键添加，密钥存在哪一行放页脚。**在总览里点一项才进它的页面，标题栏带返回**：harness 页有程序（留空用检测到的；本机找到、自带更新命令的可以一键更新，Roster 下载的可以重新下载或卸载）、订阅登录、能做什么、这个 harness 上的 agent；agent 页有来源（订阅或选一个模型 API）、默认模型、名字、测试连接、能做什么、在用的 bot。首启还没有 agent 时直接落在 Harness 页。第二轮在通用下加第七行「手机」：允许手机连接的开关、配对码、已配对的设备（见 [移动端](mobile.md)）。**「外观」管主题、字体和字号，点卡片就生效**：字体只列本机装了的，另有一格填别的名字；字号只改消息和输入框里的文字，界面不跟着缩放。**「关于」只讲 Roster 自己：版本和数据目录，也报 core 在不在跑旧代码**：core 启动后代码又构建过，界面刷新了也没用，这一行会提醒完全退出重开。用到的开源项目不进界面，列在仓库根目录的 `CREDITS.md`，由 README 引用。
 
 **模型 API 页先回答「能不能用」。** 添加分两步：先从带搜索的卡片网格里选从哪调（本机找到的密钥排最前），再填密钥；建好之后预设不能换，页面顶部一行是连接状态，每次保存后自动再测。**模型只以 API 列出的为准，Roster 不做任何模型预设**：预设只管从哪调（地址、协议、密钥叫什么），不带模型列表，也不给模型配名字、上下文、价格——这些预设和厂商实际提供的总会对不上，也维护不过来。打开页面就测一次，测试拉到的 id 原样存下、原样列出；每次测试连接和每次启动都重新拉，列表跟着变不算设定变了，会话里的成员不用同步。agent 的默认模型、bot 选模型、会话里切模型用的都是这一份。API 不提供列表的，给 agent 或 bot 手填模型 id；自定义 API 的模型仍由人填或从接口拉取，测试不会覆盖。pi 跑模型时，自己认得的 id 沿用 pi 的请求参数，不认得的用通用参数，这些都不出现在界面上。
 

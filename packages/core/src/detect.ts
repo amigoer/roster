@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { KEY_ENVS, type CatalogEntry } from "./catalog.js";
+import { commandOf } from "./scripts.js";
 
 export interface DetectedProgram {
   /** the catalog entry it belongs to */
@@ -131,8 +132,9 @@ export class Detector {
           if (isFile(bin)) hit = { id: entry.id, path: bin, found: "npm-global" };
         }
         if (!hit) return;
-        const version = rule.versionArgs
-          ? await run(hit.path, [...rule.versionArgs], VERSION_TIMEOUT_MS)
+        const cmd = rule.versionArgs ? commandOf(hit.path, rule.versionArgs) : null;
+        const version = cmd
+          ? await run(cmd.command, cmd.args, VERSION_TIMEOUT_MS, { ...process.env, ...cmd.env })
               .then(versionOf)
               .catch(() => null)
           : null;

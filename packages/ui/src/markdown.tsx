@@ -1,4 +1,5 @@
-import { Children, isValidElement, memo, useContext, useRef } from "react";
+import { ArrowUpRight, Globe, Square, SquareCheck } from "lucide-react";
+import { Children, isValidElement, memo, useContext, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -39,6 +40,121 @@ function isLabel(children: React.ReactNode): boolean {
   return parts.length === 1 && isValidElement(parts[0]) && parts[0].type === Strong;
 }
 
+/** Whether each site's icon loaded, so a message drawn again shows it at once, and one that failed is not asked for again. */
+const icons = new Map<string, boolean>();
+
+/** A site's own icon, which core finds; a globe when it has none. */
+function SiteIcon({ site }: { site: string }) {
+  const [loaded, setLoaded] = useState(() => icons.get(site));
+  const settle = (ok: boolean) => {
+    icons.set(site, ok);
+    setLoaded(ok);
+  };
+  const box = "mr-[0.3em] inline-block size-[1em] align-[-0.15em]";
+  if (loaded === false) return <Globe aria-hidden strokeWidth={1.75} className={box} />;
+  return (
+    <img
+      src={`/api/favicon?site=${encodeURIComponent(site)}`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      draggable={false}
+      onLoad={() => settle(true)}
+      onError={() => settle(false)}
+      // many sites draw a black mark for a light tab bar, so on dark it sits on a light tile, shown only once filled
+      className={cn(box, "rounded-[0.2em] object-contain dark:bg-white dark:p-[0.1em]", !loaded && "invisible")}
+    />
+  );
+}
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const graphemeAt = (s: string, i: number) => graphemes.segment(s).containing(i)?.segment ?? "";
+
+/** The site an absolute web link points at; a path, an anchor or a mail link has none. */
+function siteOf(href: string | undefined): string | null {
+  if (!href || !/^https?:\/\//i.test(href)) return null;
+  try {
+    return new URL(href).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A link's text between the site's icon and an arrow. A line may break inside
+ * the text but not between an icon and the character next to it, so each
+ * icon is held to the first or last character; an element at an end stays whole.
+ */
+function Marked({ site, children }: { site: string; children: React.ReactNode }) {
+  const parts = Children.toArray(children);
+  let lead = "";
+  let end = "";
+  const first = parts[0];
+  if (typeof first === "string") {
+    lead = graphemeAt(first, 0);
+    parts[0] = first.slice(lead.length);
+  }
+  const last = parts.at(-1);
+  if (typeof last === "string" && last) {
+    end = graphemeAt(last, last.length - 1);
+    parts[parts.length - 1] = last.slice(0, -end.length);
+  }
+  const icon = <SiteIcon key={site} site={site} />;
+  const arrow = <ArrowUpRight aria-hidden strokeWidth={2} className="ml-[0.1em] inline-block size-[0.85em] align-[-0.05em]" />;
+  // one character leaves nothing between the ends, so both icons hold to it
+  if (parts.every((p) => p === "")) {
+    return (
+      <span className="whitespace-nowrap">
+        {icon}
+        {lead}
+        {end}
+        {arrow}
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className="whitespace-nowrap">
+        {icon}
+        {lead}
+      </span>
+      {parts}
+      <span className="whitespace-nowrap">
+        {end}
+        {arrow}
+      </span>
+    </>
+  );
+}
+
+/** Inline, so badges line up in a row; the stylesheet's reset makes every image a block. */
+function Img({ src, alt, title }: React.ComponentProps<"img">) {
+  return <img src={src} alt={alt} title={title} loading="lazy" className="inline-block max-w-full align-text-bottom" />;
+}
+
+/** A link to a website wears the site's icon in front and an arrow behind, so where it leads shows before it is clicked. */
+function Link({ href, title, children }: { href?: string; title?: string; children?: React.ReactNode }) {
+  const site = siteOf(href);
+  // a linked badge or picture needs no marker
+  const pictured = Children.toArray(children).some((c) => isValidElement(c) && c.type === Img);
+  // a bare address reads as host and path; the icons already say it is on the web
+  const text = href && children === href ? href.replace(/^https?:\/\//i, "").replace(/\/$/, "") : children;
+  return (
+    // opens in the user's browser, not the app shell; the window has no status bar, so the title shows where it goes
+    <a
+      href={href}
+      title={title ?? href}
+      target="_blank"
+      rel="noreferrer noopener"
+      // underlined with a border: text-decoration skips images and icons, a border runs beneath them as well
+      className={cn("text-primary transition-colors", !pictured && "border-primary/35 hover:border-primary border-b")}
+    >
+      {site && !pictured ? <Marked site={site}>{text}</Marked> : children}
+    </a>
+  );
+}
+
 /**
  * The vertical rhythm is in em, so it scales with the text size picked in
  * settings: a block gap of 0.85em, headings further above than below.
@@ -72,24 +188,36 @@ const COMPONENTS: Components = {
   ol: ({ children }) => (
     <ol className={cn(BLOCK, "marker:text-foreground/70 list-decimal space-y-[0.4em] pl-[1.6em]")}>{children}</ol>
   ),
-  li: ({ children }) => (
-    // a list inside a list keeps the outer rhythm rather than starting its own
-    <li className="pl-[0.25em] [&>ol]:my-[0.4em] [&>ul]:my-[0.4em] [&>p]:my-0">
+  li: ({ children, className }) => (
+    // a list inside a list keeps the outer rhythm rather than starting its own; a task's box stands in for the bullet
+    <li className={cn("pl-[0.25em] [&>ol]:my-[0.4em] [&>ul]:my-[0.4em] [&>p]:my-0", className?.includes("task-list-item") && "list-none")}>
       <Mentions>{children}</Mentions>
     </li>
   ),
+  // only a task list puts an input in Markdown: drawn, as a disabled checkbox greys out, and floated
+  // into the bullet's place so the space written after it starts the line and collapses
+  input: ({ checked }) => {
+    const Box = checked ? SquareCheck : Square;
+    return (
+      <Box
+        role="checkbox"
+        aria-checked={Boolean(checked)}
+        aria-disabled
+        strokeWidth={2}
+        className={cn(
+          "float-left mt-[calc((1lh_-_1em)/2)] mr-[0.4em] -ml-[1.4em] size-[1em]",
+          checked ? "text-primary" : "text-muted-foreground",
+        )}
+      />
+    );
+  },
+  img: Img,
   strong: Strong,
   em: ({ children }) => <em className="italic">{children}</em>,
-  a: ({ href, children }) => (
-    // external links open in the user's browser, not inside the app shell
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="text-primary decoration-primary/35 hover:decoration-primary underline decoration-1 underline-offset-[3px] transition-colors"
-    >
+  a: ({ href, title, children }) => (
+    <Link href={href} title={title}>
       {children}
-    </a>
+    </Link>
   ),
   blockquote: ({ children }) => (
     <blockquote className={cn(BLOCK, "border-foreground/15 text-muted-foreground border-l-2 pl-[0.9em]")}>{children}</blockquote>
@@ -124,11 +252,17 @@ const COMPONENTS: Components = {
       <table className="w-full border-collapse text-[0.9em]">{children}</table>
     </div>
   ),
-  th: ({ children }) => (
-    <th className="bg-muted/50 border-b px-2.5 py-1.5 text-left font-medium whitespace-nowrap">{children}</th>
+  // each body row draws the rule above it, so there is never one against the frame; a column's alignment arrives as style
+  th: ({ children, style }) => (
+    <th style={style} className="bg-muted/50 px-2.5 py-1.5 text-left font-medium whitespace-nowrap">
+      {children}
+    </th>
   ),
-  td: ({ children }) => <td className="border-b px-2.5 py-1.5 align-top last:border-b-0">{children}</td>,
-  tbody: ({ children }) => <tbody className="[&>tr:last-child>td]:border-b-0">{children}</tbody>,
+  td: ({ children, style }) => (
+    <td style={style} className="border-t px-2.5 py-1.5 align-top">
+      {children}
+    </td>
+  ),
 };
 
 /** Grabbing a snippet is the most common thing done with an agent's answer. */

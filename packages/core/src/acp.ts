@@ -48,6 +48,7 @@ import type {
   Unsubscribe,
 } from "@roster/adapter-api";
 import { locale, stored, t } from "./i18n/index.js";
+import { isScript } from "./scripts.js";
 
 /**
  * Any agent that speaks the Agent Client Protocol, driven over stdio. The
@@ -68,6 +69,12 @@ export const ACP_CAPABILITIES: Capabilities = {
   branch: false,
   permissionModes: true,
 };
+
+const capabilitiesOf = (manifest: AcpManifest): Capabilities =>
+  manifest.permissionModes === false ? { ...ACP_CAPABILITIES, permissionModes: false } : ACP_CAPABILITIES;
+
+const metaOf = (manifest: AcpManifest): { _meta?: Record<string, unknown> } =>
+  manifest.sessionMeta ? { _meta: { ...manifest.sessionMeta } } : {};
 
 /** How a manifest's command becomes a process. */
 export interface AcpSpec {
@@ -137,8 +144,6 @@ function cleanEnv(): Record<string, string> {
 
 /** The agent program, as the manifest's "@program" stands for it; "node" is the host's own runtime. */
 const PROGRAM = "@program";
-
-const isScript = (p: string) => /\.(c|m)?js$/.test(p);
 
 /**
  * A "node" head runs on the host's own runtime, so a machine without node on
@@ -324,7 +329,8 @@ class Link {
   #stderr: string[] = [];
   /** a line still being written, which a pipe can hand over across any number of chunks */
   #partial = "";
-  #exit: Promise<number | null>;
+  /** the exit code, or the error code of a program that never started */
+  #exit: Promise<number | string | null>;
 
   constructor(launch: Launch, cwd: string, client: Client) {
     this.child = spawn(launch.command, launch.args, { cwd, env: launch.env, stdio: ["pipe", "pipe", "pipe"] });
@@ -341,7 +347,15 @@ class Link {
         if (process.env["ROSTER_ACP_LOG"] === "1") console.error(`[acp] ${line}`);
       }
     });
-    this.#exit = new Promise((resolve) => this.child.once("exit", (code) => resolve(code)));
+    this.#exit = new Promise((resolve) => {
+      this.child.once("exit", (code) => resolve(code));
+      // a program that cannot start reports only this, never an exit; left unheard, it takes the host down
+      this.child.on("error", (err: NodeJS.ErrnoException) => {
+        if (this.child.pid !== undefined) return;
+        this.#stderr.push(readable(err.message));
+        resolve(err.code ?? null);
+      });
+    });
     const stream = ndJsonStream(
       Writable.toWeb(this.child.stdin!) as WritableStream<Uint8Array>,
       Readable.toWeb(this.child.stdout!) as ReadableStream<Uint8Array>,
@@ -349,7 +363,7 @@ class Link {
     this.conn = new ClientSideConnection(() => client, stream);
   }
 
-  get exited(): Promise<number | null> {
+  get exited(): Promise<number | string | null> {
     return this.#exit;
   }
 
@@ -365,14 +379,16 @@ class Link {
 }
 
 class AcpRuntime implements BotRuntime {
-  readonly capabilities = ACP_CAPABILITIES;
+  readonly capabilities: Capabilities;
 
   constructor(
     private launch: Launch,
     private label: string,
-    /** the agent's type from its manifest, which is what its English is catalogued under */
-    private type: string,
-  ) {}
+    /** the agent's manifest entry; its type is what its English is catalogued under */
+    private spec: AcpSpec,
+  ) {
+    this.capabilities = capabilitiesOf(spec.manifest);
+  }
 
   #handlers = new Set<(e: NormalizedEvent) => void>();
   #link: Link | undefined;
@@ -430,7 +446,7 @@ class AcpRuntime implements BotRuntime {
       if (opts.resumeToken && init.agentCapabilities?.loadSession) {
         this.#replaying = true;
         try {
-          session = await link.conn.loadSession({ sessionId: opts.resumeToken, cwd: opts.cwd, mcpServers: [] });
+          session = await link.conn.loadSession({ sessionId: opts.resumeToken, cwd: opts.cwd, mcpServers: [], ...metaOf(this.spec.manifest) });
           this.#sessionId = opts.resumeToken;
         } catch {
           session = undefined;
@@ -439,7 +455,7 @@ class AcpRuntime implements BotRuntime {
         }
       }
       if (!session) {
-        const created = await link.conn.newSession({ cwd: opts.cwd, mcpServers: [] });
+        const created = await link.conn.newSession({ cwd: opts.cwd, mcpServers: [], ...metaOf(this.spec.manifest) });
         this.#sessionId = created.sessionId;
         session = created;
         this.#preset = opts.systemPrompt?.trim() || undefined;
@@ -574,7 +590,7 @@ class AcpRuntime implements BotRuntime {
       ...infoOf(this.#options, this.#modes, {}),
       ...patch,
       ...(context ? { context } : {}),
-      ...(this.#commands.length > 0 ? { commands: commandsOf(this.type, this.#commands) } : {}),
+      ...(this.#commands.length > 0 ? { commands: commandsOf(this.spec.type, this.#commands) } : {}),
     };
     this.#emit({ type: "session.info", display: "status", info: this.#info });
   }
@@ -704,7 +720,7 @@ interface Snapshot {
  * The agent started only to be asked questions: what it offers and whether it
  * is signed in. A session is opened in a scratch directory and never prompted.
  */
-async function probe(launch: Launch, label: string): Promise<Snapshot> {
+async function probe(launch: Launch, label: string, manifest: AcpManifest): Promise<Snapshot> {
   const snapshot: Snapshot = { authMethods: [], auth: null, session: false, loggedOut: false, options: [], modes: null, commands: [] };
   let resolveAuth: (() => void) | undefined;
   const authSeen = new Promise<void>((r) => (resolveAuth = r));
@@ -737,7 +753,7 @@ async function probe(launch: Launch, label: string): Promise<Snapshot> {
         // the identity arrives on its own, shortly after initialize; a session is opened either way
         await Promise.race([authSeen, new Promise((r) => setTimeout(r, AUTH_STATUS_WAIT_MS))]);
         try {
-          const session = await link.conn.newSession({ cwd: tmpdir(), mcpServers: [] });
+          const session = await link.conn.newSession({ cwd: tmpdir(), mcpServers: [], ...metaOf(manifest) });
           snapshot.session = true;
           snapshot.options = session.configOptions ?? [];
           snapshot.modes = session.modes ?? null;
@@ -797,7 +813,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
   let lastModes: Array<{ id: string; label: string }> = [];
   const snapshotOf = (maxAgeMs: number): Promise<Snapshot> => {
     if (snapshot && Date.now() - snapshot.at < maxAgeMs) return snapshot.value;
-    const entry = { at: Date.now(), value: Promise.resolve().then(() => probe(launch(), instance.label)) };
+    const entry = { at: Date.now(), value: Promise.resolve().then(() => probe(launch(), instance.label, spec.manifest)) };
     snapshot = entry;
     entry.value.then(
       (s) => {
@@ -814,8 +830,8 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     id: instance.id,
     type: spec.type,
     label: instance.label,
-    capabilities: ACP_CAPABILITIES,
-    create: () => new AcpRuntime(launch(), instance.label, spec.type),
+    capabilities: capabilitiesOf(spec.manifest),
+    create: () => new AcpRuntime(launch(), instance.label, spec),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");
@@ -846,12 +862,12 @@ export function acpHarness(spec: AcpSpec): HarnessType {
     type: spec.type,
     label: spec.label,
     sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
-    capabilities: () => ACP_CAPABILITIES,
+    capabilities: () => capabilitiesOf(spec.manifest),
     create: (instance) => acpFactory(spec, instance),
     // the sign-in is the program's, so it is asked afresh every time rather than cached with any executor
     async login(program): Promise<LoginState> {
       const launch = resolveLaunch(spec, program, { kind: "own" });
-      const s = await probe(launch, spec.label);
+      const s = await probe(launch, spec.label, spec.manifest);
       const methods = loginMethods(spec, launch, s.authMethods);
       if (s.error && !s.session) return { state: "unknown", detail: s.error, methods };
       const ok = s.auth ? s.auth.ok : !s.loggedOut;

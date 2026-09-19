@@ -109,6 +109,8 @@ interface Live {
   session: SessionInfo | null;
   /** the executor the running session was started on; set with runtime */
   executor: string | null;
+  /** its program was replaced mid-turn: the session lets go of the old process once the turn ends */
+  outdated: boolean;
 }
 
 interface QuotaRead {
@@ -579,6 +581,25 @@ export class Orchestrator {
     live.session = null;
   }
 
+  /**
+   * A harness's program was replaced under its sessions, as an update does.
+   * Each lets go of the old process -- an idle one now, a running one when its
+   * turn ends -- and its next turn starts the new program, resuming where it was.
+   */
+  programChanged(type: string): void {
+    for (const live of this.#lives.values()) {
+      if (live.gone || !live.runtime || !live.executor || this.store.getExecutor(live.executor)?.type !== type) continue;
+      if (live.running) live.outdated = true;
+      else this.#renew(live);
+    }
+  }
+
+  #renew(live: Live): void {
+    live.outdated = false;
+    this.#forget(live);
+    this.#announceResting(live.conversationId, live.memberId);
+  }
+
   /** The old session's report no longer holds; shows what the member will run with until a turn restates it. */
   #announceResting(conversationId: string, memberId: string): void {
     const member = this.store.getMember(memberId);
@@ -658,6 +679,7 @@ export class Orchestrator {
         presence: null,
         session: null,
         executor: null,
+        outdated: false,
       };
       this.#lives.set(memberId, live);
     }
@@ -859,6 +881,7 @@ export class Orchestrator {
     if (live.errored || reason === "error") g.failed = true;
     Object.assign(live, { running: false, asks: new Set(), turnId: null });
     this.#setPresence(live, null);
+    if (live.outdated) this.#renew(live);
 
     if (live.queued.size > 0 && !g.halted && !live.gone) {
       const next = live.queued;

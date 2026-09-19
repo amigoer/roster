@@ -1,12 +1,12 @@
 # 路线图
 
-> 第二轮 · 2026-09-17
+> 第二轮 · 2026-09-17 · 最近改动 2026-09-19（第三轮：加上「更多 agent」这条线）
 
 按里程碑排，不按日期：一个人做，日期只会失信。每个里程碑一句**做完的标志**——能当场演示的一件事，不是一串功能名。顺序是建议，不是承诺；里程碑里的取舍写在各自的文档里，这里只说先后和为什么。
 
 ## 已到：桌面雏形（第一轮）
 
-Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex 和 Gemini CLI 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
+Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI 和 Grok Build 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
 
 ## M1 · 窄屏与路由
 
@@ -55,6 +55,36 @@ App Store 审核：备一台演示电脑挂在官方中继上，审核账号自�
 macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 agent。手机端要求电脑那头长期开着，包装好的 app 才谈得上「一直开着」。
 
 **做完的标志**：一台干净的 Mac，不装 node、不 clone 仓库，下载安装、登录 Claude、开一个群干活。
+
+## 另一条线：更多 agent（第三轮）
+
+和 M 那条线不抢先后：一个 agent 一份清单，插空做。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
+
+### A1 · Kimi Code 订阅
+
+一份清单加一条目录，照 Grok Build 的路子；顺带实测它在 ACP 里的模式 id。
+
+**做完的标志**：`kimi login` 之后建出「Kimi Code · 订阅」，在群里跑一轮：换模型生效，改文件按档位放行或出卡片；退出 Roster 再打开，接着原会话往下聊。
+
+### A2 · ACP 通道补齐
+
+不接新 agent，只补通道：程序不一定来自 npm、验明正身、没有登录的类型、预设接到 ACP 类型、优先 `session/resume`、档位到模式明写、只答一次性的权限选项。全用测试里的假 agent 覆盖。
+
+**做完的标志**：假 agent 只靠清单声明「没有登录、只接 DeepSeek 预设、只有 resume」，就能建出 agent、跑一轮、重启 core 后接着原会话；Grok Build 直接用 xAI 预设建出 agent。
+
+### A3 · Cursor
+
+只检测不代装，按版本输出验身份；交给闸门按档位管；两个要等回复的扩展方法不让一轮卡住。
+
+**做完的标志**：curl 脚本装的 Cursor 被认出来，PATH 上另一个叫 `agent` 的程序不会被当成它；`agent login` 之后跑一轮，只读、可写、可执行三档各自放行得对；Cursor 想问问题时，这一轮不会卡死。
+
+### A4 · Kimi Code 接 API，DeepSeek Harness
+
+启动时带上模型和定值，核对程序要的 node 版本；DeepSeek Harness 钉版本、标实验。
+
+**做完的标志**：只加一个 DeepSeek 预设，就能建出「DeepSeek Harness · DeepSeek」跑一轮、重启后接着；「Kimi Code · Moonshot」在会话里换了模型，下一条消息就用上。
+
+ZCode 暂缓，等智谱给出官方的 ACP 入口；排队的 Qwen Code、Qoder CLI、Copilot CLI、OpenCode 照接入清单一家一家来。
 
 ## 之后，不排期
 

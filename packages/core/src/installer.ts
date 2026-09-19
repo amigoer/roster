@@ -1,18 +1,30 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ProgramManifest } from "@roster/adapter-api";
 import { t } from "./i18n/index.js";
+import { commandOf } from "./scripts.js";
 
 export interface InstallJob {
   /** what is being installed: an agent program by its catalog id, or an adapter by its id */
   id: string;
   state: "running" | "done" | "failed";
-  /** the last lines npm printed */
+  /** the last lines npm, or the program's own updater, printed */
   log: string[];
   startedAt: number;
   endedAt?: number;
+  /** the program's own updater ran, not an install: when it fails, the old version still works */
+  update?: boolean;
+}
+
+/** What a program's own update check said. */
+export interface UpdateCheck {
+  /** the version the program reports for itself */
+  current?: string;
+  latest: string;
+  available: boolean;
 }
 
 export interface InstallOptions {
@@ -30,6 +42,28 @@ export interface InstalledProgram {
 }
 
 const LOG_LINES = 40;
+const LOG_PUSH_MS = 500;
+/** a check goes out to the network, but must not hold a settings page open for long */
+const CHECK_TIMEOUT_MS = 20_000;
+const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+
+const parsed = (s: string): unknown => {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
+/** The JSON object a program printed: all of its output, or else its last line that is one. */
+function jsonOf(text: string): Record<string, unknown> | null {
+  for (const candidate of [text, ...text.split("\n").reverse()]) {
+    const s = candidate.trim();
+    const value = s.startsWith("{") ? parsed(s) : null;
+    if (value && typeof value === "object") return value as Record<string, unknown>;
+  }
+  return null;
+}
 
 /** npm's package exports hide its bin, so the CLI is found next to the entry the exports do expose. */
 export function npmCliPath(): string {
@@ -118,6 +152,35 @@ export class Installer {
     this.#remove(id, this.programDirOf(id));
   }
 
+  /** Asks a program whether a newer version is out, by its own check; nothing is installed. */
+  checkUpdate(program: string, args: readonly string[]): Promise<UpdateCheck> {
+    const cmd = commandOf(program, args);
+    return new Promise((resolve, reject) => {
+      execFile(cmd.command, cmd.args, { timeout: CHECK_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: { ...process.env, ...cmd.env } }, (err, stdout, stderr) => {
+        const status = jsonOf(String(stdout));
+        const error = status?.["error"];
+        if (typeof error === "string" && error) return reject(new Error(error));
+        if (!status && err) return reject(new Error(String(stderr).replace(ANSI_ESCAPE, "").trim() || err.message));
+        const latest = status?.["latestVersion"];
+        const current = status?.["currentVersion"];
+        if (typeof latest !== "string" || !latest) return reject(new Error(t("error.update.unreadable")));
+        resolve({ latest, available: status?.["updateAvailable"] === true, ...(typeof current === "string" ? { current } : {}) });
+      });
+    });
+  }
+
+  /** Runs a program's own updater on the copy at this path; resolves when it exits, and the job records how it went either way. */
+  updateProgram(id: string, program: string, args: readonly string[]): Promise<InstallJob> {
+    if (this.#jobs.get(id)?.state === "running") throw new Error(t("error.install.running", { id }));
+    const job: InstallJob = { id, state: "running", log: [], startedAt: Date.now(), update: true };
+    this.#jobs.set(id, job);
+    this.changed();
+    const cmd = commandOf(program, args);
+    return this.#run(job, cmd.command, cmd.args, { cwd: homedir(), env: { ...process.env, ...cmd.env } }, (code) =>
+      t("install.updaterExit", { code }),
+    );
+  }
+
   /** Fetches an adapter that is not bundled with Roster. */
   install(id: string, pkg: string, opts: InstallOptions = {}): Promise<InstallJob> {
     return this.#install(id, this.dirOf(id), pkg, opts, "extension");
@@ -169,21 +232,38 @@ export class Installer {
   }
 
   #npm(job: InstallJob, dir: string, args: string[]): Promise<InstallJob> {
+    return this.#run(
+      job,
+      process.execPath,
+      [this.npmCli, ...args, "--prefix", dir, "--no-audit", "--no-fund", "--loglevel=error", "--no-progress"],
+      { cwd: dir, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production" } },
+      (code) => t("install.npmExit", { code }),
+    );
+  }
+
+  /** Runs a job's process to the end, keeping the last lines it printed; silent says why a failure left none. */
+  #run(
+    job: InstallJob,
+    command: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv },
+    silent: (code: number | string) => string,
+  ): Promise<InstallJob> {
     return new Promise((resolve) => {
-      const child = spawn(
-        process.execPath,
-        [this.npmCli, ...args, "--prefix", dir, "--no-audit", "--no-fund", "--loglevel=error", "--no-progress"],
-        {
-          cwd: dir,
-          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production" },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
+      const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+      let told = 0;
       const take = (chunk: Buffer) => {
-        for (const line of chunk.toString("utf8").split("\n")) {
+        // a progress bar redraws its line with \r, and each redraw is the newest line
+        for (const raw of chunk.toString("utf8").split(/\r\n|\r|\n/)) {
+          const line = raw.replace(ANSI_ESCAPE, "");
           if (!line.trim()) continue;
           job.log.push(line);
           if (job.log.length > LOG_LINES) job.log.shift();
+        }
+        // the page follows the newest line, but a bar redrawn many times a second must not flood it
+        if (Date.now() - told >= LOG_PUSH_MS) {
+          told = Date.now();
+          this.changed();
         }
       };
       child.stdout.on("data", take);
@@ -198,7 +278,7 @@ export class Installer {
       child.on("exit", (code) => {
         job.state = code === 0 ? "done" : "failed";
         job.endedAt = Date.now();
-        if (code !== 0 && job.log.length === 0) job.log.push(t("install.npmExit", { code: code ?? "signal" }));
+        if (code !== 0 && job.log.length === 0) job.log.push(silent(code ?? "signal"));
         this.changed();
         resolve(job);
       });
