@@ -80,6 +80,8 @@ importers:
         specifier: workspace:*
         version: link:../adapter-api
 
+  packages/ext-qoder-cli: {}
+
   packages/ext-qwen-code: {}
 
   packages/ui:

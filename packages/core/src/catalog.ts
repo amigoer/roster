@@ -129,6 +129,22 @@ export const CATALOG: readonly CatalogEntry[] = [
     // a script on the host's own runtime, which has to be node 22 or later; the install script brings its own node and puts a wrapper in ~/.local/bin
     program: { npm: "@qwen-code/qwen-code", version: "0.24.2", bin: "qwen", paths: ["~/.local/bin/qwen"], versionArgs: ["--version"] },
   },
+  {
+    id: "qoder-cli",
+    label: "Qoder CLI",
+    get description() {
+      return t("catalog.qoder-cli");
+    },
+    brand: "qoder",
+    // the agent itself, not the `qoder` wrapper npm and the install script also put on PATH: that one routes to the IDE for some arguments
+    program: {
+      npm: "@qoder-ai/qodercli",
+      version: "1.1.59",
+      bin: "qodercli",
+      paths: ["~/.local/bin/qodercli", "~/.qoder/bin/qodercli/qodercli"],
+      versionArgs: ["--version"],
+    },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

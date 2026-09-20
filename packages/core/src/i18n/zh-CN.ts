@@ -202,6 +202,7 @@ export const zhCN = translation<typeof en>()({
   "catalog.deepseek-harness": "DeepSeek 的编码 agent，走 ACP。没有自带登录，接 DeepSeek 的模型 API。还是开发者预览版，所以钉住了版本。",
   "catalog.kimi-code": "月之暗面的编码 agent，走 ACP。用 Kimi 账号登录，或接 Moonshot、Kimi Coding、OpenAI 兼容或 Anthropic 兼容的 API。",
   "catalog.qwen-code": "阿里开源的编码 agent，走 ACP。用 Qwen 账号登录，或接 OpenAI 兼容的 API。",
+  "catalog.qoder-cli": "阿里 Qoder 的编码 agent，走 ACP。用 Qoder 账号登录，模型随账号走。",
 
   "effort.minimal": "最低",
   "effort.low": "低",

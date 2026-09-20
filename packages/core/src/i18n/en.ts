@@ -217,6 +217,7 @@ export const en = {
     "Moonshot AI's coding agent, over ACP. Sign in with a Kimi account, or connect a Moonshot, Kimi Coding, OpenAI-compatible or Anthropic-compatible API.",
   "catalog.qwen-code":
     "Alibaba's open source coding agent, over ACP. Sign in with a Qwen account, or connect an OpenAI-compatible API.",
+  "catalog.qoder-cli": "The coding agent of Alibaba's Qoder, over ACP. Sign in with a Qoder account; its models come with the account.",
 
   // effort levels agents share the ids of, so one word each; an agent's own description of a level passes through
   "effort.minimal": "Minimal",

@@ -406,7 +406,8 @@ class Link {
   #exit: Promise<number | string | null>;
 
   constructor(launch: Launch, cwd: string, client: Client) {
-    this.child = spawn(launch.command, launch.args, { cwd, env: launch.env, stdio: ["pipe", "pipe", "pipe"] });
+    // PWD comes from the shell Roster was started from; left as it is, an agent reads it as the directory it works in
+    this.child = spawn(launch.command, launch.args, { cwd, env: { ...launch.env, PWD: cwd }, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr?.setEncoding("utf8");
     this.child.stderr?.on("data", (chunk: string) => {
       const lines = (this.#partial + chunk).split("\n");

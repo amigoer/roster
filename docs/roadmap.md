@@ -1,12 +1,12 @@
 # 路线图
 
-> 第二轮 · 2026-09-17 · 最近改动 2026-09-21（接入 Qwen Code）
+> 第二轮 · 2026-09-17 · 最近改动 2026-09-21（接入 Qwen Code、Qoder CLI）
 
 按里程碑排，不按日期：一个人做，日期只会失信。每个里程碑一句**做完的标志**——能当场演示的一件事，不是一串功能名。顺序是建议，不是承诺；里程碑里的取舍写在各自的文档里，这里只说先后和为什么。
 
 ## 已到：桌面雏形（第一轮）
 
-Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness、Kimi Code 和 Qwen Code 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
+Electron 本体能用：bot、单聊与群、三种模式；Claude Code 和 pi-agent 的适配器，Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness、Kimi Code、Qwen Code 和 Qoder CLI 走 ACP、还是实验性；设置页、中英文、附件、`/` 命令、上下文面板、套餐用量。从源码跑，没有打包发布。收尾的零碎不在这里列。
 
 ## M1 · 窄屏与路由
 
@@ -58,7 +58,7 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 ## 另一条线：更多 agent（第三轮）
 
-和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode、DeepSeek Harness、Kimi Code、Qwen Code 已经接上，A1 和 A4 随之做完；Cline 等它发出签名修好的 macOS 版再接。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
+和 M 那条线不抢先后：一个 agent 一份清单，插空做。2026-09-20 起按热度排，知名的开源 agent 先接，用得最少的最后；OpenCode、DeepSeek Harness、Kimi Code、Qwen Code、Qoder CLI 已经接上，A1 和 A4 随之做完；Cline 等它发出签名修好的 macOS 版再接。为什么是这几家、为什么这个顺序、每步补什么，见 [接入更多 ACP agent](acp-agents.md)。
 
 ### A1 · Kimi Code 订阅（已做，2026-09-20）
 
@@ -84,7 +84,7 @@ macOS 签名公证的安装包，core 随 app 一起；首次打开检测本机 
 
 **做完的标志**：「Kimi Code · Moonshot」在会话里换了模型，下一条消息就用上。
 
-ZCode 暂缓，等智谱给出官方的 ACP 入口；排队的 Qoder CLI、Copilot CLI 照接入清单一家一家来。
+ZCode 暂缓，等智谱给出官方的 ACP 入口；排队的 Copilot CLI 照接入清单一家一家来。
 
 ## 之后，不排期
 

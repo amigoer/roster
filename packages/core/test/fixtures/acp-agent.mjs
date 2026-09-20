@@ -78,6 +78,7 @@ async function prompt(id, params) {
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: said } });
   }
   if (text.includes("#args")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `args ${process.argv.slice(2).join(" ")} ` } });
+  if (text.includes("#pwd")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `pwd ${process.env.PWD} cwd ${process.cwd()} ` } });
   if (text.includes("#mode")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mode ${modes.currentModeId} ` } });
   if (text.includes("#session")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `session ${sessionId} resumed ${resumed} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);

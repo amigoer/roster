@@ -2297,6 +2297,20 @@ describe("extensions", () => {
     await assert.rejects(oneTurn(fake.create({ id: "y", label: "假 agent", source: { kind: "endpoint", endpoint: other } }), { cwd: dir }, "#vars"), /协议对不上/);
   });
 
+  test("an agent is told the directory it works in, whatever the shell Roster was started from says", async () => {
+    const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
+    await ext.load();
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    process.env.PWD = "/somewhere/else";
+    try {
+      const { said } = await oneTurn(ext.types()[0].create({ id: "x", label: "假 agent", source: { kind: "own" } }), { cwd: dir }, "#pwd");
+      assert.ok(said.includes(`pwd ${dir} `), said);
+    } finally {
+      delete process.env.PWD;
+    }
+  });
+
   test("a bare model id picks the one provider pair that names it", async () => {
     const ext = new Extensions([{ dir: fakeAgentRoot({}), origin: "linked" }]);
     await ext.load();

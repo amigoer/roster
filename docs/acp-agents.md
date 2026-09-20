@@ -1,6 +1,6 @@
 # 接入更多 ACP agent
 
-> 第三轮 · 2026-09-19 · 最近改动 2026-09-21（接入 Qwen Code；预设按协议兜底、按来源加启动参数；Cline 暂缓）
+> 第三轮 · 2026-09-19 · 最近改动 2026-09-21（接入 Qwen Code、Qoder CLI；预设按协议兜底、按来源加启动参数、启动时写 PWD；Cline 暂缓）
 
 **下一批 harness 还是按清单接：先补通道，不给哪一家单写适配代码。** 这一批四家：Cursor、Kimi Code、DeepSeek Harness、ZCode，后面还排着 Qwen Code、Qoder CLI、Copilot CLI 这些。它们大多原生支持 ACP，但形状各不一样：有的没有 npm 包，有的没有登录，有的恢复会话只认 `resume`。与其逐家写适配器，不如把这些差别做成清单里能声明的字段：通道补一次，之后每家还是一份清单。接 ACP agent 的基本做法见 [底层执行器](harness.md)，这一册只写新东西：各家现状、通道要补的几件事、先后、接入清单、还没查清的。
 
@@ -94,6 +94,27 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - **按来源加启动参数**：协议或预设的映射除了环境变量，还能写 `args`，启动时接在命令后面。Qwen Code 靠它写明这个端点说的是哪种协议，盖过本机登录态。
 - **`_meta` 里的 terminal 登录**：`_meta.type` 是 terminal 的登录方法也当终端登录看，参数取 `_meta.args`；清单写了登录命令的，一律不再列这些方法。否则界面上会多出一个按了只报错的「用 OpenAI 密钥」。
 
+## Qoder CLI：第五个接进来的
+
+2026-09-21 接上，只有订阅一种来源，通道补了一样。
+
+- **程序**：npm `@qoder-ai/qodercli`，官方推荐的是 curl 脚本装的原生二进制，npm 那条是兼容老环境用的（要 node ≥ 20）。npm 包给两个命令：`qodercli` 是 agent 本身，`qoder` 是个派发器，第一个参数是已存在的路径或 `ide`、`chat` 这些词时转给 Qoder IDE。Roster 用 `qodercli`，原生装法把它放在 `~/.local/bin/qodercli` 或 `~/.qoder/bin/qodercli/qodercli`。`--version` 只打版本号，入口 `--acp`（帮助里没列这个参数，文档里有）。版本钉在 1.1.59。
+- **登录**：Qoder 账号，`qoder login` 走浏览器；也认 `QODER_PERSONAL_ACCESS_TOKEN`。ACP 里报一个 terminal 类方法，可它 `_meta` 里写的命令是 node 解释器的路径，按那个提示登不了，所以清单直接给登录命令，把它盖掉。配置目录 `~/.qoder`，`QODER_CONFIG_DIR` 可改。
+- **模型 API**：没有。BYOK 要在 `/model` 的向导里连，可选的家数和字段由账号决定，官方文档明写不要手改 `settings.json`；包里也没有 `OPENAI_*` 一类的环境变量。所以清单不写 `env`，只有订阅一种来源。模型随账号来：Qwen3.8-Max（0.20x 额度）和 Qwen3.8-Flash（0.00x，不计额度）。
+- **权限**：模式 default、acceptEdits、auto、dontAsk、yolo，管的就是审批，ACP 里默认就是会问的 default。可是 `~/.qoder/settings.json` 的 `general.defaultPermissionMode` 能把默认改成 bypass_permissions，那样一个都不问；它的权限来源分八层，命令行参数（第 5 层）排在三份设置文件（第 1-3 层）之上，所以清单在命令里写死 `--permission-mode default`，再声明 `permissionModes: false` 交给闸门按档位管。只读命令（`ls`、`pwd`、`cat`）它自己放行，闸门看不见；写文件和别的命令都问。
+- **子 agent**：Agent 工具的 kind 报 think，但子 agent 每个要批的调用都照样从同一条 `request_permission` 转出来，闸门都看得见，所以不像 OpenCode、Qwen Code 那样要禁掉。
+- **被拒之后**：工具结果会告诉模型这次被拒、不要重试，它换一种办法再被拒，就用文字说明然后停下。不会一声不响地结束一轮。
+- **工具和事件**：`tool_call` 的 kind 按协议报（edit、execute、think），参数在 `rawInput` 里，`_meta.qoder.toolName` 另带工具名，用不上 `toolEffects`。权限选项把「本会话都允许」排在第一个，Roster 只答一次性的那两个。没有 `usage_update`，用量在一轮结果的 `_meta.quota` 里，所以上下文占用读不到。
+- **会话**：new、load、resume、list、fork、close、delete 都有，Roster 用 resume；重启后接回原会话，模型记得上一轮。恢复出来的会话模型会退回账号默认，Roster 每次开会话都重新带上 bot 选的那个。
+- **改 shell 配置**：第一次跑起来它会把一段 PATH 写进 `~/.zshenv`、`~/.zprofile`、`~/.zshrc`（`~/.qoder/entry/.rc-written-sentinel` 记着 `auto_first`），指向它自己的派发器目录。源码里有开关 `QODER_NO_RC`，清单用 `fixedEnv` 设成 1，Roster 起的进程不碰这些文件。沙箱里没能复现触发的条件，所以这条是照源码下的保险，不是实测。
+- **验证**：真账号加不计额度的 Flash 模型，走 Roster 自己的清单跑通了：登录状态 ok，两个模型都列得出，写文件按「写」过闸门并落盘，命令按「执行」被闸门拒掉、没有落盘、模型用文字解释了，重启后 `resume` 接回原会话并记得上一轮写的是哪个文件。
+- **还没做**：一键更新：`qodercli update --check` 只打人话，没有 JSON，目录项就不写更新。它自己默认开着自动更新，Roster 下载的那份也会自我更新，版本钉不住。
+- **拦不住的**：用户自己 `settings.json` 里的 allow 规则（第 1-3 层）仍然能放行具体工具，那些调用不会问，闸门也看不见。额度用完时只有 0.00x 的 Flash 还能跑。
+
+通道补的一样：
+
+- **启动时把工作目录也写进 `PWD`**：进程的 cwd 一直是会话的目录，但 `PWD` 是从宿主继承的，指着 Roster 自己的启动目录。Qoder CLI 的模型照着 `PWD` 猜，把文件写到了那个目录里（第一次实测时写进了 Roster 自己的仓库）。现在 spawn 时一并把 `PWD` 设成会话目录。
+
 ## 各家现状
 
 2026-09-19 查的，出处列在文末。
@@ -145,12 +166,12 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ## 顺序
 
-**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，第三个是 Kimi Code，第四个是 Qwen Code，都已经接上，见上文。Cline 暂缓：npm 上发的 macOS 二进制签名全是坏的，macOS 27 一启动就杀（[cline/cline#14209](https://github.com/cline/cline/issues/14209)），修复已合并、还没发版，发了再接。下面 A1 到 A4 是按旧的排法写的，A1、A4 已经做完。
+**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，第三个是 Kimi Code，第四个是 Qwen Code，第五个是 Qoder CLI，都已经接上，见上文。Cline 暂缓：npm 上发的 macOS 二进制签名全是坏的，macOS 27 一启动就杀（[cline/cline#14209](https://github.com/cline/cline/issues/14209)），修复已合并、还没发版，发了再接。下面 A1 到 A4 是按旧的排法写的，A1、A4 已经做完。
 
 里程碑和做完的标志见 [路线图](roadmap.md) 的 A1 到 A4。这条线和移动端不抢先后，插空做。
 
 - **A1 · Kimi Code 订阅。**（已做，2026-09-20）订阅那条还要真账号手测。
-- **A2 · 通道补齐。** 还剩第 1、2、7 条，全用假 agent 测；第 3、4、5、6、10 条已经随 OpenCode、DeepSeek Harness、Kimi Code 做了，Qwen Code 又补了预设按协议兜底、按来源加启动参数和 `_meta` 里的 terminal 登录。
+- **A2 · 通道补齐。** 还剩第 1、2、7 条，全用假 agent 测；第 3、4、5、6、10 条已经随 OpenCode、DeepSeek Harness、Kimi Code 做了，Qwen Code 又补了预设按协议兜底、按来源加启动参数和 `_meta` 里的 terminal 登录，Qoder CLI 补了启动时写 `PWD`。
 - **A3 · Cursor。** 用户最多，但离不开第 1、2、7 条，第 8 条还得实测，所以排在通道之后。
 - **A4 · Kimi Code 接 API，DeepSeek Harness。**（已做，2026-09-20）还剩第 9 条，核对程序要的 node 版本。
 - **ZCode 暂缓。** 什么时候重开见「不做」。
@@ -158,7 +179,7 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 排队的，每家照「接入清单」走一遍，大致按对用户的用处排：
 
 - **Qwen Code**：已接，见上文。接之前这里写的「DashScope 密钥（已有阿里的预设）」不准：预设目录里阿里那几个叫 `qwen-token-plan`，现在按协议兜底，任何 OpenAI 兼容的预设都能接。
-- **Qoder CLI**：`qoder --acp`，npm `@qoder-ai/qodercli`；`qoder login`，或者环境变量 `QODER_PERSONAL_ACCESS_TOKEN`。
+- **Qoder CLI**：已接，见上文。接之前这里写的入口 `qoder --acp` 对，但 Roster 用的是 `qodercli`：`qoder` 是会转给 IDE 的派发器。
 - **GitHub Copilot CLI**：`copilot --acp`（公开预览），npm `@github/copilot`。
 - **OpenCode**：`opencode acp`，npm `opencode-ai`；它自己就能接很多家的 API。
 - ACP 名录里其余几十家（Goose、Kiro CLI、Mistral Vibe、Cline、Factory Droid、Augment Code、Junie……），有人要再排。
@@ -196,5 +217,6 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - Kimi Code：[kimi acp](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp.html)、[kimi 命令](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html)、[环境变量](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/env-vars.html)、[MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)
 - DeepSeek Harness：[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)，其中 `packages/acp/acp` 的 README 和 `.agents/notes` 里的两篇 ACP 笔记
 - Qwen Code：[QwenLM/qwen-code](https://github.com/QwenLM/qwen-code)，以及 npm 包里 `qwen --help` 和它自己的 ACP 实现
+- Qoder CLI：[ACP](https://docs.qoder.com/cli/acp)、[安装与升级](https://docs.qoder.com/cli/installation)、[权限](https://docs.qoder.com/cli/permissions)、[自定义模型](https://docs.qoder.com/cli/custom-models)
 - ZCode：[文档](https://zcode.z.ai/en/docs/welcome)、[连接模型与套餐](https://zcode.z.ai/en/docs/configuration)、社区适配器 [BrokkAi/zcode-acp](https://github.com/BrokkAi/zcode-acp)
 - 排队的：[ACP 名录](https://agentclientprotocol.com/overview/agents)、[Qoder CLI 的 ACP](https://docs.qoder.com/cli/acp)、[Copilot CLI 的 ACP](https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server)

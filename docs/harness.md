@@ -1,13 +1,13 @@
 # 底层执行器
 
-> 第一轮 · 2026-09-12 · 最近改动 2026-09-21（接入 Qwen Code；预设按协议兜底，按来源加启动参数）
+> 第一轮 · 2026-09-12 · 最近改动 2026-09-21（接入 Qwen Code、Qoder CLI；预设按协议兜底，按来源加启动参数；启动时把工作目录也写进 PWD）
 
 session 背后真正干活的是现成的 code agent，Roster 不自写 agent loop，只做适配；为什么这样选见 [总体设计](design.md#底层执行器)。这一册讲怎么接：harness、agent、模型来源的层级，适配器怎么装，设置页长什么样，两个后端的控制面，以及事件模型。
 
 ## Harness、agent、模型来源：层级是严格的
 
 ```
-Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / DeepSeek Harness / Kimi Code / Qwen Code / pi-agent）
+Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / DeepSeek Harness / Kimi Code / Qwen Code / Qoder CLI / pi-agent）
         └──→ 模型来源：订阅登录，或者一个模型 API
 ```
 
@@ -32,13 +32,15 @@ Bot → Agent → Harness（Claude Code / Codex / Gemini CLI / Grok Build / Open
 |---|---|---|
 | pi-agent | 进程内注册；pi 自己的 auth 文件不再算数 | 无 |
 | Claude Code | Claude Agent SDK，环境变量注入，不读本机设置 | Claude Agent SDK，用程序自己的登录和本机设置 |
-| ACP agent（Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness、Kimi Code、Qwen Code、自定义命令） | ACP，按清单把协议或预设映射到环境变量和启动参数，要启动时才定的模型也放进去 | ACP |
+| ACP agent（Codex、Gemini CLI、Grok Build、OpenCode、DeepSeek Harness、Kimi Code、Qwen Code、Qoder CLI、自定义命令） | ACP，按清单把协议或预设映射到环境变量和启动参数，要启动时才定的模型也放进去 | ACP |
 
 **Claude Code 只走 Agent SDK。** 订阅和模型 API 都是同一条通道：PreToolUse 闸门、上下文占用（分类、自动压缩预留、按需加载的工具、各分组明细）、思考级别、fast mode 两边都有。区别只在环境：接模型 API 时是隔离模式，不读 `~/.claude`，免得本机的放行规则和 env 盖过闸门和端点；用订阅时就是本人的 Claude Code，加载 CLAUDE.md、MCP、技能和权限规则，闸门仍然看得到每个调用，只有闸门交给模式决定的调用会碰到本人的放行规则。订阅另外能读套餐用量：先问 SDK 的 `get_usage`（程序用自己的登录去取）；程序太旧答不了时，读程序存下的 OAuth token（macOS 钥匙串或 `~/.claude/.credentials.json`）直接问用量接口，token 只在这一步内存里用，不记日志、不缓存、不给界面。token 过期不替程序刷新，免得和它抢着改同一份凭据。
 
 **以前订阅走过 ACP（claude-agent-acp）。** 换到 SDK 是因为 ACP 只报总量：没有分类明细、没有套餐用量、闸门拦不全。ACP 上建的会话 id 就是 Claude Code 自己的会话 id，同一工作目录下 SDK 能直接接着恢复。
 
-**ACP 通道的能力要老实声明。** 闸门退化成 agent 自己的 `request_permission`：agent 不问的调用拦不住、改不了参数，档位只能靠选模式近似，讨论模式只读因此是尽力而为。有权限模式却不让客户端切的 agent（Grok Build）在清单里写 `permissionModes: false`，档位就回到闸门上：它问到的调用按档位放行，超出的转给人。清单的 `sessionMeta` 随每次开会话、恢复会话发给 agent，Grok Build 靠它把自己的模式钉在「先问」，免得本机配置里的一律放行绕过闸门。只从环境变量读这类设置的 agent 用清单的 `fixedEnv`：每次启动都带上，盖过从宿主继承来的同名变量，不是字符串的值按 JSON 传。OpenCode 默认一律放行，闸门什么都看不见，所以靠它把编辑和命令钉在「先问」。**agent 问到的调用，Roster 只答一次性的选项**（`allow_once` / `reject_once`），没有就当取消：答了「总是」，agent 之后同类调用就不再问，档位和写锁都管不到了。Gemini CLI 就把「本会话都允许」排在第一个。权限请求可以只带调用的 id，Roster 拿 agent 先前报过的 `tool_call` 补全名字和参数；把工具一律报成 other 的 agent，由清单的 `toolEffects` 按工具名说它是读、写还是执行。恢复会话先用 `session/resume`，只恢复不重放，agent 没声明再用 `session/load`。模式管审批、本机配置又能让它一律放行的 agent（Kimi Code），清单写 `pinnedMode`：每个会话一开始先放回会问的那个模式，再交给闸门按档位管；模式能用启动参数钉的（Qwen Code 的 `--approval-mode default`），写进清单的命令里，接回来的会话也算数。绕过闸门的工具直接不给它：Qwen Code 的子 agent 在信任目录里自己批编辑，`--exclude-tools` 把它连同进退 plan 模式一起去掉。一个权限请求里有不止一个「允许一次」，那是在问问题，Roster 答跳过，让它用文字问，不替人选。权限请求带的文字存成调用的说明，没有参数可看时显示在卡片上。上下文占用来自 `usage_update`，套餐配额读不到，中途注入没有。界面照旧按能力降级并说明。**能力随 agent**：同一个 harness 上订阅和接 API 的能力声明可以不同；两份一样时界面只列一份。
+**ACP 通道的能力要老实声明。** 闸门退化成 agent 自己的 `request_permission`：agent 不问的调用拦不住、改不了参数，档位只能靠选模式近似，讨论模式只读因此是尽力而为。有权限模式却不让客户端切的 agent（Grok Build）在清单里写 `permissionModes: false`，档位就回到闸门上：它问到的调用按档位放行，超出的转给人。清单的 `sessionMeta` 随每次开会话、恢复会话发给 agent，Grok Build 靠它把自己的模式钉在「先问」，免得本机配置里的一律放行绕过闸门。只从环境变量读这类设置的 agent 用清单的 `fixedEnv`：每次启动都带上，盖过从宿主继承来的同名变量，不是字符串的值按 JSON 传。OpenCode 默认一律放行，闸门什么都看不见，所以靠它把编辑和命令钉在「先问」。**agent 问到的调用，Roster 只答一次性的选项**（`allow_once` / `reject_once`），没有就当取消：答了「总是」，agent 之后同类调用就不再问，档位和写锁都管不到了。Gemini CLI 就把「本会话都允许」排在第一个。权限请求可以只带调用的 id，Roster 拿 agent 先前报过的 `tool_call` 补全名字和参数；把工具一律报成 other 的 agent，由清单的 `toolEffects` 按工具名说它是读、写还是执行。恢复会话先用 `session/resume`，只恢复不重放，agent 没声明再用 `session/load`。模式管审批、本机配置又能让它一律放行的 agent（Kimi Code），清单写 `pinnedMode`：每个会话一开始先放回会问的那个模式，再交给闸门按档位管；模式能用启动参数钉的（Qwen Code 的 `--approval-mode default`、Qoder CLI 的 `--permission-mode default`），写进清单的命令里，接回来的会话也算数。绕过闸门的工具直接不给它：Qwen Code 的子 agent 在信任目录里自己批编辑，`--exclude-tools` 把它连同进退 plan 模式一起去掉。一个权限请求里有不止一个「允许一次」，那是在问问题，Roster 答跳过，让它用文字问，不替人选。权限请求带的文字存成调用的说明，没有参数可看时显示在卡片上。上下文占用来自 `usage_update`，套餐配额读不到，中途注入没有。界面照旧按能力降级并说明。**能力随 agent**：同一个 harness 上订阅和接 API 的能力声明可以不同；两份一样时界面只列一份。
+
+**agent 进程拿到的工作目录要一致。** 会话的目录作为进程的 cwd，同时写进 `PWD`：宿主继承来的 `PWD` 指着 Roster 自己的启动目录，agent 照着它猜，模型就会把文件写到别处去（实测 Qoder CLI 如此）。
 
 **登录是 harness 的属性。** 它属于这台机器上的程序，不属于哪个 agent，同一个 harness 上用订阅的 agent 共用它。ACP 的 `authMethods` 说怎么登：terminal 类的 Roster 不代劳，把命令给用户；agent 类的直接发 `authenticate`。按旧的 terminal-auth 约定把命令写在 `_meta` 里的也算 terminal 类，Roster 在 `initialize` 里声明认这个约定；OpenCode 就是这样，它的 `authenticate` 什么也不做。把协议自己那个 `type: "terminal"` 写在 `_meta` 里的也一样算（Qwen Code），免得界面上多出一个按了只会报错的登录方式；清单写了登录命令的，这些方法一概不再列。Claude Code 由 SDK 读账号信息判断登没登，登录命令 `claude auth login` 交给用户在终端跑。设置页上，有订阅的 harness 在自己的页面上显示登录状态；agent 页的测试连接测的是这个 agent 实际要跑的组合：订阅登录或模型 API 的密钥，再加程序能不能启动。
 
