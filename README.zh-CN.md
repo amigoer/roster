@@ -7,7 +7,8 @@
 <p align="center">把 code agent 当联系人用：单聊就是一次会话，拉个群就是一支 agent team。</p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="许可协议 Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-2F75F8"></a>
+  <a href="https://github.com/amigoer/roster/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/amigoer/roster?color=2F75F8"></a>
+  <a href="LICENSE"><img alt="许可协议 Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-555555"></a>
   <a href="#支持的-harness"><img alt="十个 harness" src="https://img.shields.io/badge/harnesses-10-1D2230"></a>
   <img alt="Node 22.13 及以上" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-5FA04E?logo=node.js&logoColor=white">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white">

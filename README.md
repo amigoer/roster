@@ -7,7 +7,8 @@
 <p align="center">Coding agents as contacts: a direct chat is a session, a group chat is an agent team.</p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-2F75F8"></a>
+  <a href="https://github.com/amigoer/roster/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/amigoer/roster?color=2F75F8"></a>
+  <a href="LICENSE"><img alt="License Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-555555"></a>
   <a href="#harnesses"><img alt="Ten harnesses" src="https://img.shields.io/badge/harnesses-10-1D2230"></a>
   <img alt="Node 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-5FA04E?logo=node.js&logoColor=white">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white">
