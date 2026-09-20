@@ -32,8 +32,10 @@ jobs:
       # --ignore-scripts keeps Electron's postinstall from pulling 100MB nothing here runs
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # first, and not last: the packages typecheck against adapter-api's declarations, and a
+      # fresh checkout has no dist for them to come from
+      - run: pnpm build
+
       - run: pnpm typecheck
 
       - run: pnpm test
-
-      - run: pnpm build

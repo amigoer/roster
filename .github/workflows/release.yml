@@ -49,6 +49,9 @@ jobs:
       # no --ignore-scripts here, unlike CI: electron-builder wants the Electron the postinstall fetches
       - run: pnpm install --frozen-lockfile
 
+      # before the checks: they typecheck against adapter-api's declarations, which are built
+      - run: pnpm build
+
       - run: pnpm typecheck
 
       - run: pnpm test
