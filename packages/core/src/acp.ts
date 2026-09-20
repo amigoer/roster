@@ -200,22 +200,27 @@ function resolveLaunch(spec: AcpSpec, executable: string | undefined, source: Mo
   const shown = program ?? (spec.manifest.command[0] === "node" ? (spec.manifest.command[1] ?? "") : (spec.manifest.command[0] ?? ""));
   if (source.kind === "endpoint") {
     const { endpoint } = source;
-    const map = variablesFor(spec.manifest, endpoint);
+    const map = variablesFor(spec.manifest, endpoint, preset);
     if (map) {
       if (endpoint.apiKey) env[map.key] = endpoint.apiKey;
       const baseUrl = endpoint.baseUrl ?? preset?.baseUrl;
       if (map.baseUrl && baseUrl) env[map.baseUrl] = baseUrl;
       if (map.model && model) env[map.model] = model;
       Object.assign(env, map.set);
+      args.push(...(map.args ?? []));
     }
   }
   return { command, args, env, program: shown };
 }
 
-/** Where an endpoint's key and address go: by its preset when it has one, else by the protocol it speaks. */
-function variablesFor(manifest: AcpManifest, endpoint: ProviderConfig): EndpointVariables | undefined {
-  if (endpoint.preset !== CUSTOM_PRESET) return manifest.presets?.[endpoint.preset];
-  return endpoint.api ? manifest.env?.[endpoint.api] : undefined;
+/**
+ * Where an endpoint's key and address go: by its preset when the manifest
+ * names one, else by the protocol it speaks. A preset the manifest does not
+ * name still goes in when the agent speaks that preset's protocol.
+ */
+function variablesFor(manifest: AcpManifest, endpoint: ProviderConfig, preset?: ProviderPreset): EndpointVariables | undefined {
+  if (endpoint.preset === CUSTOM_PRESET) return endpoint.api ? manifest.env?.[endpoint.api] : undefined;
+  return manifest.presets?.[endpoint.preset] ?? (preset ? manifest.env?.[preset.api] : undefined);
 }
 
 /** The text blocks of a call's content, which an agent may fill with the call's arguments or its own account of them. */
@@ -455,8 +460,8 @@ class AcpRuntime implements BotRuntime {
     private label: string,
     /** the agent's manifest entry; its type is what its English is catalogued under */
     private spec: AcpSpec,
-    /** the model went into the environment, so the session is not switched to it again */
-    private modelInEnv = false,
+    /** whether the model went into the environment, in which case the session is not switched to it again */
+    private modelInEnv: () => Promise<boolean> = async () => false,
   ) {
     this.capabilities = capabilitiesOf(spec.manifest);
   }
@@ -545,7 +550,7 @@ class AcpRuntime implements BotRuntime {
       this.#options = session.configOptions ?? [];
       this.#modes = session.modes ?? null;
       await this.#apply({
-        ...(this.modelInEnv ? {} : { model: opts.model }),
+        ...((await this.modelInEnv()) ? {} : { model: opts.model }),
         effort: opts.effort,
         mode: opts.mode ?? this.spec.manifest.pinnedMode,
         fast: opts.fast,
@@ -895,13 +900,15 @@ async function probe(launch: Launch, label: string, manifest: AcpManifest): Prom
   return snapshot;
 }
 
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((a): a is string => typeof a === "string") : []);
+
 /** The command a method names under the older terminal-auth convention, where it is otherwise an agent method. */
 function terminalAuth(m: AuthMethod): { command: string; args: string[] } | null {
   const meta = m._meta?.["terminal-auth"];
   if (!meta || typeof meta !== "object") return null;
   const { command, args } = meta as { command?: unknown; args?: unknown };
   if (typeof command !== "string" || !command) return null;
-  return { command, args: Array.isArray(args) ? args.filter((a): a is string => typeof a === "string") : [] };
+  return { command, args: strings(args) };
 }
 
 /** Sign-in methods a person can act on, from the agent's own list and the manifest's hint. */
@@ -913,13 +920,16 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
   }
   for (const m of methods) {
     const byMeta = terminalAuth(m);
-    if (("type" in m && m.type === "terminal") || byMeta) {
+    // some agents keep the whole terminal method inside _meta, where the protocol's own field would say the same
+    const meta = (m._meta ?? {}) as { type?: unknown; args?: unknown };
+    if (("type" in m && m.type === "terminal") || meta.type === "terminal" || byMeta) {
       if (hint) continue;
+      const extra = "args" in m && m.args ? m.args : strings(meta.args);
       out.push({
         id: m.id,
         label: m.name,
         ...(m.description ? { description: m.description } : {}),
-        terminal: byMeta ?? { command: launch.program, args: [...launch.args, ...("args" in m ? (m.args ?? []) : [])] },
+        terminal: byMeta ?? { command: launch.program, args: [...launch.args, ...extra] },
       });
     } else {
       out.push({ id: m.id, label: m.name, ...(m.description ? { description: m.description } : {}) });
@@ -931,18 +941,26 @@ function loginMethods(spec: AcpSpec, launch: Launch, methods: readonly AuthMetho
 function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory {
   const { source } = instance;
   if (source.kind === "own" && !spec.own) throw new Error(t("error.source.noOwn", { label: spec.label }));
-  if (source.kind === "endpoint" && !variablesFor(spec.manifest, source.endpoint)) {
-    throw new Error(t("error.source.mismatch", { endpoint: source.endpoint.name, label: spec.label }));
-  }
   // a preset endpoint carries only its id; the address comes from the catalog, looked up when the agent starts
   const presetOf = async (): Promise<ProviderPreset | undefined> => {
     if (source.kind !== "endpoint" || source.endpoint.preset === CUSTOM_PRESET) return undefined;
     return (await spec.presetCatalog?.())?.find((p) => p.id === source.endpoint.preset);
   };
-  const variables = source.kind === "endpoint" ? variablesFor(spec.manifest, source.endpoint) : undefined;
+  // which variables an endpoint goes into can rest on its preset's protocol, and only the catalog knows that
+  let variables: Promise<EndpointVariables | undefined> | null = null;
+  const variablesOf = (): Promise<EndpointVariables | undefined> =>
+    (variables ??= (async () => {
+      if (source.kind !== "endpoint") return undefined;
+      const map = variablesFor(spec.manifest, source.endpoint, await presetOf());
+      if (!map) throw new Error(t("error.source.mismatch", { endpoint: source.endpoint.name, label: spec.label }));
+      return map;
+    })());
   // with nobody's pick yet, as when the agent is only asked what it offers, the endpoint's first model stands in
   const fallbackModel = source.kind === "endpoint" ? source.endpoint.models?.[0] : undefined;
-  const launch = async (model?: string) => resolveLaunch(spec, instance.program, source, await presetOf(), model ?? fallbackModel);
+  const launch = async (model?: string) => {
+    await variablesOf();
+    return resolveLaunch(spec, instance.program, source, await presetOf(), model ?? fallbackModel);
+  };
   let snapshot: { at: number; value: Promise<Snapshot> } | null = null;
   let lastModes: Array<{ id: string; label: string }> = [];
   const snapshotOf = (maxAgeMs: number): Promise<Snapshot> => {
@@ -965,7 +983,7 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
     type: spec.type,
     label: instance.label,
     capabilities: capabilitiesOf(spec.manifest),
-    create: () => new AcpRuntime(launch, instance.label, spec, Boolean(variables?.model)),
+    create: () => new AcpRuntime(launch, instance.label, spec, async () => Boolean((await variablesOf())?.model)),
     async models(): Promise<ModelOption[]> {
       const s = await snapshotOf(SNAPSHOT_REUSE_MS);
       const model = byCategory(s.options, "model");
@@ -992,7 +1010,8 @@ function acpFactory(spec: AcpSpec, instance: InstanceConfig): BotRuntimeFactory 
 
 /** An ACP agent as a harness type: the manifest says which agent, the protocol says the rest. */
 export function acpHarness(spec: AcpSpec): HarnessType {
-  const taken = Object.keys(spec.manifest.presets ?? {});
+  const named = Object.keys(spec.manifest.presets ?? {});
+  const spoken = Object.keys(spec.manifest.env ?? {});
   const signIn: Pick<HarnessType, "login" | "authenticate"> = {
     // the sign-in is the program's, so it is asked afresh every time rather than cached with any executor
     async login(program): Promise<LoginState> {
@@ -1019,13 +1038,13 @@ export function acpHarness(spec: AcpSpec): HarnessType {
   return {
     type: spec.type,
     label: spec.label,
-    sources: { own: spec.own, apis: Object.keys(spec.manifest.env ?? {}) },
+    sources: { own: spec.own, apis: spoken },
     capabilities: () => capabilitiesOf(spec.manifest),
-    ...(taken.length > 0
+    ...(named.length > 0 || spoken.length > 0
       ? {
           async presets() {
             const catalog = (await spec.presetCatalog?.()) ?? [];
-            return taken.flatMap((id) => catalog.find((p) => p.id === id) ?? []);
+            return catalog.filter((p) => named.includes(p.id) || spoken.includes(p.api));
           },
         }
       : {}),

@@ -1988,12 +1988,13 @@ describe("extensions", () => {
     const login = await ext.types().find((t) => t.type === "fake").login();
     assert.equal(login.state, "ok");
     assert.equal(login.account, "Pro");
-    // a method typed terminal runs the agent itself; one under the older convention names its own command
+    // a method typed terminal runs the agent itself, whether the type is the protocol's own field or kept inside _meta; one under the older convention names its own command
     assert.deepEqual(
       login.methods.map((m) => [m.id, m.terminal?.command, m.terminal?.args.at(-1)]),
       [
         ["fake-login", "./agent.mjs", "login"],
         ["fake-meta-login", "fake-cli", "login"],
+        ["fake-inner-login", "./agent.mjs", "--sign-in"],
       ],
     );
     } finally {
@@ -2259,6 +2260,41 @@ describe("extensions", () => {
     const addressed = { ...endpoint, baseUrl: "http://127.0.0.1:9/v1" };
     const byEndpoint = await oneTurn(fake.create({ id: "y", label: "假 agent", source: { kind: "endpoint", endpoint: addressed } }), { cwd: dir }, "#vars");
     assert.match(byEndpoint.said, /url=http:\/\/127\.0\.0\.1:9\/v1 /);
+  });
+
+  test("a preset the manifest does not name is taken by the protocol it speaks, with the arguments that protocol needs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roster-ext-"));
+    dirs.push(root);
+    const presetter = join(root, "presetter");
+    mkdirSync(presetter);
+    writeFileSync(join(presetter, "package.json"), JSON.stringify({ name: "@test/presetter", version: "1.0.0", type: "module", roster: { api: 2, entry: "./index.js" } }));
+    writeFileSync(
+      join(presetter, "index.js"),
+      `export const harness = { type: "presetter", label: "Presetter", sources: { own: false, apis: [] }, capabilities: () => ({}), create: () => ({}),
+        presets: async () => [
+          { id: "fakepreset", label: "Fake preset", api: "openai-completions", baseUrl: "https://fake.example/v1" },
+          { id: "otherpreset", label: "Other preset", api: "some-other-protocol" },
+        ] };`,
+    );
+    const agent = fakeAgentRoot({ own: false, env: { "openai-completions": { key: "FAKE_KEY", baseUrl: "FAKE_URL", args: ["--as", "openai"] } } });
+    const ext = new Extensions([
+      { dir: root, origin: "linked" },
+      { dir: agent, origin: "linked" },
+    ]);
+    await ext.load();
+    const fake = ext.types().find((t) => t.type === "fake");
+    const presets = await fake.presets();
+    assert.deepEqual(presets.map((p) => p.id), ["fakepreset"], "only the protocol it speaks");
+
+    const dir = mkdtempSync(join(tmpdir(), "roster-acp-"));
+    dirs.push(dir);
+    const endpoint = { id: "p", name: "Fake", preset: "fakepreset", apiKey: "k1" };
+    const { said } = await oneTurn(fake.create({ id: "x", label: "假 agent", source: { kind: "endpoint", endpoint } }), { cwd: dir }, "#vars #args");
+    assert.match(said, /key=k1 url=https:\/\/fake\.example\/v1 /);
+    assert.match(said, /args .*--as openai/);
+
+    const other = { id: "q", name: "Other", preset: "otherpreset", apiKey: "k2" };
+    await assert.rejects(oneTurn(fake.create({ id: "y", label: "假 agent", source: { kind: "endpoint", endpoint: other } }), { cwd: dir }, "#vars"), /协议对不上/);
   });
 
   test("a bare model id picks the one provider pair that names it", async () => {

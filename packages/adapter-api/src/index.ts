@@ -491,6 +491,11 @@ export interface EndpointVariables {
   model?: string;
   /** values that go with this protocol or preset, such as the kind of provider it is */
   set?: Readonly<Record<string, string>>;
+  /**
+   * Arguments added to the command for this protocol or preset, for an agent
+   * whose own saved sign-in would otherwise win over what the variables say.
+   */
+  args?: readonly string[];
 }
 
 /** Everything the host needs to run an agent over the Agent Client Protocol. */
@@ -507,7 +512,9 @@ export interface AcpManifest {
   /**
    * Presets the agent takes by id, and the environment variables each goes
    * into. The address and protocol come from the preset catalog the other
-   * harnesses report; an endpoint's own address wins.
+   * harnesses report; an endpoint's own address wins. A preset named here
+   * overrides `env`; one that is not is still taken when `env` covers the
+   * protocol it speaks.
    */
   presets?: Readonly<Record<string, EndpointVariables>>;
   /** False when the agent has no sign-in of its own and runs only on a model API. Defaults to true. */

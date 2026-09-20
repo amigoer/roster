@@ -77,6 +77,7 @@ async function prompt(id, params) {
     const said = `key=${process.env.FAKE_KEY} url=${process.env.FAKE_URL} model=${process.env.FAKE_MODEL} kind=${process.env.FAKE_KIND} `;
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: said } });
   }
+  if (text.includes("#args")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `args ${process.argv.slice(2).join(" ")} ` } });
   if (text.includes("#mode")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mode ${modes.currentModeId} ` } });
   if (text.includes("#session")) update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `session ${sessionId} resumed ${resumed} ` } });
   const images = params.prompt.filter((b) => b.type === "image" && b.data);
@@ -159,6 +160,8 @@ rl.on("line", (line) => {
       if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
         authMethods.push({ id: "fake-meta-login", name: "Log in with fake", _meta: { "terminal-auth": { command: "fake-cli", args: ["auth", "login"] } } });
       }
+      // the same thing again, spelled as the protocol's own terminal method but kept inside _meta
+      authMethods.push({ id: "fake-inner-login", name: "Log in inside meta", _meta: { type: "terminal", args: ["--sign-in"] } });
       reply(id, {
         protocolVersion: 1,
         agentCapabilities: { loadSession: false, promptCapabilities: { image: true }, ...(resumable ? { sessionCapabilities: { resume: {} } } : {}) },
