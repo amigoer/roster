@@ -8,6 +8,10 @@ dist/
 # the app bundle packages/desktop/start.cjs builds to run Roster under its own name
 packages/desktop/.mac/
 
+# what goes into the packaged app, and the app itself
+packages/desktop/.stage/
+packages/desktop/release/
+
 # local data
 *.db
 *.db-journal

@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/amigoer/roster/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/amigoer/roster?color=2F75F8"></a>
+  <a href="https://github.com/amigoer/roster/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/amigoer/roster/ci.yml?branch=main&label=ci"></a>
   <a href="LICENSE"><img alt="License Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-555555"></a>
   <a href="#harnesses"><img alt="Ten harnesses" src="https://img.shields.io/badge/harnesses-10-1D2230"></a>
   <img alt="Node 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-5FA04E?logo=node.js&logoColor=white">
@@ -71,9 +72,12 @@ pnpm test                       # build the adapters, then run core's tests
 pnpm -C packages/ui dev         # Vite on :5173, /api proxied to core on :7788
 pnpm --filter @roster/ui build  # rebuild the UI bundle the app serves
 pnpm icons                      # redraw the icons from their SVGs
+pnpm package                    # the macOS app, into packages/desktop/release
 ```
 
 `ROSTER_SCRIPTED=1` swaps real agents for a scripted one, which is the way to work on the interface.
+
+`pnpm package` stages core, the adapters and the built UI into the app and hands it to electron-builder; the Release workflow runs the same thing on a macOS runner when a release is published, and attaches the dmg and the zip to it. There is no Developer ID yet, so the app is only ad-hoc signed and a downloaded copy has to be let past Gatekeeper: `xattr -dr com.apple.quarantine /Applications/Roster.app`.
 
 On macOS `pnpm start` first clones the Electron bundle to `packages/desktop/.mac/Roster.app` under Roster's own name, icon, identifier and signature: macOS reads a notification's sender, icon and permission off the bundle it came from, and refuses the one npm ships. See [`start.cjs`](packages/desktop/start.cjs).
 

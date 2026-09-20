@@ -12,6 +12,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @roster/adapter-api build && pnpm --filter @roster/ext-claude-code test && pnpm --filter @roster/ext-pi-agent build && pnpm --filter @roster/core test",
     "icons": "node scripts/icons.mjs",
+    "package": "pnpm build && node scripts/package.mjs",
     "start": "ROSTER_EXTENSIONS=packages pnpm --filter @roster/desktop start",
     "core": "ROSTER_EXTENSIONS=packages node packages/core/dist/main.js"
   },

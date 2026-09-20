@@ -4,6 +4,12 @@
   "private": true,
   "license": "Apache-2.0",
   "main": "main.cjs",
-  "scripts": { "start": "node start.cjs", "typecheck": "echo ok" },
-  "devDependencies": { "electron": "^44.3.0" }
+  "scripts": {
+    "start": "node start.cjs",
+    "typecheck": "echo ok"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
 }

@@ -1,0 +1,55 @@
+# From a checkout the shell finds core and the UI beside it in the monorepo; packaged
+# they sit in Contents/Resources, which is the branch main.cjs takes on app.isPackaged.
+appId: io.github.amigoer.roster
+productName: Roster
+
+directories:
+  output: release
+
+# the shell itself, and nothing else, goes into the asar
+files:
+  - main.cjs
+  - preload.cjs
+  - package.json
+
+# staged by scripts/package.mjs: core with its own node_modules, the adapters under it,
+# and the built UI. They stay outside the asar because core is spawned as a real process,
+# the UI is served off disk, and the icons are read by the system rather than by Electron.
+extraResources:
+  - from: .stage/core
+    to: core
+  # electron-builder drops a node_modules sitting at the root of a tree it copies, and no
+  # filter overrides that, so core's dependencies come over as a copy of their own. The
+  # adapters' are nested deeper and ride along with the line above.
+  - from: .stage/core/node_modules
+    to: core/node_modules
+  - from: .stage/ui
+    to: ui
+  - from: assets/icon.png
+    to: assets/icon.png
+  - from: assets/trayTemplate.png
+    to: assets/trayTemplate.png
+  - from: assets/trayTemplate@2x.png
+    to: assets/trayTemplate@2x.png
+
+# nothing here is a native module, and what core needs was built before staging
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  icon: assets/icon.icns
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # arm64 only, and not out of laziness: the Claude Code adapter pulls in the agent as a
+  # per-platform binary package, which npm picks for the machine doing the install. An x64
+  # app built on an Apple silicon runner would carry the arm64 agent and fail to start it.
+  # Intel needs its own job on an Intel runner, not another arch in this list.
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  # there is no Developer ID yet, so electron-builder signs nothing and build/after-pack.cjs
+  # puts an ad-hoc signature on instead. Swap this for the certificate when there is one.
+  identity: null
+
+afterPack: build/after-pack.cjs

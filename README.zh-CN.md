@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/amigoer/roster/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/amigoer/roster?color=2F75F8"></a>
+  <a href="https://github.com/amigoer/roster/actions/workflows/ci.yml"><img alt="CI 状态" src="https://img.shields.io/github/actions/workflow/status/amigoer/roster/ci.yml?branch=main&label=ci"></a>
   <a href="LICENSE"><img alt="许可协议 Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-555555"></a>
   <a href="#支持的-harness"><img alt="十个 harness" src="https://img.shields.io/badge/harnesses-10-1D2230"></a>
   <img alt="Node 22.13 及以上" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-5FA04E?logo=node.js&logoColor=white">
@@ -71,9 +72,12 @@ pnpm test                       # 先构建适配器，再跑 core 的测试
 pnpm -C packages/ui dev         # Vite 开在 :5173，/api 转发到 core
 pnpm --filter @roster/ui build  # 重新构建桌面端加载的 UI 包
 pnpm icons                      # 从 SVG 重新生成图标
+pnpm package                    # 打出 macOS 应用，放在 packages/desktop/release
 ```
 
 设置 `ROSTER_SCRIPTED=1` 会用一个脚本化的假 agent 代替真实 agent，调界面时方便。
+
+`pnpm package` 把 core、适配器和构建好的界面装进应用，再交给 electron-builder；发布 release 时，Release 工作流在 macOS runner 上做同样的事，把 dmg 和 zip 附到 release 上。还没有开发者证书，应用只是 ad-hoc 签名，下载下来要先放行：`xattr -dr com.apple.quarantine /Applications/Roster.app`。
 
 macOS 上 `pnpm start` 会先把 Electron 的应用包克隆到 `packages/desktop/.mac/Roster.app`，换成 Roster 自己的名字、图标、标识和签名：系统是按应用包来认通知的发送者、图标和权限的，npm 发的那个包会被直接拒收。见 [`start.cjs`](packages/desktop/start.cjs)。
 

@@ -5,9 +5,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const coreEntry = path.resolve(__dirname, "../core/dist/main.js");
-const uiDir = path.resolve(__dirname, "../ui/dist");
-const assets = path.join(__dirname, "assets");
+// packaged, the three of them sit in Contents/Resources, outside the asar: core spawns as a
+// real process, the UI is served off disk, and the icons are read by the system, not by Electron
+const res = process.resourcesPath;
+const packaged = app.isPackaged;
+const coreEntry = packaged ? path.join(res, "core/dist/main.js") : path.resolve(__dirname, "../core/dist/main.js");
+const uiDir = packaged ? path.join(res, "ui") : path.resolve(__dirname, "../ui/dist");
+const assets = packaged ? path.join(res, "assets") : path.join(__dirname, "assets");
 
 let core = null;
 let win = null;
