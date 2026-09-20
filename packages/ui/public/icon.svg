@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Roster</title>
+  <path fill="#2F75F8" d="M352 160H672C804.548 160 912 267.452 912 400V560C912 692.548 804.548 800 672 800H386C368 800 352 805 337 815L244 877C222 892 192 876 192 850V751C192 732 185 715 172 701C133 660 112 612 112 560V400C112 267.452 219.452 160 352 160Z"/>
+  <rect x="208" y="324" width="608" height="312" rx="156" fill="#FFFFFF"/>
+  <rect x="356" y="417" width="88" height="132" rx="44" fill="#1D2230"/>
+  <rect x="580" y="417" width="88" height="132" rx="44" fill="#1D2230"/>
+</svg>

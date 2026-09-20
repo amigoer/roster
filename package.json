@@ -1,5 +1,6 @@
 {
   "name": "roster",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -10,6 +11,7 @@
     "build": "pnpm --filter @roster/adapter-api build && pnpm --filter @roster/ext-claude-code build && pnpm --filter @roster/ext-pi-agent build && pnpm --filter @roster/core build && pnpm --filter @roster/ui build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @roster/adapter-api build && pnpm --filter @roster/ext-claude-code test && pnpm --filter @roster/ext-pi-agent build && pnpm --filter @roster/core test",
+    "icons": "node scripts/icons.mjs",
     "start": "ROSTER_EXTENSIONS=packages pnpm --filter @roster/desktop start",
     "core": "ROSTER_EXTENSIONS=packages node packages/core/dist/main.js"
   },

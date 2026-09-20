@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain, nativeImage, nativeTheme, safeStorage, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -7,9 +7,12 @@ const path = require("node:path");
 
 const coreEntry = path.resolve(__dirname, "../core/dist/main.js");
 const uiDir = path.resolve(__dirname, "../ui/dist");
+const assets = path.join(__dirname, "assets");
 
 let core = null;
 let win = null;
+/** The menu bar item; it has to be held here or the garbage collector takes it off the bar. */
+let tray = null;
 /** Core's language, from its handshake and then its stream; the shell's own words follow it. */
 let locale = "en";
 /** The conversation the window is showing, as the page reports it. */
@@ -24,6 +27,8 @@ const WORDS = {
     paste: "Paste",
     selectAll: "Select All",
     copyLink: "Copy Link",
+    open: "Open Roster",
+    quit: "Quit Roster",
   },
   "zh-CN": {
     cut: "剪切",
@@ -31,6 +36,8 @@ const WORDS = {
     paste: "粘贴",
     selectAll: "全选",
     copyLink: "复制链接",
+    open: "打开 Roster",
+    quit: "退出 Roster",
   },
 };
 
@@ -113,6 +120,8 @@ app.whenReady().then(async () => {
     width: 1280,
     height: 820,
     minWidth: 900,
+    // Windows and Linux take the icon from the window; macOS reads it off the bundle instead
+    icon: path.join(assets, "icon.png"),
     // "hidden" would also drop the frame and its controls on Windows and Linux; this one is macOS-only
     titleBarStyle: "hiddenInset",
     // the top-left of the close light. The three lights are 14pt with 9pt gaps on macOS 26+, so the row is 60pt wide:
@@ -173,11 +182,41 @@ app.whenReady().then(async () => {
   const dark = await win.webContents.executeJavaScript('document.documentElement.classList.contains("dark")', true).catch(() => null);
   if (dark !== null) win.setBackgroundColor(dark ? "#0a0b0d" : "#eef0f4");
 
+  menuBar();
+
   // desktop capability lives here and nowhere else: main subscribes to the same
   // SSE stream over plain HTTP, so the page keeps no privileged channel of its
   // own -- it only says what is on screen, and takes the conversation a click lands on
   watchCore(url);
 });
+
+/**
+ * Roster's row in the menu bar: how many conversations are waiting, and a way
+ * back to the window from whatever is covering it. On macOS the icon is a
+ * template image -- black where it paints -- and the system tints it for a light
+ * or dark bar itself; a Windows or Linux tray tints nothing, so it takes the
+ * mark in its own colours.
+ */
+function menuBar() {
+  const icon =
+    process.platform === "darwin"
+      ? path.join(assets, "trayTemplate.png")
+      : nativeImage.createFromPath(path.join(assets, "icon.png")).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip("Roster");
+  tray.on("click", bringForward);
+  // built as it opens, so it is in whatever language core last reported
+  tray.on("right-click", () => {
+    const w = words();
+    tray.popUpContextMenu(
+      Menu.buildFromTemplate([
+        { label: w.open, click: bringForward },
+        { type: "separator" },
+        { label: w.quit, click: () => app.quit() },
+      ]),
+    );
+  });
+}
 
 /** How long a dropped stream waits before dialling core again. */
 const STREAM_RETRY_MS = 1000;
@@ -218,7 +257,10 @@ function watchCore(url) {
         else if (msg.kind === "notify") post(msg.notification);
         else if (msg.kind === "conversations") {
           const waiting = msg.conversations.filter((c) => c.attention !== "none");
-          if (process.platform === "darwin") app.dock.setBadge(waiting.length ? String(waiting.length) : "");
+          const count = waiting.length ? String(waiting.length) : "";
+          if (process.platform === "darwin") app.dock.setBadge(count);
+          // the same number beside the menu bar icon, for a window that is not on this desktop
+          tray?.setTitle(count);
           settled(new Set(waiting.map((c) => c.id)));
         }
       }
@@ -244,12 +286,18 @@ function post(n) {
   note.show();
 }
 
-/** A notification is a way into the conversation: clicking one brings the window forward on it. */
-function openConversation(conversationId) {
+/** Out from under whatever is over it, minimized or not: what a notification and the menu bar item both want. */
+function bringForward() {
   if (!win) return;
   if (win.isMinimized()) win.restore();
   win.show();
   app.focus({ steal: true });
+}
+
+/** A notification is a way into the conversation: clicking one brings the window forward on it. */
+function openConversation(conversationId) {
+  if (!win) return;
+  bringForward();
   win.webContents.send("roster:open", conversationId);
 }
 

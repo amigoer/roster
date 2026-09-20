@@ -6,11 +6,12 @@
  * is linker-signed with nothing sealed. So from source every notification would
  * say "Electron" -- and before the bundle is properly signed the system refuses
  * them outright, without even offering to ask. A clone of that bundle under
- * Roster's own name and identifier settles both, and costs no disk: APFS clones
- * the files rather than copying them. A packaged Roster carries a real signature
- * and needs none of this.
+ * Roster's own name, icon and identifier settles both, and costs no disk: APFS
+ * clones the files rather than copying them. A packaged Roster carries a real
+ * signature and needs none of this.
  */
 const { execFileSync, spawn } = require("node:child_process");
+const { createHash } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
@@ -30,11 +31,16 @@ const shipped = require("electron");
 const source = path.resolve(shipped, "../../..");
 const version = JSON.parse(readFileSync(path.join(source, "../../package.json"), "utf8")).version;
 
+/** The Dock's, the app switcher's and every notification's; the bundle carries it, the running app cannot set it. */
+const icns = path.join(__dirname, "assets/icon.icns");
+
 const dir = path.join(__dirname, ".mac");
 const bundle = path.join(dir, `${NAME}.app`);
 const stamp = path.join(dir, "built");
+/** In the stamp so a redrawn icon rebuilds the bundle; if the file is gone, build() is where that is reported. */
+const drawn = existsSync(icns) ? createHash("sha256").update(readFileSync(icns)).digest("hex").slice(0, 12) : "none";
 /** What the bundle was made from and as; anything else means making it again. */
-const want = `${version} ${NAME} ${ID}\n`;
+const want = `${version} ${NAME} ${ID} ${drawn}\n`;
 
 /** True once the bundle stands under Roster's name; false leaves the shipped Electron to run as itself. */
 function build() {
@@ -47,10 +53,12 @@ function build() {
     } catch {
       execFileSync("cp", ["-R", source, bundle]);
     }
+    execFileSync("cp", [icns, path.join(bundle, "Contents/Resources/roster.icns")]);
     execFileSync("/usr/libexec/PlistBuddy", [
       "-c", `Set :CFBundleName ${NAME}`,
       "-c", `Set :CFBundleDisplayName ${NAME}`,
       "-c", `Set :CFBundleIdentifier ${ID}`,
+      "-c", "Set :CFBundleIconFile roster.icns",
       path.join(bundle, "Contents/Info.plist"),
     ]);
     // the signature has to seal the name it was given, or the system takes nothing from it

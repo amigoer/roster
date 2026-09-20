@@ -1,6 +1,6 @@
 {
   "name": "@roster/ext-grok-build",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Grok Build for Roster: SpaceXAI's coding agent over the Agent Client Protocol",

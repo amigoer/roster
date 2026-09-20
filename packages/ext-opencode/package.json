@@ -1,6 +1,6 @@
 {
   "name": "@roster/ext-opencode",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "OpenCode for Roster: the open source coding agent over the Agent Client Protocol",
