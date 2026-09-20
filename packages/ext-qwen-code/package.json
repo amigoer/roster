@@ -1,0 +1,48 @@
+{
+  "name": "@roster/ext-qwen-code",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Qwen Code for Roster: Alibaba's open source coding agent over the Agent Client Protocol",
+  "roster": {
+    "api": 2,
+    "type": "qwen-code",
+    "label": "Qwen Code",
+    "acp": {
+      "command": [
+        "@program",
+        "--acp",
+        "--approval-mode",
+        "default",
+        "--exclude-tools",
+        "agent,enter_plan_mode,exit_plan_mode"
+      ],
+      "env": {
+        "openai-completions": {
+          "baseUrl": "OPENAI_BASE_URL",
+          "key": "OPENAI_API_KEY",
+          "model": "OPENAI_MODEL",
+          "args": [
+            "--auth-type",
+            "openai"
+          ]
+        },
+        "openai-responses": {
+          "baseUrl": "OPENAI_BASE_URL",
+          "key": "OPENAI_API_KEY",
+          "model": "OPENAI_MODEL",
+          "args": [
+            "--auth-type",
+            "openai-responses"
+          ]
+        }
+      },
+      "login": {
+        "terminal": [
+          "qwen"
+        ]
+      },
+      "permissionModes": false
+    }
+  }
+}

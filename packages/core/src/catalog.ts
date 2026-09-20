@@ -119,6 +119,16 @@ export const CATALOG: readonly CatalogEntry[] = [
     // a script on the host's own runtime, which has to be node 22.19 or later; the install script puts one in ~/.local/bin
     program: { npm: "@moonshot-ai/kimi-code", version: "2.0.2", bin: "kimi", paths: ["~/.local/bin/kimi"], versionArgs: ["--version"] },
   },
+  {
+    id: "qwen-code",
+    label: "Qwen Code",
+    get description() {
+      return t("catalog.qwen-code");
+    },
+    brand: "qwen",
+    // a script on the host's own runtime, which has to be node 22 or later; the install script brings its own node and puts a wrapper in ~/.local/bin
+    program: { npm: "@qwen-code/qwen-code", version: "0.24.2", bin: "qwen", paths: ["~/.local/bin/qwen"], versionArgs: ["--version"] },
+  },
 ];
 
 /** Environment variables people keep keys in, and the preset each one opens. */

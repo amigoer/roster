@@ -4,7 +4,7 @@
 
 Coding agents as contacts: a direct chat is a session, a group chat is an agent team.
 
-Roster is a desktop app for the coding agents you already use: Claude Code, Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness, Kimi Code and pi-agent. It does not write its own agent loop. It drives those agents, so model upgrades and prompt tuning keep coming from them, and gives them the shape of a chat app: conversations that persist, bots you set up once and reuse, groups where several agents work in the same repository, and one list that shows what needs you.
+Roster is a desktop app for the coding agents you already use: Claude Code, Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness, Kimi Code, Qwen Code and pi-agent. It does not write its own agent loop. It drives those agents, so model upgrades and prompt tuning keep coming from them, and gives them the shape of a chat app: conversations that persist, bots you set up once and reuse, groups where several agents work in the same repository, and one list that shows what needs you.
 
 > [!NOTE]
 > Early development: there are no packaged releases yet, so run it from source.
@@ -31,9 +31,10 @@ Roster is a desktop app for the coding agents you already use: Claude Code, Code
 | OpenCode | its own providers, from free models to ChatGPT and Copilot | not yet |
 | DeepSeek Harness | none | DeepSeek API |
 | Kimi Code | Kimi account | Moonshot, Kimi Coding, or an OpenAI- or Anthropic-compatible API |
+| Qwen Code | Qwen account | any OpenAI-compatible API |
 | pi-agent | none | any model API you add |
 
-Adapters ship with Roster. pi-agent is a library, so it needs no separate program. Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness and Kimi Code support is experimental.
+Adapters ship with Roster. pi-agent is a library, so it needs no separate program. Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness, Kimi Code and Qwen Code support is experimental.
 
 ## Getting started
 
@@ -81,7 +82,7 @@ On macOS `pnpm start` first builds `packages/desktop/.mac/Roster.app`, a clone o
 | `packages/ui` | React interface (Vite, Tailwind CSS, shadcn/ui), served by core |
 | `packages/desktop` | Electron shell: window, notifications, Dock badge, keychain |
 | `packages/adapter-api` | The types every adapter implements |
-| `packages/ext-*` | Adapters: Claude Code and pi-agent in code, Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness and Kimi Code as manifests |
+| `packages/ext-*` | Adapters: Claude Code and pi-agent in code, Codex, Gemini CLI, Grok Build, OpenCode, DeepSeek Harness, Kimi Code and Qwen Code as manifests |
 
 An agent that speaks the Agent Client Protocol (ACP) needs only a manifest under the `roster` key of its `package.json`: the command to start it, which environment variables carry a model API, and how to sign in. See [`packages/ext-codex`](packages/ext-codex/package.json).
 

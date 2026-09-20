@@ -42,6 +42,7 @@ export function brandFromText(hay: string): Provider {
   if (h.includes("google") || h.includes("gemini") || h.includes("generativelanguage")) return "google";
   if (h.includes("grok") || /\bx\.?ai\b/.test(h)) return "grok";
   if (h.includes("kimi")) return "kimi";
+  if (h.includes("qwen") || h.includes("dashscope")) return "qwen";
   if (h.includes("openai") || h.includes("gpt")) return "openai";
   return "unknown";
 }
@@ -61,6 +62,7 @@ export const HARNESS_BRAND: Record<string, Provider> = {
   opencode: "opencode",
   "deepseek-harness": "deepseek",
   "kimi-code": "kimi",
+  "qwen-code": "qwen",
 };
 
 export const brandOfType = (type: string, brand?: string): Provider =>

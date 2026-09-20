@@ -1,6 +1,6 @@
 # 接入更多 ACP agent
 
-> 第三轮 · 2026-09-19 · 最近改动 2026-09-20（接入 OpenCode、DeepSeek Harness、Kimi Code；改按热度排；第 3、4、5、6、10 条已做；Cline 暂缓）
+> 第三轮 · 2026-09-19 · 最近改动 2026-09-21（接入 Qwen Code；预设按协议兜底、按来源加启动参数；Cline 暂缓）
 
 **下一批 harness 还是按清单接：先补通道，不给哪一家单写适配代码。** 这一批四家：Cursor、Kimi Code、DeepSeek Harness、ZCode，后面还排着 Qwen Code、Qoder CLI、Copilot CLI 这些。它们大多原生支持 ACP，但形状各不一样：有的没有 npm 包，有的没有登录，有的恢复会话只认 `resume`。与其逐家写适配器，不如把这些差别做成清单里能声明的字段：通道补一次，之后每家还是一份清单。接 ACP agent 的基本做法见 [底层执行器](harness.md)，这一册只写新东西：各家现状、通道要补的几件事、先后、接入清单、还没查清的。
 
@@ -73,6 +73,27 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - **描述上卡片**：权限请求带着的文字存成调用的 `detail`；没有参数可看时，卡片上显示它。
 - **JSON 文本当参数**：调用没有 rawInput、content 又正好是一个 JSON 对象的文字时，拿它当参数。只用于显示，闸门看的是 kind。
 
+## Qwen Code：第四个接进来的
+
+2026-09-21 接上，订阅和模型 API 两条都有，通道补了三样。
+
+- **程序**：npm `@qwen-code/qwen-code`，命令 `qwen`，是跑在 Roster 自己运行时上的脚本，要 node ≥ 22。官方的 curl 脚本自带一份 node，装到 `~/.local/bin/qwen`。`--version` 只打版本号，入口 `qwen --acp`。版本钉在 0.24.2。
+- **登录**：Qwen 账号走设备码，但 ACP 里只报了「用 OpenAI 密钥」一个方法，Qwen 账号那个没报出来，所以登录交给终端：清单写 `qwen`，在它自己的界面里登。数据目录由 `QWEN_HOME` 指，默认 `~/.qwen`。
+- **模型 API**：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 一组，认 openai 和 openai-responses 两种协议，地址要带 `/v1`。要紧的是**登录态排在环境变量前面**：本机登过 Qwen 账号的，`settings.json` 里记着 `qwen-oauth`，只给环境变量它照旧用账号，开会话直接报「要先登录」。所以按来源加上 `--auth-type`，端点这条才算数。Anthropic 协议它也接，但密钥是按 `Authorization: Bearer` 发的，Anthropic 官方端点认的是 `x-api-key`，接上去会 401，所以清单不收这个协议。
+- **权限**：模式 plan、default、auto-edit、auto、yolo，管的就是审批，默认是 auto——由模型分类器自己批「安全」的调用，写文件根本不问，闸门看不见。所以清单声明 `permissionModes: false`，并在命令里写死 `--approval-mode default`：写文件和命令都先问，读文件不问。用启动参数而不是 `pinnedMode`，是因为它从进程起就生效，接回来的会话也算数。
+- **子 agent 和 plan 模式**：这两样都会绕开闸门，清单用 `--exclude-tools` 去掉。子 agent 是 Agent 工具开的后台 agent，在信任目录里按 auto-edit 跑：批准 Agent 一次之后，它写文件不再问，闸门一个都看不到（命令倒是跑不成，后台没人可问，直接失败）。plan 模式是模型自己能进，退出时的权限请求给了两个「允许一次」（回到原模式、手动批编辑），Roster 把多个「允许一次」当成问题跳过，于是它退不出来，这一轮还没话说就结束了。
+- **工具**：`tool_call` 的 kind 是照协议报的，读、搜索、编辑、执行都对，用不上 `toolEffects`；参数在 rawInput 里。提问是 AskUserQuestion，kind 报 think，只有一个「允许一次」，闸门按读放行，它拿到一个空答案会接着用文字问。
+- **被拒之后**：不管拒的是哪个调用，这一轮当场结束，一个字也不回，而且没有开关能改（源码里写死）。闸门拒掉的写入不会落盘，但用户看到的是一张被拒的卡片加一片安静。
+- **会话**：load、resume、list 都有，Roster 用 resume。模型和模式走 `configOptions`；模型的值是 `$runtime|openai|<模型>(openai)` 这样的串，接 API 时模型只在启动时进环境变量，会话里不再按它切。它每轮另外会向同一个端点发几次自己的调用（整理记忆、给建议），账单上算用户的。
+- **验证**：真程序、隔离的 `QWEN_HOME`（settings 里故意写上 yolo 和 qwen-oauth）、本地假 OpenAI 端点，走 `qwen-token-plan` 预设那条路：预设不在清单里，靠协议兜底接上，密钥和地址照预设进环境变量，`--auth-type` 盖过了账号，模式钉在 default；写文件按「写」、提问按「读」、命令按「执行」过闸门，命令被拒后没有落盘；重启后 resume 接回原会话，agent 记得前一轮。订阅那条要真账号，还没手测。
+- **还没做**：一键更新：`qwen update` 没有只查不装的模式。node 版本，见第 9 条。子 agent 和 plan 模式要等第 7 条把档位和模式的关系写明，再看能不能收回来。
+
+通道补的三样：
+
+- **预设按协议兜底**：清单里没写的预设，看它的协议在不在清单的 `env` 里，在就按那份映射接，地址照旧从预设目录取。清单只为要特别对待的预设单写一条（Kimi 的那三个）。通用的 OpenAI 客户端因此不用把二十几个预设抄进清单；Gemini CLI 这样早就接了协议的，也跟着能用上 Google 预设了。
+- **按来源加启动参数**：协议或预设的映射除了环境变量，还能写 `args`，启动时接在命令后面。Qwen Code 靠它写明这个端点说的是哪种协议，盖过本机登录态。
+- **`_meta` 里的 terminal 登录**：`_meta.type` 是 terminal 的登录方法也当终端登录看，参数取 `_meta.args`；清单写了登录命令的，一律不再列这些方法。否则界面上会多出一个按了只报错的「用 OpenAI 密钥」。
+
 ## 各家现状
 
 2026-09-19 查的，出处列在文末。
@@ -124,19 +145,19 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 
 ## 顺序
 
-**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，第三个是 Kimi Code，都已经接上，见上文。Cline 暂缓：npm 上发的 macOS 二进制签名全是坏的，macOS 27 一启动就杀（[cline/cline#14209](https://github.com/cline/cline/issues/14209)），修复已合并、还没发版，发了再接。下面 A1 到 A4 是按旧的排法写的，A1、A4 已经做完。
+**2026-09-20 起按热度排：知名的开源 agent 先接，闭源的按用量排在后面，用得最少的最后。** 开源的看 GitHub star，闭源的看 npm 周下载这类用量；卡在别的问题上的留在原位，标出卡在哪。第一个是 OpenCode，第二个是 DeepSeek Harness，第三个是 Kimi Code，第四个是 Qwen Code，都已经接上，见上文。Cline 暂缓：npm 上发的 macOS 二进制签名全是坏的，macOS 27 一启动就杀（[cline/cline#14209](https://github.com/cline/cline/issues/14209)），修复已合并、还没发版，发了再接。下面 A1 到 A4 是按旧的排法写的，A1、A4 已经做完。
 
 里程碑和做完的标志见 [路线图](roadmap.md) 的 A1 到 A4。这条线和移动端不抢先后，插空做。
 
 - **A1 · Kimi Code 订阅。**（已做，2026-09-20）订阅那条还要真账号手测。
-- **A2 · 通道补齐。** 还剩第 1、2、7 条，全用假 agent 测；第 3、4、5、6、10 条已经随 OpenCode、DeepSeek Harness、Kimi Code 做了。
+- **A2 · 通道补齐。** 还剩第 1、2、7 条，全用假 agent 测；第 3、4、5、6、10 条已经随 OpenCode、DeepSeek Harness、Kimi Code 做了，Qwen Code 又补了预设按协议兜底、按来源加启动参数和 `_meta` 里的 terminal 登录。
 - **A3 · Cursor。** 用户最多，但离不开第 1、2、7 条，第 8 条还得实测，所以排在通道之后。
 - **A4 · Kimi Code 接 API，DeepSeek Harness。**（已做，2026-09-20）还剩第 9 条，核对程序要的 node 版本。
 - **ZCode 暂缓。** 什么时候重开见「不做」。
 
 排队的，每家照「接入清单」走一遍，大致按对用户的用处排：
 
-- **Qwen Code**：`qwen --acp`，npm `@qwen-code/qwen-code`；用 Qwen 账号，或者 DashScope 密钥（已有阿里的预设）。
+- **Qwen Code**：已接，见上文。接之前这里写的「DashScope 密钥（已有阿里的预设）」不准：预设目录里阿里那几个叫 `qwen-token-plan`，现在按协议兜底，任何 OpenAI 兼容的预设都能接。
 - **Qoder CLI**：`qoder --acp`，npm `@qoder-ai/qodercli`；`qoder login`，或者环境变量 `QODER_PERSONAL_ACCESS_TOKEN`。
 - **GitHub Copilot CLI**：`copilot --acp`（公开预览），npm `@github/copilot`。
 - **OpenCode**：`opencode acp`，npm `opencode-ai`；它自己就能接很多家的 API。
@@ -174,5 +195,6 @@ Grok Build 是照清单接进来的第三个 ACP agent，没写一行适配代�
 - Cursor：[ACP](https://cursor.com/docs/cli/acp)、[安装](https://cursor.com/docs/cli/installation)
 - Kimi Code：[kimi acp](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp.html)、[kimi 命令](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html)、[环境变量](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/env-vars.html)、[MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)
 - DeepSeek Harness：[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)，其中 `packages/acp/acp` 的 README 和 `.agents/notes` 里的两篇 ACP 笔记
+- Qwen Code：[QwenLM/qwen-code](https://github.com/QwenLM/qwen-code)，以及 npm 包里 `qwen --help` 和它自己的 ACP 实现
 - ZCode：[文档](https://zcode.z.ai/en/docs/welcome)、[连接模型与套餐](https://zcode.z.ai/en/docs/configuration)、社区适配器 [BrokkAi/zcode-acp](https://github.com/BrokkAi/zcode-acp)
 - 排队的：[ACP 名录](https://agentclientprotocol.com/overview/agents)、[Qoder CLI 的 ACP](https://docs.qoder.com/cli/acp)、[Copilot CLI 的 ACP](https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server)
