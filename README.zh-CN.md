@@ -48,7 +48,13 @@ Roster 是给现成编码 agent 用的桌面应用。它不自己写 agent 循�
 
 ## 快速开始
 
-需要 Node.js 22.13 及以上和 pnpm 10。Roster 在 macOS 上开发，Windows 和 Linux 还没有测试过。
+[下载最新版本](https://github.com/amigoer/roster/releases/latest)（Apple 芯片），把 Roster 拖进「应用程序」，再放行一下——还没有开发者证书签名：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Roster.app
+```
+
+从源码运行（Intel 也走这条）：需要 Node.js 22.13 及以上和 pnpm 10。Roster 在 macOS 上开发，Windows 和 Linux 还没有测试过。
 
 ```bash
 git clone https://github.com/amigoer/roster.git
@@ -77,7 +83,7 @@ pnpm package                    # 打出 macOS 应用，放在 packages/desktop/
 
 设置 `ROSTER_SCRIPTED=1` 会用一个脚本化的假 agent 代替真实 agent，调界面时方便。
 
-`pnpm package` 把 core、适配器和构建好的界面装进应用，再交给 electron-builder；发布 release 时，Release 工作流在 macOS runner 上做同样的事，把 dmg 和 zip 附到 release 上。还没有开发者证书，应用只是 ad-hoc 签名，下载下来要先放行：`xattr -dr com.apple.quarantine /Applications/Roster.app`。
+`pnpm package` 把 core、适配器和构建好的界面装进应用，再交给 electron-builder；发布 release 时，Release 工作流在 macOS runner 上做同样的事，把 dmg 和 zip 附到 release 上。应用只是 ad-hoc 签名，所以上面要放行一下；只出 arm64，是因为有个适配器把 agent 作为按平台分发的二进制装进来，选哪个由构建的机器决定。
 
 macOS 上 `pnpm start` 会先把 Electron 的应用包克隆到 `packages/desktop/.mac/Roster.app`，换成 Roster 自己的名字、图标、标识和签名：系统是按应用包来认通知的发送者、图标和权限的，npm 发的那个包会被直接拒收。见 [`start.cjs`](packages/desktop/start.cjs)。
 

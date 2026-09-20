@@ -48,7 +48,13 @@ Adapters ship with Roster, and pi-agent is a library, so it needs no separate pr
 
 ## Getting started
 
-Node.js 22.13 or later and pnpm 10. Roster is developed on macOS; Windows and Linux are untested.
+[Download the latest release](https://github.com/amigoer/roster/releases/latest), which is Apple silicon, drag Roster into Applications, and let it past Gatekeeper, since there is no Developer ID on it yet:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Roster.app
+```
+
+From source, which is also the way in on Intel: Node.js 22.13 or later and pnpm 10. Roster is developed on macOS; Windows and Linux are untested.
 
 ```bash
 git clone https://github.com/amigoer/roster.git
@@ -77,7 +83,7 @@ pnpm package                    # the macOS app, into packages/desktop/release
 
 `ROSTER_SCRIPTED=1` swaps real agents for a scripted one, which is the way to work on the interface.
 
-`pnpm package` stages core, the adapters and the built UI into the app and hands it to electron-builder; the Release workflow runs the same thing on a macOS runner when a release is published, and attaches the dmg and the zip to it. There is no Developer ID yet, so the app is only ad-hoc signed and a downloaded copy has to be let past Gatekeeper: `xattr -dr com.apple.quarantine /Applications/Roster.app`.
+`pnpm package` stages core, the adapters and the built UI into the app and hands it to electron-builder; the Release workflow runs the same thing on a macOS runner when a release is published, and attaches the dmg and the zip to it. The bundle is only ad-hoc signed, which is what the quarantine line above is about, and it is arm64 because one adapter carries its agent as a per-platform binary picked at install time.
 
 On macOS `pnpm start` first clones the Electron bundle to `packages/desktop/.mac/Roster.app` under Roster's own name, icon, identifier and signature: macOS reads a notification's sender, icon and permission off the bundle it came from, and refuses the one npm ships. See [`start.cjs`](packages/desktop/start.cjs).
 
