@@ -113,15 +113,60 @@ function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
   );
 }
 
+/** The red corner, per avatar size: tall enough for a digit, round while it holds one. */
+const BADGES = {
+  xs: "h-3 min-w-3 px-1 text-[8px] ring-1",
+  sm: "h-3.5 min-w-3.5 px-1 text-[9px] ring-2",
+  md: "h-4 min-w-4 px-1 text-[10px] ring-2",
+  lg: "h-5 min-w-5 px-1.5 text-[11px] ring-2",
+  xl: "h-6 min-w-6 px-2 text-sm ring-[3px]",
+} as const;
+
+/** A dot means it waits with nothing new in it; 99+ is as far as a corner of an avatar goes. */
+const DOT_BADGES = { xs: "size-2", sm: "size-2.5", md: "size-2.5", lg: "size-3", xl: "size-3.5" } as const;
+
+/**
+ * What waits unread, in the corner where a phone puts it. A number counts the
+ * cards that came in since the conversation was last looked at; 0 still shows,
+ * as a plain dot, because the conversation wants a person either way.
+ */
+function Unread({ count, size }: { count: number | null; size: keyof typeof SIZES }) {
+  const { t } = useI18n();
+  if (count === null) return null;
+  const label = count === 0 ? t("attention.unread") : t("unread.badge", { count });
+  return count === 0 ? (
+    <span
+      className={cn("ring-background absolute -top-0.5 -right-0.5 rounded-full bg-red-500", DOT_BADGES[size], "ring-2", ICON_IN)}
+      aria-label={label}
+      title={label}
+    />
+  ) : (
+    <span
+      className={cn(
+        "ring-background absolute -top-1 -right-1 inline-flex items-center justify-center rounded-full bg-red-500 leading-none font-semibold tabular-nums text-white",
+        BADGES[size],
+        ICON_IN,
+      )}
+      aria-label={label}
+      title={label}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export function BotAvatar({
   bot,
   size = "md",
   busy = null,
+  unread = null,
   className,
 }: {
   bot: Pick<Bot, "id" | "avatar">;
   size?: keyof typeof SIZES;
   busy?: Busy;
+  /** cards waiting unread; 0 shows a bare dot and null shows nothing */
+  unread?: number | null;
   className?: string;
 }) {
   const logos = useLogos();
@@ -129,6 +174,7 @@ export function BotAvatar({
     <span className={cn("relative inline-flex shrink-0", className)}>
       <LogoImage logo={logoOf(bot, logos)} className={SIZES[size]} />
       <Dot busy={busy} size={size} />
+      <Unread count={unread} size={size} />
     </span>
   );
 }
@@ -157,12 +203,15 @@ export function GroupAvatar({
   avatar = null,
   size = "md",
   busy = null,
+  unread = null,
 }: {
   bots: Array<Pick<Bot, "id" | "avatar">>;
   /** a logo id chosen for the group; null stacks the members */
   avatar?: string | null;
   size?: keyof typeof GROUP_SIZES;
   busy?: Busy;
+  /** cards waiting unread; 0 shows a bare dot and null shows nothing */
+  unread?: number | null;
 }) {
   const logos = useLogos();
   const { box, ring, badge } = GROUP_SIZES[size];
@@ -187,7 +236,7 @@ export function GroupAvatar({
               )}
             />
           ))}
-          {more > 0 && (
+          {more > 0 && unread === null && (
             <span
               className={cn(
                 "bg-foreground text-background ring-background absolute -top-0.5 -right-0.5 inline-flex items-center justify-center rounded-full leading-none font-semibold tabular-nums",
@@ -201,6 +250,7 @@ export function GroupAvatar({
         </span>
       )}
       <Dot busy={busy} size={size} />
+      <Unread count={unread} size={size} />
     </span>
   );
 }

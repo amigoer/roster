@@ -44,6 +44,7 @@ export const zhCN = translation<typeof en>()({
   "attention.error": "出错了",
   "attention.stalled": "卡住了",
   "attention.unread": "未读",
+  "unread.badge": "{count} 条未读",
 
   "app.coreSilent": "core 没有回答",
   "app.startFailed": "没能直接开始会话",

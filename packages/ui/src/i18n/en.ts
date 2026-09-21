@@ -42,6 +42,7 @@ export const en = {
   "attention.error": "Error",
   "attention.stalled": "Stuck",
   "attention.unread": "Unread",
+  "unread.badge": { one: "{count} unread message", other: "{count} unread messages" },
 
   "app.coreSilent": "core didn't answer",
   "app.startFailed": "Couldn't start the conversation right away",

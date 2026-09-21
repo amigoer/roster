@@ -283,13 +283,18 @@ function watchCore(url) {
   req.on("error", again);
 }
 
+/** What a conversation waiting with nothing new in it still has to say, the way the list dots it. */
+const DOT = "•";
+
 /**
- * How many conversations want a person, in the two places that speak for a window
- * that is closed to the menu bar: the item there and the dock icon.
+ * How many messages wait unread, in the two places that speak for a window closed
+ * to the menu bar: the item there and the dock icon. Only conversations that want
+ * a person are counted -- one still running is not unread, however much it has said.
  */
 function waiting(conversations) {
   const wants = conversations.filter((c) => c.attention !== "none");
-  const count = wants.length ? String(wants.length) : "";
+  const unread = wants.reduce((n, c) => n + c.unread_count, 0);
+  const count = unread > 0 ? String(unread) : wants.length > 0 ? DOT : "";
   if (process.platform === "darwin") app.dock.setBadge(count);
   tray?.setTitle(count);
   settled(new Set(wants.map((c) => c.id)));

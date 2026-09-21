@@ -430,7 +430,8 @@ export default function App() {
   useEffect(() => {
     const read = () => {
       if (nav !== "messages" || !conv || !document.hasFocus()) return;
-      if (conv.attention === "waiting_input" || conv.attention === "error") void api.markRead(conv.id);
+      // a mark set by hand is the effect below's; this one is about what the conversation itself wants
+      if (conv.attention !== "none" && conv.attention !== "unread") void api.markRead(conv.id);
     };
     read();
     window.addEventListener("focus", read);
@@ -772,6 +773,8 @@ export default function App() {
                           ? `${t(`attention.${first.attention}`)}${waitingOnes.length > 1 ? ` · ${waitingOnes.length}` : ""}`
                           : null;
                       const busy: Busy = all.map(busyOfConv).find((b) => b === "needs_you") ?? all.map(busyOfConv).find(Boolean) ?? null;
+                      // the badge counts what came in; a row that waits with nothing new keeps the bare dot
+                      const unread = first ? waitingOnes.reduce((n, s) => n + s.unread_count, 0) : null;
                       const open = () => {
                         // clicking the one already open is opening it too, as far as a mark set on it goes
                         if (target.id === active && target.attention === "unread") void api.markRead(target.id);
@@ -813,16 +816,15 @@ export default function App() {
                           )}
                         >
                           {c.shape === "group" ? (
-                            <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} />
+                            <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} unread={unread} />
                           ) : face ? (
-                            <BotAvatar bot={face.bot} busy={busy} />
+                            <BotAvatar bot={face.bot} busy={busy} unread={unread} />
                           ) : (
                             <Who kind="bot" />
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              {/* weight is the unread mark: it stays heavy exactly as long as the conversation waits on you */}
-                              <span className={cn("truncate text-sm", waiting ? "font-semibold" : "font-medium")}>
+                              <span className="truncate text-sm font-medium">
                                 {many && face ? face.bot.name : c.title}
                               </span>
                               {c.shape === "group" && (
@@ -851,7 +853,7 @@ export default function App() {
                               <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
                                 {target.preview ?? (!many && c.dir_kind === "chat" ? t("location.chat") : t("app.noMessages"))}
                               </span>
-                              {waiting ? (
+                              {waiting && first.attention !== "unread" ? (
                                 // opaque, so it keeps its colour on a selected row instead of mixing with the blue
                                 <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 text-[10px] leading-4 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                                   {waiting}

@@ -349,6 +349,8 @@ export interface Conversation {
   last_activity_at: number;
   preview: string | null;
   attention: Attention;
+  /** cards that came in since it was last looked at; 0 while it waits means nothing new */
+  unread_count: number;
   run_state: "idle" | "running";
   archived: boolean;
   /** listed first, even above what waits on you; a bot's 1:1s share one pin */
