@@ -16,6 +16,8 @@ const assets = packaged ? path.join(res, "assets") : path.join(__dirname, "asset
 
 let core = null;
 let win = null;
+/** Set once a real quit is under way; until then the close button only hides the window. */
+let quitting = false;
 /** The menu bar item; it has to be held here or the garbage collector takes it off the bar. */
 let tray = null;
 /** Core's language, from its handshake and then its stream; the shell's own words follow it. */
@@ -141,6 +143,14 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.once("ready-to-show", () => win.show());
+  // the close button is a hide: core keeps the agents running and the menu bar item
+  // keeps the count, so the window comes back with everything where it was left.
+  // Quit -- the menu bar item's own, Cmd+Q, the dock -- is what ends the app.
+  win.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    win.hide();
+  });
   // the page's only way to a native folder chooser and to Finder; both take a path, neither returns anything else
   ipcMain.handle("roster:pickDirectory", async (_e, defaultPath) => {
     const r = await dialog.showOpenDialog(win, {
@@ -274,8 +284,8 @@ function watchCore(url) {
 }
 
 /**
- * How many conversations want a person, in the two places that say so while the
- * window is behind something else: the menu bar item and the dock icon.
+ * How many conversations want a person, in the two places that speak for a window
+ * that is closed to the menu bar: the item there and the dock icon.
  */
 function waiting(conversations) {
   const wants = conversations.filter((c) => c.attention !== "none");
@@ -330,7 +340,7 @@ function post(n) {
 
 /** Out from under whatever is over it, minimized or not: what a notification and the menu bar item both want. */
 function bringForward() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   win.show();
   app.focus({ steal: true });
@@ -356,9 +366,14 @@ function settled(waiting) {
 const CORE_STOP_MS = 7000;
 let stopping = false;
 
+// closing is a hide now, so this only fires when the window is really gone: on the way
+// out, or if the page closed itself -- which Electron destroys without asking close
 app.on("window-all-closed", () => app.quit());
+// the dock icon outlives a hide -- it still carries the badge -- and this is its click
+app.on("activate", bringForward);
 // the app outlives core, never the reverse: a core left behind keeps the database open with nothing to stop it
 app.on("before-quit", (event) => {
+  quitting = true;
   if (!core || core.exitCode !== null || core.signalCode !== null) return;
   event.preventDefault();
   if (stopping) return;
