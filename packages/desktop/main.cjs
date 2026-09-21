@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, ipcMain
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -231,8 +232,9 @@ const STREAM_RETRY_MS = 1000;
  * whether the window has focus and what is on screen.
  */
 function watchCore(url) {
-  const http = require("node:http");
   let retry = null;
+  /** Whether this stream has said what waits yet; until it has, the snapshot speaks for it. */
+  let told = false;
   const again = () => {
     if (stopping || retry) return;
     retry = setTimeout(() => {
@@ -241,6 +243,7 @@ function watchCore(url) {
     }, STREAM_RETRY_MS);
   };
   const req = http.get(new URL("/api/stream", url), (res) => {
+    seed(url, () => told);
     res.setEncoding("utf8");
     let buf = "";
     res.on("data", (chunk) => {
@@ -260,18 +263,53 @@ function watchCore(url) {
         if (msg.kind === "preferences" && msg.locale?.resolved) locale = msg.locale.resolved;
         else if (msg.kind === "notify") post(msg.notification);
         else if (msg.kind === "conversations") {
-          const waiting = msg.conversations.filter((c) => c.attention !== "none");
-          const count = waiting.length ? String(waiting.length) : "";
-          if (process.platform === "darwin") app.dock.setBadge(count);
-          // the same number beside the menu bar icon, for a window that is not on this desktop
-          tray?.setTitle(count);
-          settled(new Set(waiting.map((c) => c.id)));
+          told = true;
+          waiting(msg.conversations);
         }
       }
     });
     res.on("end", again);
   });
   req.on("error", again);
+}
+
+/**
+ * How many conversations want a person, in the two places that say so while the
+ * window is behind something else: the menu bar item and the dock icon.
+ */
+function waiting(conversations) {
+  const wants = conversations.filter((c) => c.attention !== "none");
+  const count = wants.length ? String(wants.length) : "";
+  if (process.platform === "darwin") app.dock.setBadge(count);
+  tray?.setTitle(count);
+  settled(new Set(wants.map((c) => c.id)));
+}
+
+/**
+ * Core streams what changes, not what is: a shell that only listens shows nothing
+ * until the next thing happens -- an app started on three unread conversations sits
+ * there with a bare icon. This is the count it opens with, and opens with again
+ * after a dropped stream, which missed every change while it was down.
+ */
+function seed(url, beaten) {
+  http
+    .get(new URL("/api/state", url), (res) => {
+      res.setEncoding("utf8");
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        // a change that landed while this was in flight is the newer word
+        if (beaten()) return;
+        try {
+          waiting(JSON.parse(body).conversations);
+        } catch {
+          /* the next change says it properly */
+        }
+      });
+    })
+    .on("error", () => {
+      /* the stream is dialled again on its own, and this goes with it */
+    });
 }
 
 function post(n) {
