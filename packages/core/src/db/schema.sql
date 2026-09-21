@@ -133,6 +133,9 @@ CREATE TABLE IF NOT EXISTS conversations (
 
   -- projections
   last_seq         INTEGER NOT NULL DEFAULT 0,
+  -- how far the person has read: last_seq as of the moment the conversation stopped
+  -- wanting them. Countable cards past it are the unread number the list badges.
+  read_seq         INTEGER NOT NULL DEFAULT 0,
   last_activity_at INTEGER NOT NULL,
   preview          TEXT,
   -- running is deliberately NOT an attention value: running never means unread.

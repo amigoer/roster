@@ -117,6 +117,8 @@ export interface ConversationRow {
   created_at: number;
   archived_at: number | null;
   last_seq: number;
+  /** last_seq as of the last time the conversation stopped wanting a person */
+  read_seq: number;
   last_activity_at: number;
   preview: string | null;
   attention: Attention;
@@ -157,6 +159,8 @@ export interface MemberView {
 
 export type ConversationView = Omit<ConversationRow, "attention"> & {
   attention: ListAttention;
+  /** cards past read_seq: what the list badges. 0 while it waits means nothing new since you looked. */
+  unread_count: number;
   members: MemberView[];
   archived: boolean;
   /** listed first, even above what waits on you */
@@ -833,6 +837,22 @@ export class Store {
       )
       .all() as unknown as Array<ConversationRow & { pinned: number }>;
 
+    // cards a person has not seen: text, an approval to decide, an error. Steps and
+    // notices are not messages, and nothing a person wrote is news to them.
+    const unread = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT m.conversation_id AS id, COUNT(*) AS n
+                FROM messages m JOIN conversations c ON c.id = m.conversation_id
+               WHERE m.seq > c.read_seq AND m.author_kind <> 'human'
+                 AND m.card_kind IN ('text', 'permission', 'error')
+               GROUP BY m.conversation_id`,
+          )
+          .all() as unknown as Array<{ id: string; n: number }>
+      ).map((r) => [r.id, Number(r.n)]),
+    );
+
     // two queries for the whole list rather than two per conversation
     const bots = new Map((this.db.prepare(`SELECT * FROM bots`).all() as unknown as RawBot[]).map((b) => [b.id, botOf(b)]));
     const byConv = new Map<string, MemberView[]>();
@@ -851,6 +871,7 @@ export class Store {
         ...c,
         title: shownTitle(c.title, members),
         attention: c.attention === "none" && c.unread_at !== null ? "unread" : c.attention,
+        unread_count: unread.get(c.id) ?? 0,
         members,
         archived: c.archived_at !== null,
         pinned: pinned === 1,
@@ -1024,8 +1045,9 @@ export class Store {
   markRead(id: string): boolean {
     const c = this.getConversation(id);
     if (!c) return false;
+    const seen = this.#seen(id);
     const unmarked = this.setUnread(id, false);
-    if (c.attention !== "waiting_input" && c.attention !== "error") return unmarked;
+    if (c.attention !== "waiting_input" && c.attention !== "error") return seen || unmarked;
     this.setAttention(id, "none");
     return true;
   }
@@ -1038,6 +1060,12 @@ export class Store {
     return Number(r.changes) > 0;
   }
 
+  /** Everything said so far counts as seen: the badge counts from here. */
+  #seen(id: string): boolean {
+    const r = this.db.prepare(`UPDATE conversations SET read_seq = last_seq WHERE id = ? AND read_seq <> last_seq`).run(id);
+    return Number(r.changes) > 0;
+  }
+
   setRunState(id: string, state: "idle" | "running"): void {
     this.db.prepare(`UPDATE conversations SET run_state = ? WHERE id = ?`).run(state, id);
   }
@@ -1045,6 +1073,8 @@ export class Store {
   setAttention(id: string, attention: Attention): void {
     const current = this.getConversation(id);
     if (current?.attention === attention) return;
+    // nothing left to want means everything said so far has been dealt with
+    if (attention === "none") this.#seen(id);
     this.db
       .prepare(`UPDATE conversations SET attention = ?, attention_since = ? WHERE id = ?`)
       .run(attention, attention === "none" ? null : now(), id);
