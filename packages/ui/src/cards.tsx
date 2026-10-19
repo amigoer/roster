@@ -342,6 +342,8 @@ export function TurnView({
   );
   const pending = turn.permissions.filter((p) => p.status === "pending");
   if (parts.length === 0 && pending.length === 0) return null;
+  // one tail per turn, on the first thing it said; the rest of its bubbles stack under it
+  const tailOn = parts.findIndex((p) => p.kind === "text");
   return (
     // a passage is quotable once the reply has landed; while it is being written there is no message to point back at
     <div className="group/msg flex gap-3" data-message={reply?.id}>
@@ -371,11 +373,11 @@ export function TurnView({
               />
             ) : !turn.text && i === parts.length - 1 ? (
               // still being written: only the block under the caret stays plain
-              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && TAIL.bot)}>
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && i === tailOn && TAIL.bot)}>
                 <StreamingMarkdown text={part.text} />
               </div>
             ) : (
-              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && TAIL.bot)}>
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && i === tailOn && TAIL.bot)}>
                 <Markdown>{part.text}</Markdown>
               </div>
             ),
