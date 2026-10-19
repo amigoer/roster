@@ -95,6 +95,14 @@ const atOf = (row: Row): number =>
     ? row.message.created_at
     : (row.turn.text?.created_at ?? row.turn.anchor?.created_at ?? row.turn.permissions[0]?.created_at ?? row.turn.steps[0]?.startedAt ?? 0);
 
+/** Who said a row: the same key twice in a row is one person still talking. Notices belong to nobody. */
+const authorOf = (row: Row): string | null => {
+  if (row.kind === "turn") return row.turn.memberId;
+  const m = row.message;
+  if (m.author_kind === "human") return "human";
+  return m.author_kind === "bot" ? (m.author_member_id ?? null) : null;
+};
+
 const TIME_GAP = 5 * 60 * 1000;
 
 /** Exactly one unread meaning: this one is waiting for you. Running is never unread. */
@@ -528,13 +536,23 @@ export default function App() {
   }, [messages, streamed, thought]);
   // the rows the log had when it was read; only what lands after them arrives with motion
   const settledRows = useMemo(() => new Set(rows.map((r) => r.key)), [loadedFor]);
-  // a time sits above a run of messages, the way a messenger spaces out a long conversation
+  /*
+   * The way a messenger reads a log: an hour above a run of messages, and
+   * someone who speaks again within the same run keeps their face and name
+   * from the first time, so a burst of messages reads as one person talking.
+   */
   let ranAt = 0;
-  const timedRows = rows.map((row) => {
+  let prevBy: string | null = null;
+  let prevAt = 0;
+  const timedRows = rows.map((row, i) => {
     const at = atOf(row);
-    const show = at > 0 && (ranAt === 0 || at - ranAt > TIME_GAP);
+    const by = authorOf(row);
+    const hour = at > 0 && (ranAt === 0 || at - ranAt > TIME_GAP);
     if (at > 0) ranAt = at;
-    return { row, at: show ? at : 0 };
+    const continued = !hour && by !== null && by === prevBy && at > 0 && at - prevAt <= TIME_GAP;
+    prevBy = by;
+    if (at > 0) prevAt = at;
+    return { row, at: hour ? at : 0, continued, first: i === 0, hour };
   });
 
   const busyByBot = useMemo(() => {
@@ -1178,21 +1196,25 @@ export default function App() {
                       </div>
                     )}
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
-                    <div className="relative cursor-auto space-y-4 px-6 py-4 select-text" ref={transcriptRoot}>
-                      {timedRows.map(({ row, at }) => (
+                    <div className="relative cursor-auto px-6 py-4 select-text" ref={transcriptRoot}>
+                      {timedRows.map(({ row, at, continued, first }) => (
                         <Fragment key={row.key}>
                           {at > 0 && (
-                            <div className="flex justify-center">
+                            <div className="mt-4 flex justify-center first:mt-0">
                               <span className="text-muted-foreground/80 text-[12px]">{stamp(i18n, at)}</span>
                             </div>
                           )}
                           {row.kind === "message" ? (
                             // the id is what the outline scrolls to
-                            <div id={`m-${row.message.id}`} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
+                            <div
+                              id={`m-${row.message.id}`}
+                              className={cn(at > 0 ? "mt-2.5" : continued ? "mt-1" : "mt-4", first && (at > 0 ? "mt-2.5" : "mt-0"), !settledRows.has(row.key) && PAGE_IN)}
+                            >
                               <MessageCard
                                 conversationId={conv.id}
                                 message={row.message}
                                 group={group}
+                                continued={continued}
                                 author={row.message.author_member_id ? memberById.get(row.message.author_member_id) : undefined}
                                 onQuote={quote}
                                 onJump={jump}
@@ -1200,7 +1222,10 @@ export default function App() {
                             </div>
                           ) : (
                             // a reply points at the turn's answer; before there is one, at where the turn starts
-                            <div id={anchorId(row.turn)} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
+                            <div
+                              id={anchorId(row.turn)}
+                              className={cn(at > 0 ? "mt-2.5" : continued ? "mt-1" : "mt-4", first && (at > 0 ? "mt-2.5" : "mt-0"), !settledRows.has(row.key) && PAGE_IN)}
+                            >
                               <TurnView
                                 conversationId={conv.id}
                                 turn={row.turn}
@@ -1209,6 +1234,7 @@ export default function App() {
                                 thinking={thinking}
                                 author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
                                 group={group}
+                                continued={continued}
                                 onQuote={quote}
                                 root={conv.repo_path}
                               />

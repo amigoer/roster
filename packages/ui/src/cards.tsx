@@ -111,26 +111,30 @@ function Byline({ author }: { author: Member }) {
   );
 }
 
-/** The corner a bubble turns toward the face it belongs to. */
+/** The corner a bubble turns toward the face it belongs to; only the first of a run has one. */
 const TAIL = {
   human: "after:bg-bubble-out after:absolute after:top-3 after:-right-1 after:size-2 after:rotate-45 after:rounded-[1px]",
   bot: "after:bg-bubble-in after:absolute after:top-3 after:-left-1 after:size-2 after:rotate-45 after:rounded-[1px]",
 } as const;
 
 /** What a message is written on: your colour on the right, grey from everyone else. */
-const BUBBLE = {
-  human: cn("bg-bubble-out text-bubble-out-foreground", TAIL.human),
-  bot: cn("bg-bubble-in text-bubble-in-foreground [&_pre]:bg-card", TAIL.bot),
+const FACE = {
+  human: "bg-bubble-out text-bubble-out-foreground",
+  bot: "bg-bubble-in text-bubble-in-foreground [&_pre]:bg-card",
 } as const;
 
 // text-[length:...] rather than text-message: tailwind-merge would otherwise take it for a colour and drop it
 const BUBBLE_BASE = "relative rounded-lg px-3.5 py-2.5 leading-message break-words whitespace-pre-wrap text-[length:var(--message-size)]";
+
+/** Room for a face on the rows that do not draw one, so a run of bubbles stays in one column. */
+const FACE_GAP = "w-11 shrink-0";
 
 function Bubble({
   id,
   who,
   author,
   group,
+  continued,
   raw,
   at,
   onQuote,
@@ -143,6 +147,8 @@ function Bubble({
   who: "human" | "bot";
   author?: Member;
   group: boolean;
+  /** the same speaker's next message in the same run: no face, no name, no tail */
+  continued?: boolean;
   /** the source text, so copy yields Markdown rather than rendered HTML */
   raw: string;
   at: number;
@@ -155,7 +161,9 @@ function Bubble({
 }) {
   return (
     <div className={cn("group/msg flex gap-3", who === "human" && "flex-row-reverse")} data-message={id}>
-      {who === "human" ? (
+      {continued ? (
+        <span className={FACE_GAP} aria-hidden />
+      ) : who === "human" ? (
         <HumanAvatar />
       ) : author ? (
         // named above the bubble, so the face lines up with the bubble rather than with the name
@@ -166,11 +174,11 @@ function Bubble({
         <Who kind="bot" />
       )}
       <div className={cn("flex max-w-[min(680px,78%)] min-w-0 flex-col gap-1", who === "human" && "items-end")}>
-        {group && who === "bot" && author && <Byline author={author} />}
+        {group && who === "bot" && author && !continued && <Byline author={author} />}
         {attachments}
         {/* files alone are a whole message; an empty bubble under them would read as a blank reply */}
         {(raw || quoted) && (
-          <div className={cn(BUBBLE_BASE, BUBBLE[who])}>
+          <div className={cn(BUBBLE_BASE, FACE[who], !continued && TAIL[who])}>
             {quoted}
             {children}
           </div>
@@ -307,6 +315,7 @@ export function TurnView({
   thinking,
   author,
   group,
+  continued,
   onQuote,
   root,
 }: {
@@ -319,6 +328,8 @@ export function TurnView({
   thinking: Readonly<Record<string, string>>;
   author?: Member;
   group: boolean;
+  /** the same speaker's next message in the same run: no face, no name, no tail */
+  continued?: boolean;
   onQuote?: (messageId: string, text: string) => void;
   /** the conversation's repo, so paths inside it read as relative */
   root: string;
@@ -334,7 +345,9 @@ export function TurnView({
   return (
     // a passage is quotable once the reply has landed; while it is being written there is no message to point back at
     <div className="group/msg flex gap-3" data-message={reply?.id}>
-      {author ? (
+      {continued ? (
+        <span className={FACE_GAP} aria-hidden />
+      ) : author ? (
         <BotCardTrigger bot={author.bot} className={cn("self-start", group && "mt-[22px]")}>
           <BotAvatar bot={author.bot} />
         </BotCardTrigger>
@@ -342,7 +355,7 @@ export function TurnView({
         <Who kind="bot" />
       )}
       <div className="flex w-full max-w-[min(680px,78%)] min-w-0 flex-col gap-1">
-        {group && author && <Byline author={author} />}
+        {group && author && !continued && <Byline author={author} />}
         <div className="flex min-w-0 flex-col gap-2">
           {parts.map((part, i) =>
             part.kind === "steps" ? (
@@ -358,11 +371,11 @@ export function TurnView({
               />
             ) : !turn.text && i === parts.length - 1 ? (
               // still being written: only the block under the caret stays plain
-              <div key={`text-${i}`} className={cn(BUBBLE_BASE, BUBBLE.bot)}>
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && TAIL.bot)}>
                 <StreamingMarkdown text={part.text} />
               </div>
             ) : (
-              <div key={`text-${i}`} className={cn(BUBBLE_BASE, BUBBLE.bot)}>
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, FACE.bot, !continued && TAIL.bot)}>
                 <Markdown>{part.text}</Markdown>
               </div>
             ),
@@ -389,6 +402,7 @@ export function MessageCard({
   conversationId,
   message,
   group = false,
+  continued,
   author,
   onQuote,
   onJump,
@@ -397,6 +411,8 @@ export function MessageCard({
   message: Message;
   /** Every chat shows the speaker's face; only a group also names them above the bubble. */
   group?: boolean;
+  /** the same speaker's next message in the same run: no face, no name, no tail */
+  continued?: boolean;
   author?: Member;
   onQuote?: (messageId: string, text: string) => void;
   onJump?: (messageId: string) => void;
@@ -416,6 +432,7 @@ export function MessageCard({
           who={human ? "human" : "bot"}
           author={author}
           group={group}
+          continued={continued}
           raw={raw}
           at={message.created_at}
           onQuote={onQuote && ((text) => onQuote(message.id, text))}
