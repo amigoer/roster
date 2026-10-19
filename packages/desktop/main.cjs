@@ -137,7 +137,7 @@ app.whenReady().then(async () => {
     // panel headers' text line rather than on it, and not jammed into the corner either
     trafficLightPosition: { x: 6, y: 19 },
     // the UI's chrome colour; a hardcoded light one flashes white before the dark UI paints
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0b0d" : "#eef0f4",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#141414" : "#f7f7f7",
     // shown once the page has painted in the theme it picked, so no frame of the wrong one comes first
     show: false,
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },

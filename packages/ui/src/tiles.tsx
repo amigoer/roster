@@ -71,10 +71,10 @@ export const brandOfType = (type: string, brand?: string): Provider =>
   (brand as Provider | undefined) ?? HARNESS_BRAND[type] ?? brandFromText(type);
 
 const SIZE = {
-  xs: "size-5 rounded-[23%] [&>svg]:size-3",
-  sm: "size-7 rounded-[23%] [&>svg]:size-3.5",
-  md: "size-9 rounded-[23%] [&>svg]:size-4",
-  lg: "size-11 rounded-[23%] [&>svg]:size-5",
+  xs: "size-5 rounded-[12%] [&>svg]:size-3",
+  sm: "size-7 rounded-[12%] [&>svg]:size-3.5",
+  md: "size-9 rounded-[12%] [&>svg]:size-4",
+  lg: "size-11 rounded-[12%] [&>svg]:size-5",
 } as const;
 
 const LETTER = { xs: "text-[10px]", sm: "text-xs", md: "text-sm", lg: "text-base" } as const;

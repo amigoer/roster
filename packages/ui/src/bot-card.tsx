@@ -59,7 +59,7 @@ export function BotCardTrigger({
           style={style}
           // the face sits inside rows and bubbles with clicks of their own; opening the card is this click's whole job
           onClick={(e) => e.stopPropagation()}
-          className={cn("focus-visible:ring-ring/50 shrink-0 rounded-[23%] outline-none focus-visible:ring-2", className)}
+          className={cn("focus-visible:ring-ring/50 shrink-0 rounded-[12%] outline-none focus-visible:ring-2", className)}
         >
           {children}
         </button>

@@ -103,13 +103,28 @@ function Actions({
 function Byline({ author }: { author: Member }) {
   const { t } = useI18n();
   return (
-    <div className="flex items-baseline gap-1.5 px-0.5">
-      <span className="text-xs font-medium">{author.bot.name}</span>
-      {author.bot.title && <span className="text-muted-foreground truncate text-[11px]">{author.bot.title}</span>}
+    <div className="flex items-baseline gap-1.5 px-0.5 text-[12px]">
+      <span className="text-muted-foreground font-medium">{author.bot.name}</span>
+      {author.bot.title && <span className="text-muted-foreground/80 truncate text-[11px]">{author.bot.title}</span>}
       {author.left_at !== null && <span className="text-muted-foreground text-[11px]">{t("cards.left")}</span>}
     </div>
   );
 }
+
+/** The corner a bubble turns toward the face it belongs to. */
+const TAIL = {
+  human: "after:bg-bubble-out after:absolute after:top-3 after:-right-1 after:size-2 after:rotate-45 after:rounded-[1px]",
+  bot: "after:bg-bubble-in after:absolute after:top-3 after:-left-1 after:size-2 after:rotate-45 after:rounded-[1px]",
+} as const;
+
+/** What a message is written on: your colour on the right, grey from everyone else. */
+const BUBBLE = {
+  human: cn("bg-bubble-out text-bubble-out-foreground", TAIL.human),
+  bot: cn("bg-bubble-in text-bubble-in-foreground [&_pre]:bg-card", TAIL.bot),
+} as const;
+
+// text-[length:...] rather than text-message: tailwind-merge would otherwise take it for a colour and drop it
+const BUBBLE_BASE = "relative rounded-lg px-3.5 py-2.5 leading-message break-words whitespace-pre-wrap text-[length:var(--message-size)]";
 
 function Bubble({
   id,
@@ -143,7 +158,8 @@ function Bubble({
       {who === "human" ? (
         <HumanAvatar />
       ) : author ? (
-        <BotCardTrigger bot={author.bot} className="self-start">
+        // named above the bubble, so the face lines up with the bubble rather than with the name
+        <BotCardTrigger bot={author.bot} className={cn("self-start", group && "mt-[22px]")}>
           <BotAvatar bot={author.bot} />
         </BotCardTrigger>
       ) : (
@@ -154,13 +170,7 @@ function Bubble({
         {attachments}
         {/* files alone are a whole message; an empty bubble under them would read as a blank reply */}
         {(raw || quoted) && (
-          <div
-            className={cn(
-              // a bot's answer reads as a page rather than a box; only what the human said is a bubble
-              who === "human" &&
-                "bg-muted rounded-xl px-3.5 py-2.5 text-message leading-message break-words whitespace-pre-wrap",
-            )}
-          >
+          <div className={cn(BUBBLE_BASE, BUBBLE[who])}>
             {quoted}
             {children}
           </div>
@@ -186,13 +196,13 @@ function Quoted({ quote, onJump }: { quote: Quote; onJump?: (messageId: string) 
       title={jump ? t("cards.quoted") : undefined}
       onClick={jump}
       className={cn(
-        "bg-foreground/5 mb-2 block w-full rounded-lg px-2.5 py-1.5 text-left",
-        jump && "hover:bg-foreground/10 transition-colors",
+        "mb-2 block w-full rounded-md bg-black/[0.05] px-2.5 py-1.5 text-left dark:bg-white/[0.07]",
+        jump && "transition-colors hover:bg-black/[0.09] dark:hover:bg-white/[0.11]",
       )}
     >
       <span className="text-[11px] font-medium opacity-70">{quote.name ?? t("members.you")}</span>
       {/* two lines of it, normalised: the whole passage is a click away where it was said */}
-      <p className="text-muted-foreground line-clamp-2 text-xs leading-snug break-words whitespace-normal">
+      <p className="line-clamp-2 text-xs leading-snug break-words whitespace-normal opacity-75">
         {plain(quote.text)}
       </p>
     </button>
@@ -325,7 +335,7 @@ export function TurnView({
     // a passage is quotable once the reply has landed; while it is being written there is no message to point back at
     <div className="group/msg flex gap-3" data-message={reply?.id}>
       {author ? (
-        <BotCardTrigger bot={author.bot} className="self-start">
+        <BotCardTrigger bot={author.bot} className={cn("self-start", group && "mt-[22px]")}>
           <BotAvatar bot={author.bot} />
         </BotCardTrigger>
       ) : (
@@ -348,11 +358,13 @@ export function TurnView({
               />
             ) : !turn.text && i === parts.length - 1 ? (
               // still being written: only the block under the caret stays plain
-              <div key={`text-${i}`} className="min-w-0">
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, BUBBLE.bot)}>
                 <StreamingMarkdown text={part.text} />
               </div>
             ) : (
-              <Markdown key={`text-${i}`}>{part.text}</Markdown>
+              <div key={`text-${i}`} className={cn(BUBBLE_BASE, BUBBLE.bot)}>
+                <Markdown>{part.text}</Markdown>
+              </div>
             ),
           )}
           {pending.map((p) => (
@@ -424,7 +436,7 @@ export function MessageCard({
       return null;
     case "permission":
       return (
-        <div className="ml-12 max-w-[min(680px,78%)]">
+        <div className="ml-[52px] max-w-[min(680px,78%)]">
           <PermissionCard
             conversationId={conversationId}
             message={message}
@@ -448,7 +460,7 @@ export function MessageCard({
       // joins, leaves, rule changes: a thin centered line, not a message
       return (
         <div className="flex justify-center py-0.5">
-          <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px]">
+          <span className="text-muted-foreground/80 px-2.5 py-0.5 text-[12px]">
             {body["text"] ?? message.card_kind}
           </span>
         </div>

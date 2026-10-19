@@ -233,7 +233,7 @@ export function HarnessOverview({
             ))
           : [0, 1, 2, 3].map((i) => (
               <div key={i} className={ROW}>
-                <Skeleton className="size-9 rounded-[23%]" />
+                <Skeleton className="size-9 rounded-[12%]" />
                 <div className="flex-1 space-y-1.5">
                   <Skeleton className="h-3.5 w-1/4" />
                   <Skeleton className="h-3 w-1/6" />

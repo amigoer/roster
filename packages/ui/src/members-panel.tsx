@@ -135,7 +135,7 @@ export function MembersPanel({
           aria-hidden
           onClick={onClose}
           className={cn(
-            "absolute inset-0 z-10 rounded-xl bg-black/20 transition-opacity duration-200 ease-soft",
+            "absolute inset-0 z-10 bg-black/20 transition-opacity duration-200 ease-soft",
             open ? "opacity-100" : "pointer-events-none opacity-0",
           )}
         />
@@ -149,16 +149,16 @@ export function MembersPanel({
         className={cn(
           "shrink-0 duration-200 ease-soft",
           column
-            ? // 2px past the panel keeps its hairline inside the clip; the half rem before it is the gap to the chat
-              cn("relative overflow-x-clip transition-[width]", open ? "w-[calc(18.5rem+2px)]" : "w-0")
+            ? // the panel is a column of its own, separated by the same hairline as any two panes
+              cn("relative overflow-x-clip transition-[width]", open ? "w-72" : "w-0")
             : cn("absolute inset-y-0 right-0 z-20 transition-[translate]", open ? "translate-x-0" : "translate-x-[calc(100%+1rem)]"),
           !open && settled && "invisible",
         )}
       >
         <aside
           className={cn(
-            "bg-background flex h-full w-72 flex-col overflow-hidden rounded-xl",
-            column ? "shadow-panel absolute inset-y-0 right-[2px]" : "ring-border shadow-xl ring-1",
+            "bg-background flex h-full w-72 flex-col overflow-hidden",
+            column ? "border-l" : "ring-border shadow-xl ring-1",
           )}
         >
           <header className="flex h-13 shrink-0 items-center justify-between px-4">

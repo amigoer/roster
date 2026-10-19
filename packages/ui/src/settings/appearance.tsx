@@ -169,24 +169,25 @@ function Preview({ theme }: { theme: Theme }) {
   );
 }
 
-/** The window in miniature: rail, list, conversation. */
+/** The window in miniature: rail, list, conversation, drawn flat the way the real one is. */
 function Window({ scheme, className }: { scheme: "light" | "dark"; className?: string }) {
   return (
     // the scheme class re-declares the tokens, so each preview paints the same whichever theme is on
-    <div className={cn(scheme, "bg-sidebar flex size-full gap-1 p-1", className)}>
-      <div className="flex w-2.5 shrink-0 flex-col items-center gap-1 pt-2">
-        <span className="bg-primary size-1.5 rounded-full" />
+    <div className={cn(scheme, "bg-sidebar flex size-full", className)}>
+      <div className="flex w-3 shrink-0 flex-col items-center gap-1.5 pt-2">
+        <span className="bg-primary size-1.5 rounded-[2px]" />
         <span className="bg-muted-foreground/35 size-1.5 rounded-full" />
         <span className="bg-muted-foreground/35 size-1.5 rounded-full" />
       </div>
-      <div className="bg-background shadow-panel flex w-[32%] shrink-0 flex-col gap-1 rounded-[4px] p-1">
-        <span className="bg-selected h-3 rounded-[3px]" />
-        <span className="bg-muted h-3 rounded-[3px]" />
-        <span className="bg-muted h-3 rounded-[3px]" />
+      {/* a list whose first row is the conversation that is open */}
+      <div className="bg-list flex w-[34%] shrink-0 flex-col justify-start gap-px py-1">
+        <span className="bg-primary h-4" />
+        <span className="bg-muted h-4" />
+        <span className="bg-muted h-4" />
       </div>
-      <div className="bg-background shadow-panel flex min-w-0 flex-1 flex-col justify-end gap-1 rounded-[4px] p-1.5">
-        <span className="bg-muted h-2 w-3/5 rounded-full" />
-        <span className="bg-primary h-2 w-2/5 self-end rounded-full" />
+      <div className="bg-background flex min-w-0 flex-1 flex-col justify-end gap-1 p-1.5">
+        <span className="bg-bubble-in h-2 w-3/5 rounded-[3px]" />
+        <span className="bg-bubble-out h-2 w-2/5 self-end rounded-[3px]" />
         <span className="border-border mt-0.5 h-3 rounded-[3px] border" />
       </div>
     </div>

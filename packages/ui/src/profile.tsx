@@ -167,7 +167,7 @@ function ProfileEditor({ onDone }: { onDone: () => void }) {
                     aria-pressed={on}
                     style={id ? { backgroundColor: colorOf(id) } : undefined}
                     className={cn(
-                      "ring-offset-background flex size-7 items-center justify-center rounded-[23%] ring-offset-2 transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "ring-offset-background flex size-7 items-center justify-center rounded-[12%] ring-offset-2 transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       !id && "bg-muted text-muted-foreground",
                       on ? "ring-foreground ring-2" : "hover:-translate-y-0.5",
                     )}

@@ -23,19 +23,22 @@ export const RAIL = 72;
 
 /** Every entry, labelled or not, is the same tile holding the same size of icon. */
 const TILE =
-  "relative flex size-10 items-center justify-center rounded-xl outline-none transition-[background-color,color,box-shadow] duration-150 focus-visible:ring-2 focus-visible:ring-ring/60";
-/** The active entry is lifted onto the same white as the panel it opens. */
-const RAISED = "bg-background text-primary shadow-panel";
-const RESTING = "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground";
-const ICON = "size-[22px]";
+  "relative flex size-10 items-center justify-center rounded-[10px] outline-none transition-[background-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-ring/60";
+const RAISED = "text-primary";
+const RESTING = "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground";
+const ICON = "size-[23px]";
+
+/** A count in the top corner of an icon, the way a messenger marks what is waiting. */
+const COUNT =
+  "ring-sidebar absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white tabular-nums ring-2";
 
 export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) => void; waiting: number }) {
   const { t } = useI18n();
   const { profile } = useMe();
   return (
-    <nav className="flex shrink-0 flex-col items-center pb-3" style={{ width: RAIL, ...DRAG }}>
-      {/* the traffic lights sit in the top strip, main.cjs puts them there; you come right under them, as in any IM */}
-      <div className="h-12 shrink-0" />
+    <nav className="flex shrink-0 flex-col items-center pb-4" style={{ width: RAIL, ...DRAG }}>
+      {/* the traffic lights sit in the top strip, main.cjs puts them there; you come right under them */}
+      <div className="h-13 shrink-0" />
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -45,51 +48,40 @@ export function NavRail({ nav, onNav, waiting }: { nav: Nav; onNav: (nav: Nav) =
             onClick={() => onNav("profile")}
             style={NO_DRAG}
             className={cn(
-              "ring-offset-sidebar mb-4 shrink-0 rounded-[23%] ring-offset-2 transition-shadow duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-              // neutral, like a picked logo: a blue ring fights whatever colour the avatar is
-              nav === "profile" ? "ring-foreground/80 ring-2" : "hover:ring-foreground/15 hover:ring-2",
+              "ring-offset-sidebar mb-6 shrink-0 rounded-[12%] outline-none ring-offset-2 transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-ring/60",
+              nav === "profile" ? "ring-2 ring-primary" : "hover:ring-2 hover:ring-foreground/15",
             )}
           >
-            {/* the plain grey tile is the rail's own grey; white lifts it the way an active entry is lifted */}
-            <HumanAvatar className="bg-background" />
+            <HumanAvatar className="bg-muted" />
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">{profile.name || t("nav.profile")}</TooltipContent>
       </Tooltip>
-      <div className="flex flex-col items-center gap-1.5" style={NO_DRAG}>
+      <div className="flex flex-col items-center gap-2" style={NO_DRAG}>
         {NAV.map((n) => {
           const on = nav === n.id;
           return (
-            <button
-              key={n.id}
-              type="button"
-              onClick={() => onNav(n.id)}
-              aria-current={on ? "page" : undefined}
-              className="group/nav flex w-16 flex-col items-center gap-1 rounded-xl py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            >
-              <span className={cn(TILE, on ? RAISED : "text-muted-foreground group-hover/nav:bg-sidebar-accent group-hover/nav:text-sidebar-foreground")}>
-                <n.icon active={on} className={ICON} />
-                {/* the same count the dock badge carries: conversations that are waiting on you */}
-                {n.id === "messages" && waiting > 0 && (
-                  <span className="ring-sidebar absolute -top-1 -right-1.5 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white tabular-nums ring-2">
-                    {waiting}
-                  </span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  "text-[11px] leading-4 transition-colors duration-150",
-                  on ? "font-medium" : "text-muted-foreground group-hover/nav:text-sidebar-foreground",
-                )}
-              >
-                {t(`nav.${n.id}`)}
-              </span>
-            </button>
+            <Tooltip key={n.id}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onNav(n.id)}
+                  aria-label={t(`nav.${n.id}`)}
+                  aria-current={on ? "page" : undefined}
+                  className={cn(TILE, on ? RAISED : RESTING)}
+                >
+                  <n.icon active={on} className={ICON} />
+                  {/* the same count the dock badge carries: conversations that are waiting on you */}
+                  {n.id === "messages" && waiting > 0 && <span className={COUNT}>{waiting}</span>}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t(`nav.${n.id}`)}</TooltipContent>
+            </Tooltip>
           );
         })}
       </div>
 
-      <div className="mt-auto flex flex-col items-center gap-1.5" style={NO_DRAG}>
+      <div className="mt-auto flex flex-col items-center" style={NO_DRAG}>
         <Tooltip>
           <TooltipTrigger asChild>
             <button

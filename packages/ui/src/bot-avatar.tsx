@@ -25,7 +25,7 @@ export function logoOf(bot: Pick<Bot, "id" | "avatar">, logos: readonly Logo[]):
 const SIZES = {
   xs: "size-5",
   sm: "size-7",
-  md: "size-9",
+  md: "size-11",
   lg: "size-14",
   xl: "size-20",
 } as const;
@@ -40,7 +40,7 @@ export function busyOf(state: PresenceState | undefined): Busy {
   return state === "waiting_permission" ? "needs_you" : "busy";
 }
 
-/** Keeps a light tile from dissolving into a light page. */
+/** A square with softly cut corners, the way a contact's face is framed. */
 const RING =
   "after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/5 after:ring-inset dark:after:ring-white/10";
 
@@ -51,7 +51,7 @@ const RING =
 export function LogoImage({ logo, className }: { logo: Logo | undefined; className?: string }) {
   return (
     <span
-      className={cn("bg-muted relative block shrink-0 overflow-hidden rounded-[23%]", RING, className)}
+      className={cn("bg-muted relative block shrink-0 overflow-hidden rounded-[12%]", RING, className)}
       style={logo ? { backgroundColor: logo.background } : undefined}
     >
       {logo && <img src={logoUrl(logo.id)} alt="" draggable={false} className="size-full select-none" />}
@@ -73,7 +73,7 @@ function YouTile({ profile, className, letter, icon }: { profile: Profile; class
   return (
     <span
       className={cn(
-        "bg-muted text-muted-foreground relative flex shrink-0 items-center justify-center overflow-hidden rounded-[23%]",
+        "bg-muted text-muted-foreground relative flex shrink-0 items-center justify-center overflow-hidden rounded-[12%]",
         RING,
         className,
         color && "text-white",
@@ -113,60 +113,15 @@ function Dot({ busy, size }: { busy: Busy; size: keyof typeof DOTS }) {
   );
 }
 
-/** The red corner, per avatar size: tall enough for a digit, round while it holds one. */
-const BADGES = {
-  xs: "h-3 min-w-3 px-1 text-[8px] ring-1",
-  sm: "h-3.5 min-w-3.5 px-1 text-[9px] ring-2",
-  md: "h-4 min-w-4 px-1 text-[10px] ring-2",
-  lg: "h-5 min-w-5 px-1.5 text-[11px] ring-2",
-  xl: "h-6 min-w-6 px-2 text-sm ring-[3px]",
-} as const;
-
-/** A dot means it waits with nothing new in it; 99+ is as far as a corner of an avatar goes. */
-const DOT_BADGES = { xs: "size-2", sm: "size-2.5", md: "size-2.5", lg: "size-3", xl: "size-3.5" } as const;
-
-/**
- * What waits unread, in the corner where a phone puts it. A number counts the
- * cards that came in since the conversation was last looked at; 0 still shows,
- * as a plain dot, because the conversation wants a person either way.
- */
-function Unread({ count, size }: { count: number | null; size: keyof typeof SIZES }) {
-  const { t } = useI18n();
-  if (count === null) return null;
-  const label = count === 0 ? t("attention.unread") : t("unread.badge", { count });
-  return count === 0 ? (
-    <span
-      className={cn("ring-background absolute -top-0.5 -right-0.5 rounded-full bg-red-500", DOT_BADGES[size], "ring-2", ICON_IN)}
-      aria-label={label}
-      title={label}
-    />
-  ) : (
-    <span
-      className={cn(
-        "ring-background absolute -top-1 -right-1 inline-flex items-center justify-center rounded-full bg-red-500 leading-none font-semibold tabular-nums text-white",
-        BADGES[size],
-        ICON_IN,
-      )}
-      aria-label={label}
-      title={label}
-    >
-      {count > 99 ? "99+" : count}
-    </span>
-  );
-}
-
 export function BotAvatar({
   bot,
   size = "md",
   busy = null,
-  unread = null,
   className,
 }: {
   bot: Pick<Bot, "id" | "avatar">;
   size?: keyof typeof SIZES;
   busy?: Busy;
-  /** cards waiting unread; 0 shows a bare dot and null shows nothing */
-  unread?: number | null;
   className?: string;
 }) {
   const logos = useLogos();
@@ -174,83 +129,64 @@ export function BotAvatar({
     <span className={cn("relative inline-flex shrink-0", className)}>
       <LogoImage logo={logoOf(bot, logos)} className={SIZES[size]} />
       <Dot busy={busy} size={size} />
-      <Unread count={unread} size={size} />
     </span>
   );
 }
 
-/** The square's side, the ring that lifts a tile off the one under it, and the count pill in the free corner. */
+/** The square's side, the gap between the tiles in it, and the count in the last cell. */
 const GROUP_SIZES = {
-  md: { box: "size-9", ring: "ring-[1.5px]", badge: "h-3.5 min-w-3.5 px-1 text-[8px]" },
-  lg: { box: "size-14", ring: "ring-2", badge: "h-5 min-w-5 px-1.5 text-[10px]" },
-  xl: { box: "size-20", ring: "ring-[3px]", badge: "h-7 min-w-7 px-2 text-xs" },
+  md: { box: "size-11", gap: "gap-px", tile: "rounded-[2px]", count: "text-[9px]" },
+  lg: { box: "size-14", gap: "gap-[2px]", tile: "rounded-[3px]", count: "text-[11px]" },
+  xl: { box: "size-20", gap: "gap-[3px]", tile: "rounded-[4px]", count: "text-[15px]" },
 } as const;
 
-/** How many faces a group shows before the rest become a count. */
-const FACES = 3;
-
-/** Three tiles down the diagonal, each stepping past the one under it; two alone get the pair's bigger tiles. */
-const STACK = ["top-0 left-0", "top-[21%] left-[21%]", "right-0 bottom-0"] as const;
-
 /**
- * A group's face: a logo picked for it, or its members' faces stacked down
- * the diagonal the way a pile of cards sits, the front one ringed off the
- * one under it. Whole faces, since these characters do not survive being
- * quartered; past three, the free corner counts the rest.
+ * A group's face: a logo picked for it, or its members' faces in a grid, the
+ * way a messenger tiles a group's picture. Up to four fill a two-by-two;
+ * more switch to three-by-three, and whoever is left over is counted in the
+ * last cell.
  */
 export function GroupAvatar({
   bots,
   avatar = null,
   size = "md",
   busy = null,
-  unread = null,
 }: {
   bots: Array<Pick<Bot, "id" | "avatar">>;
-  /** a logo id chosen for the group; null stacks the members */
+  /** a logo id chosen for the group; null tiles the members */
   avatar?: string | null;
   size?: keyof typeof GROUP_SIZES;
   busy?: Busy;
-  /** cards waiting unread; 0 shows a bare dot and null shows nothing */
-  unread?: number | null;
 }) {
   const logos = useLogos();
-  const { box, ring, badge } = GROUP_SIZES[size];
+  const { box, gap, tile, count } = GROUP_SIZES[size];
   const chosen = avatar ? logos.find((l) => l.id === avatar) : undefined;
-  const shown = bots.slice(0, FACES);
-  const more = bots.length - shown.length;
+  const cols = bots.length <= 4 ? 2 : 3;
+  const room = cols * cols;
+  const more = Math.max(0, bots.length - room);
+  // with someone left over the last cell says how many, so one face gives up its place
+  const shown = bots.slice(0, more > 0 ? room - 1 : room);
   return (
     <span className="relative inline-flex shrink-0">
-      {chosen || shown.length < 2 ? (
+      {chosen || bots.length < 2 ? (
         // one member wears its own face; the group badge beside the title says the rest
         <LogoImage logo={chosen ?? (shown[0] ? logoOf(shown[0], logos) : undefined)} className={box} />
       ) : (
-        <span className={cn("relative block", box)} aria-hidden>
+        <span
+          className={cn("grid overflow-hidden", gap, box, cols === 2 ? "grid-cols-2" : "grid-cols-3")}
+          aria-hidden
+        >
           {shown.map((b, i) => (
-            <LogoImage
-              key={i}
-              logo={logoOf(b, logos)}
-              className={cn(
-                "absolute",
-                shown.length === 2 ? cn("size-[72%]", i === 0 ? STACK[0] : STACK[2]) : cn("size-[58%]", STACK[i]),
-                i > 0 && cn("ring-background", ring),
-              )}
-            />
+            <LogoImage key={i} logo={logoOf(b, logos)} className={cn("size-full", tile)} />
           ))}
-          {more > 0 && unread === null && (
-            <span
-              className={cn(
-                "bg-foreground text-background ring-background absolute -top-0.5 -right-0.5 inline-flex items-center justify-center rounded-full leading-none font-semibold tabular-nums",
-                ring,
-                badge,
-              )}
-            >
+          {more > 0 && (
+            <span className={cn("bg-muted text-muted-foreground flex size-full items-center justify-center font-semibold tabular-nums", tile, count)}>
               +{more}
             </span>
           )}
         </span>
       )}
       <Dot busy={busy} size={size} />
-      <Unread count={unread} size={size} />
     </span>
   );
 }

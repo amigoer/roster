@@ -96,7 +96,7 @@ export function Resizer({
           onDrag(mid + step);
         }
       }}
-      className="group/resize relative w-2 shrink-0 cursor-col-resize outline-none"
+      className="group/resize bg-list relative w-2 shrink-0 cursor-col-resize outline-none"
       // the gap is chrome, and chrome drags the window; the handle has to opt out or it moves the window instead
       style={NO_DRAG}
     >

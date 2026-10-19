@@ -29,7 +29,7 @@ export function MentionFace({ bot }: { bot?: Bot }) {
   return bot ? (
     <LogoImage logo={logoOf(bot, logos)} className={FACE} />
   ) : (
-    <span className={cn(FACE, "inline-flex items-center justify-center rounded-[23%] bg-sky-500/15")}>
+    <span className={cn(FACE, "inline-flex items-center justify-center rounded-[12%] bg-sky-500/15")}>
       <Users className="size-[0.7em]" strokeWidth={2.5} />
     </span>
   );

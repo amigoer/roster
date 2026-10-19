@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
-  ArrowUp,
   AtSign,
   CircleAlert,
   Gauge,
@@ -54,9 +53,13 @@ type Trigger = { type: "@" | "/"; query: string };
 /** Roster's own commands; a backend's command of the same name is left out, so one name does one thing. */
 const OWN = new Set(["attach", "model", "effort", "mode", "compact", "context", "rename", "stop"]);
 
-/** The send and stop buttons: round, so the one thing that fires stands apart from the pills beside it. */
+/** The stop button: round, so it stands apart from the pills beside it. */
 const ROUND =
   "inline-flex size-8 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,color,scale] duration-120 focus-visible:ring-2 focus-visible:ring-ring/50";
+
+/** The one filled control in the toolbar: what the app does with what you typed. */
+const SEND =
+  "inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground outline-none transition-[background-color,scale] duration-120 hover:bg-primary/90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring/50";
 
 /** The @ being typed right before the caret, if any; a mention already in place is not a query. */
 function mentionAt(before: string): Trigger | null {
@@ -343,7 +346,7 @@ export function Composer({
   const stoppable = running && !draft.trim() && ready.length === 0;
 
   return (
-    <footer className="shrink-0 px-5 pt-2.5 pb-4">
+    <footer className="shrink-0 px-3 pt-1 pb-3">
       <div className="relative">
         <Pop open={menu !== null && suggestions.length > 0} className="absolute bottom-full left-0 z-30 mb-2 origin-bottom-left">
           {menu && suggestions.length > 0 && (
@@ -358,8 +361,8 @@ export function Composer({
             />
           )}
         </Pop>
-        {/* a container, so the toolbar can drop labels before it runs out of room */}
-        <div className="bg-background has-[[role=textbox]:focus]:border-ring/60 has-[[role=textbox]:focus]:ring-[3px] has-[[role=textbox]:focus]:ring-ring/20 @container rounded-2xl border shadow-[0_4px_20px_-8px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow]">
+        {/* one field, the way a messenger draws it: what you type on top, the controls under it */}
+        <div className="bg-card has-[[role=textbox]:focus]:border-primary/50 @container rounded-lg border transition-[border-color]">
           <Collapse open={quote !== null}>
             {quote && (
               <div className="flex items-start gap-2.5 border-b px-3.5 py-2">
@@ -448,12 +451,12 @@ export function Composer({
                   ? t("composer.placeholderGroup")
                   : t("composer.placeholderDirect", { name: members[0]?.bot.name ?? "" })
             }
-            className="block max-h-60 min-h-13 w-full px-4 pt-3 pb-1.5 text-message leading-relaxed outline-none"
+            className="block max-h-60 min-h-13 w-full px-3.5 pt-3 pb-1.5 text-message leading-relaxed outline-none"
           />
           {/* only while there is something to say: a failure, or how the command just typed is used */}
           <Collapse open={Boolean(error || typed?.hint)}>
             {(error || typed?.hint) && (
-              <div className={cn("flex min-w-0 items-center gap-1.5 px-4 pb-1 text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+              <div className={cn("flex min-w-0 items-center gap-1.5 px-3.5 pb-1 text-xs", error ? "text-destructive" : "text-muted-foreground")}>
                 {error ? (
                   <>
                     <CircleAlert className="size-3.5 shrink-0" />
@@ -545,13 +548,9 @@ export function Composer({
                       // mousedown, so the caret stays in the textarea for the next message
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => void submit(draft)}
-                      className={cn(
-                        ROUND,
-                        "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95",
-                        "disabled:bg-muted-foreground/30 disabled:text-background disabled:pointer-events-none",
-                      )}
+                      className={cn(SEND, "disabled:bg-muted disabled:text-muted-foreground disabled:pointer-events-none")}
                     >
-                      <ArrowUp className={cn("size-4", ICON_IN)} strokeWidth={2.5} />
+                      {t("composer.send")}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" sideOffset={6}>
@@ -734,7 +733,7 @@ function SuggestionList({
               ) : (
                 <>
                   {s.kind === "all" ? (
-                    <span className="bg-muted inline-flex size-5 items-center justify-center rounded-[30%]">
+                    <span className="bg-muted inline-flex size-5 items-center justify-center rounded-[16%]">
                       <Users className="size-3" />
                     </span>
                   ) : (

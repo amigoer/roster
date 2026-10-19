@@ -15,6 +15,7 @@ import {
   type Tier,
 } from "./api";
 import { BotAvatar, GroupAvatar, LogoImage, logoOf, useLogos, type Busy } from "./bot-avatar";
+import { DRAG, NO_DRAG } from "./app-region";
 import { CapabilityNotes } from "./capabilities";
 import { DeleteConversation, RenameInput } from "./conversation-menu";
 import { byHarness, Executors, HarnessLabels, useExecutor } from "./executors";
@@ -56,12 +57,15 @@ export function ContactList({
   busyByBot,
   selected,
   onSelect,
+  onNew,
 }: {
   bots: Bot[];
   convs: Conversation[];
   busyByBot: Record<string, Busy>;
   selected: Contact | null;
   onSelect: (contact: Contact) => void;
+  /** the add button beside the search: opens a blank bot */
+  onNew: () => void;
 }) {
   const [query, setQuery] = useState("");
   const executor = useExecutor();
@@ -75,8 +79,22 @@ export function ContactList({
 
   return (
     <>
-      <ListSearch value={query} onChange={setQuery} placeholder={t("contacts.search")} />
-      <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.5rem)]">
+      <div className="flex h-13 shrink-0 items-center gap-1 px-3" style={DRAG}>
+        <div className="min-w-0 flex-1" style={NO_DRAG}>
+          <ListSearch value={query} onChange={setQuery} placeholder={t("contacts.search")} />
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground size-8 shrink-0 rounded-md hover:bg-black/[0.06] dark:hover:bg-white/10"
+          style={NO_DRAG}
+          title={t("bot.new")}
+          onClick={onNew}
+        >
+          <Plus className="size-[18px]" />
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
         <div className={LIST_BODY}>
           <SectionLabel>{t("contacts.bots", { count: shownBots.length })}</SectionLabel>
           {bots.length === 0 && (
@@ -90,8 +108,8 @@ export function ContactList({
             >
               <BotAvatar bot={b} busy={busyByBot[b.id] ?? null} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{b.name}</div>
-                <div className="text-muted-foreground truncate text-xs">
+                <div className="truncate text-[15px] font-medium">{b.name}</div>
+                <div className="text-muted-foreground mt-0.5 truncate text-[13px]">
                   {b.title ?? `${executor(b.executor_id).label} · ${b.model ?? executor(b.executor_id).model ?? t("common.defaultModel")}`}
                 </div>
               </div>
@@ -110,8 +128,8 @@ export function ContactList({
                   >
                     <GroupAvatar bots={members.map((m) => m.bot)} avatar={c.avatar} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{c.title}</div>
-                      <div className="text-muted-foreground truncate text-xs">
+                      <div className="truncate text-[15px] font-medium">{c.title}</div>
+                      <div className="text-muted-foreground mt-0.5 truncate text-[13px]">
                         {list(members.map((m) => m.bot.name)) || t("contacts.noMembers")}
                       </div>
                     </div>
@@ -140,7 +158,7 @@ export function TemplateGallery({ onPick }: { onPick: (t: Template | null) => vo
             onClick={() => onPick(null)}
             className="hover:bg-accent/50 flex items-center gap-3 rounded-xl border border-dashed p-3 text-left transition-colors"
           >
-            <span className="bg-muted inline-flex size-9 items-center justify-center rounded-[30%]">
+            <span className="bg-muted inline-flex size-9 items-center justify-center rounded-[16%]">
               <Plus className="size-4" />
             </span>
             <span>
@@ -389,7 +407,7 @@ export function GroupProfile({
             type="button"
             onClick={() => setPicking(true)}
             title={t("group.avatarChange")}
-            className="ring-offset-background rounded-[23%] ring-offset-2 transition outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+            className="ring-offset-background rounded-[12%] ring-offset-2 transition outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} size="xl" busy={busy} />
           </button>
@@ -564,7 +582,7 @@ function LogoPicker({
             aria-label={l.name}
             aria-pressed={on}
             className={cn(
-              "ring-offset-background rounded-[23%] ring-offset-2 transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "ring-offset-background rounded-[12%] ring-offset-2 transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
               on ? "ring-foreground ring-2" : worn ? "opacity-40 hover:opacity-100" : "hover:-translate-y-0.5",
             )}
           >

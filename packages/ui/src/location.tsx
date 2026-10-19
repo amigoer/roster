@@ -249,7 +249,7 @@ function PlaceRow({
         <RadioGroupItem value={value} className="sr-only" />
         <span
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-[23%] transition-colors duration-120",
+            "flex size-7 shrink-0 items-center justify-center rounded-[12%] transition-colors duration-120",
             selected ? "bg-primary text-primary-foreground" : "bg-foreground/[0.06] text-muted-foreground",
           )}
         >

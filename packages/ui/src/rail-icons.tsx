@@ -28,7 +28,7 @@ const CARD = "M8 3H16A4 4 0 0 1 20 7V17A4 4 0 0 1 16 21H8A4 4 0 0 1 4 17V7A4 4 0
 const GEAR =
   "M9.42 5.28L10 2.61A9.6 9.6 0 0 1 14 2.61L14.58 5.28A7.2 7.2 0 0 1 16.53 6.4L19.13 5.58A9.6 9.6 0 0 1 21.13 9.03L19.11 10.87A7.2 7.2 0 0 1 19.11 13.13L21.13 14.97A9.6 9.6 0 0 1 19.13 18.42L16.53 17.6A7.2 7.2 0 0 1 14.58 18.72L14 21.39A9.6 9.6 0 0 1 10 21.39L9.42 18.72A7.2 7.2 0 0 1 7.47 17.6L4.87 18.42A9.6 9.6 0 0 1 2.87 14.97L4.89 13.13A7.2 7.2 0 0 1 4.89 10.87L2.87 9.03A9.6 9.6 0 0 1 4.87 5.58L7.47 6.4A7.2 7.2 0 0 1 9.42 5.28Z";
 
-const cut = "stroke-background";
+const cut = "stroke-sidebar";
 
 export function MessagesIcon({ active, className }: IconProps) {
   return (
@@ -40,7 +40,7 @@ export function MessagesIcon({ active, className }: IconProps) {
 }
 
 export function ContactsIcon({ active, className }: IconProps) {
-  const person = active ? "fill-background stroke-background" : undefined;
+  const person = active ? "fill-sidebar stroke-sidebar" : undefined;
   return (
     <Glyph className={className}>
       <path d={CARD} fill={active ? "currentColor" : "none"} />
@@ -54,7 +54,7 @@ export function SettingsIcon({ active, className }: IconProps) {
   return (
     <Glyph className={className}>
       <path d={GEAR} fill={active ? "currentColor" : "none"} />
-      <circle cx="12" cy="12" r={active ? 2.6 : 3} className={active ? "fill-background stroke-background" : undefined} />
+      <circle cx="12" cy="12" r={active ? 2.6 : 3} className={active ? "fill-sidebar stroke-sidebar" : undefined} />
     </Glyph>
   );
 }

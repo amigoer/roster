@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Archive, Loader, MessageSquarePlus, Pin, Plus, Users, WifiOff } from "lucide-react";
 import {
   activeMembers,
@@ -24,7 +24,7 @@ import {
 } from "./api";
 import { DRAG, NO_DRAG } from "./app-region";
 import { BotAvatar, busyOf, GroupAvatar, Logos, type Busy } from "./bot-avatar";
-import { BotCardActions, BotCardTrigger } from "./bot-card";
+import { BotCardActions } from "./bot-card";
 import { CapabilityBadge } from "./capabilities";
 import { MessageCard, TurnView, Who } from "./cards";
 import { Composer, type ComposerHandle } from "./composer";
@@ -33,7 +33,7 @@ import { ConversationContextMenu, ConversationMenu, RenameInput, type Conversati
 import { desktop } from "./desktop";
 import { Executors, HarnessLabels, SourceRefs } from "./executors";
 import { useI18n, type I18n } from "./i18n";
-import { LIST_BODY, ListSearch, ROW, rowState } from "./list";
+import { LIST_BODY, ListSearch, ROW } from "./list";
 import { MembersPanel } from "./members-panel";
 import { MentionBots } from "./mention-chip";
 import type { EditorHandle } from "./mention-editor";
@@ -68,8 +68,8 @@ const anchorId = (turn: Turn) => {
   return id ? `m-${id}` : undefined;
 };
 
-/** Every column past the rail floats on the chrome; gaps separate them, never lines. */
-const PANEL = "bg-background shadow-panel overflow-hidden rounded-xl";
+/** Three flat columns, the way a messenger lays a window out; only dialogs lift off the page. */
+const PANEL = "bg-background flex min-h-0 min-w-0 flex-col overflow-hidden";
 
 /** The list wants a glanceable time, not a precise one. */
 function listTime({ t, clock, day }: Pick<I18n, "t" | "clock" | "day">, ts: number): string {
@@ -80,6 +80,22 @@ function listTime({ t, clock, day }: Pick<I18n, "t" | "clock" | "day">, ts: numb
   if (d.toDateString() === yesterday.toDateString()) return t("time.yesterday");
   return day(ts);
 }
+
+/** Where a run of messages begins: a messenger puts the hour above it. */
+function stamp({ clock, day }: Pick<I18n, "clock" | "day">, ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return clock(ts);
+  return `${day(ts)} ${clock(ts)}`;
+}
+
+/** The moment a row was said, for the time separators above it. */
+const atOf = (row: Row): number =>
+  row.kind === "message"
+    ? row.message.created_at
+    : (row.turn.text?.created_at ?? row.turn.anchor?.created_at ?? row.turn.permissions[0]?.created_at ?? row.turn.steps[0]?.startedAt ?? 0);
+
+const TIME_GAP = 5 * 60 * 1000;
 
 /** Exactly one unread meaning: this one is waiting for you. Running is never unread. */
 const isWaiting = (attention: Conversation["attention"]): attention is Exclude<Conversation["attention"], "none"> => attention !== "none";
@@ -512,6 +528,14 @@ export default function App() {
   }, [messages, streamed, thought]);
   // the rows the log had when it was read; only what lands after them arrives with motion
   const settledRows = useMemo(() => new Set(rows.map((r) => r.key)), [loadedFor]);
+  // a time sits above a run of messages, the way a messenger spaces out a long conversation
+  let ranAt = 0;
+  const timedRows = rows.map((row) => {
+    const at = atOf(row);
+    const show = at > 0 && (ranAt === 0 || at - ranAt > TIME_GAP);
+    if (at > 0) ranAt = at;
+    return { row, at: show ? at : 0 };
+  });
 
   const busyByBot = useMemo(() => {
     const out: Record<string, Busy> = {};
@@ -680,9 +704,7 @@ export default function App() {
         {/* 1. The rail: a fixed strip of icons. Two entries do not fill a column, so the width goes to the list and the conversation */}
         <NavRail nav={nav} onNav={setNav} waiting={waiting} />
 
-        {/* the margins around the panels are chrome too: the window drags by them */}
-        <div className="text-foreground flex min-w-0 flex-1 py-2 pr-2" style={DRAG}>
-        {nav === "profile" ? (
+        <div className="text-foreground flex min-w-0 flex-1">{nav === "profile" ? (
           // one person has nothing to list, so the page takes the list's width too
           <main className={cn(PANEL, "flex min-h-0 min-w-0 flex-1 flex-col", PAGE_IN)} style={NO_DRAG}>
             <ProfilePanel />
@@ -690,48 +712,43 @@ export default function App() {
         ) : (
         <>
         {/* 2. The list */}
-        <section className={cn(PANEL, "flex min-h-0 shrink-0 flex-col")} style={{ width: list_.width, ...NO_DRAG }}>
-          <header className="flex h-13 shrink-0 items-center justify-between pr-2.5 pl-4.5" style={DRAG}>
-            <h1 className="text-[15px] font-semibold">{t(`nav.${nav}`)}</h1>
-            {nav === "messages" && (
-              <div className="flex items-center gap-1" style={NO_DRAG}>
+        <section className="bg-list text-foreground flex min-h-0 shrink-0 flex-col" style={{ width: list_.width, ...NO_DRAG }}>
+          {nav === "messages" && (
+            <div className="flex h-13 shrink-0 items-center gap-1 px-3" style={DRAG}>
+              <div className="min-w-0 flex-1" style={NO_DRAG}>
+                <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
+              </div>
+              <div className="flex shrink-0 items-center gap-0.5" style={NO_DRAG}>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("size-7 rounded-lg", showArchived ? "bg-selected text-primary hover:bg-selected hover:text-primary" : "text-muted-foreground")}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground size-8 rounded-md hover:bg-black/[0.06] dark:hover:bg-white/10",
+                    showArchived && "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
+                  )}
                   title={showArchived ? t("app.activeOnly") : t("app.showArchived")}
                   aria-pressed={showArchived}
                   onClick={() => setShowArchived((v) => !v)}
                 >
-                  <Archive className="size-4" />
+                  <Archive className="size-[18px]" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="bg-foreground/[0.05] hover:bg-foreground/10 size-7 rounded-lg"
+                  className="text-muted-foreground hover:text-foreground size-8 rounded-md hover:bg-black/[0.06] dark:hover:bg-white/10"
                   title={t("newConversation.title")}
                   onClick={() => setStarting({ open: true, botIds: [] })}
                 >
-                  <Plus className="size-4" />
+                  <Plus className="size-[18px]" />
                 </Button>
               </div>
-            )}
-            {nav === "contacts" && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="bg-foreground/[0.05] hover:bg-foreground/10 size-7 rounded-lg"
-                style={NO_DRAG}
-                title={t("bot.new")}
-                onClick={() => {
-                  setContact(null);
-                  setEditing(null);
-                }}
-              >
-                <Plus className="size-4" />
-              </Button>
-            )}
-          </header>
+            </div>
+          )}
+          {nav === "settings" && (
+            <header className="flex h-13 shrink-0 items-center px-4.5" style={DRAG}>
+              <h1 className="text-[15px] font-semibold">{t("nav.settings")}</h1>
+            </header>
+          )}
           <div key={nav} className={cn("flex min-h-0 flex-1 flex-col", PAGE_IN)}>
             {nav === "settings" ? (
               <SettingsList view={settingsView} ext={extView} theme={theme} typography={typography} about={about} route={settingsRoute} onRoute={openSettings} />
@@ -745,17 +762,20 @@ export default function App() {
                   setContact(c);
                   setEditing(null);
                 }}
+                onNew={() => {
+                  setContact(null);
+                  setEditing(null);
+                }}
               />
             ) : (
               <>
-                <ListSearch value={query} onChange={setQuery} placeholder={t("app.search")} />
-                <ScrollArea className="min-h-0 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_0.375rem)]">
-                  <div className={cn(LIST_BODY, "pt-1.5")}>
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className={cn(LIST_BODY, "pt-1")}>
                     {convs.length === 0 ? (
-                      <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noConversations")}</p>
+                      <p className="text-muted-foreground px-3.5 py-6 text-sm">{t("app.noConversations")}</p>
                     ) : (
                       shownConvs.length === 0 && (
-                        <p className="text-muted-foreground px-2.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
+                        <p className="text-muted-foreground px-3.5 py-6 text-sm">{t("app.noMatches", { query: query.trim() })}</p>
                       )
                     )}
                     {entries.map(({ conv: c, sessions: many }) => {
@@ -806,67 +826,109 @@ export default function App() {
                           // a div, not a button: the row holds a menu button and nesting buttons is invalid markup
                           className={cn(
                             ROW,
-                            "group/item cursor-default py-2.5",
+                            "group/item cursor-default",
                             c.archived && "opacity-60",
-                            rowState(current),
+                            current ? "bg-primary text-primary-foreground" : "hover:bg-black/[0.045] active:bg-black/[0.07] dark:hover:bg-white/[0.06] dark:active:bg-white/[0.09]",
                             // the row a right click is about stays lit while its menu is open
                             !current && "data-[state=open]:bg-accent",
-                            // pinned rows stand up off the list, each apart from the next so their shadows do not run together
-                            c.pinned && cn("shadow-pinned mb-1.5", !current && "bg-pinned"),
+                            c.pinned && !current && "bg-pinned",
                           )}
                         >
                           {c.shape === "group" ? (
-                            <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} unread={unread} />
+                            <GroupAvatar bots={people.map((m) => m.bot)} avatar={c.avatar} busy={busy} />
                           ) : face ? (
-                            <BotAvatar bot={face.bot} busy={busy} unread={unread} />
+                            <BotAvatar bot={face.bot} busy={busy} />
                           ) : (
                             <Who kind="bot" />
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate text-sm font-medium">
+                              <span className={cn("truncate text-[15px] leading-5 font-medium", current ? "text-primary-foreground" : "text-foreground")}>
                                 {many && face ? face.bot.name : c.title}
                               </span>
                               {c.shape === "group" && (
-                                <span className="bg-foreground/[0.06] text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4">
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded px-1 text-[10px] leading-4",
+                                    current ? "bg-white/20 text-primary-foreground" : "bg-black/[0.06] text-muted-foreground dark:bg-white/10",
+                                  )}
+                                >
                                   {t("conversation.groupBadge")}
                                 </span>
                               )}
                               {c.archived && (
-                                <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-[14px]">
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded border px-1 text-[10px] leading-[14px]",
+                                    current ? "border-white/30 text-primary-foreground/80" : "text-muted-foreground",
+                                  )}
+                                >
                                   {t("app.archived")}
                                 </span>
                               )}
-                              {/* the menu takes this corner on hover; the time gives it up rather than reserving room all the time */}
-                              <span className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1 pl-1 text-[11px] tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0">
-                                {c.pinned && <Pin className="size-3" aria-label={t("conversation.pinned")} />}
-                                {listTime(i18n, Math.max(...all.map((s) => s.last_activity_at)))}
-                              </span>
+                              {c.pinned && (
+                                <Pin className={cn("size-3 shrink-0", current ? "text-primary-foreground/70" : "text-muted-foreground/70")} aria-label={t("conversation.pinned")} />
+                              )}
                             </div>
-                            <div className="mt-0.5 flex items-center gap-2">
+                            <div className="mt-1 flex items-center gap-1.5">
                               {/* which repository, always: same-named conversations in different ones are told apart here */}
                               {!many && c.dir_kind === "repo" && (
-                                <span className="bg-foreground/[0.06] text-muted-foreground max-w-[45%] shrink-0 truncate rounded px-1 text-[10px] leading-4">
+                                <span
+                                  className={cn(
+                                    "max-w-[45%] shrink-0 truncate rounded px-1 text-[10px] leading-4",
+                                    current ? "bg-white/20 text-primary-foreground" : "bg-black/[0.06] text-muted-foreground dark:bg-white/10",
+                                  )}
+                                >
                                   {repoName(c.repo_path)}
                                 </span>
                               )}
-                              <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+                              <span className={cn("min-w-0 flex-1 truncate text-[13px]", current ? "text-primary-foreground/80" : "text-muted-foreground")}>
                                 {target.preview ?? (!many && c.dir_kind === "chat" ? t("location.chat") : t("app.noMessages"))}
                               </span>
                               {waiting && first.attention !== "unread" ? (
                                 // opaque, so it keeps its colour on a selected row instead of mixing with the blue
-                                <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 text-[10px] leading-4 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                                <span
+                                  className={cn(
+                                    "inline-flex shrink-0 items-center rounded-full px-1.5 text-[10px] leading-4 font-medium",
+                                    current ? "bg-white/20 text-primary-foreground" : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+                                  )}
+                                >
                                   {waiting}
                                 </span>
                               ) : (
                                 // running is deliberately quiet: it does not need you
                                 all.some((s) => s.run_state === "running") && (
-                                  <Loader className="text-muted-foreground/50 size-3 shrink-0 animate-spin" />
+                                  <Loader className={cn("size-3 shrink-0 animate-spin", current ? "text-primary-foreground/60" : "text-muted-foreground/50")} />
                                 )
                               )}
                             </div>
                           </div>
-                          <ConversationMenu {...actions} className="absolute top-2 right-1.5" />
+                          <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
+                            <span
+                              className={cn(
+                                "text-[11px] leading-4 tabular-nums transition-opacity group-hover/item:opacity-0 group-has-[[data-state=open]]/item:opacity-0",
+                                current ? "text-primary-foreground/70" : "text-muted-foreground/80",
+                              )}
+                            >
+                              {listTime(i18n, Math.max(...all.map((s) => s.last_activity_at)))}
+                            </span>
+                            {/* what waits unread sits under the time, as the reference app draws it */}
+                            {unread !== null &&
+                              (unread === 0 ? (
+                                <span className="mt-0.5 size-2 rounded-full bg-red-500" />
+                              ) : (
+                                <span className="mt-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white tabular-nums">
+                                  {unread > 99 ? "99+" : unread}
+                                </span>
+                              ))}
+                          </div>
+                          <ConversationMenu
+                            {...actions}
+                            className={cn(
+                              "absolute top-2 right-2",
+                              current && "text-primary-foreground hover:bg-white/20 hover:text-white",
+                            )}
+                          />
                         </div>
                         </ConversationContextMenu>
                       );
@@ -1004,27 +1066,20 @@ export default function App() {
                     {t("app.dropFiles")}
                   </div>
                 )}
-                <header className="flex h-13 shrink-0 items-center gap-3 px-5" style={DRAG}>
-                  {group ? (
-                    <GroupAvatar bots={members.map((m) => m.bot)} avatar={conv.avatar} busy={busyOfConv(conv)} />
-                  ) : members[0] ? (
-                    <BotCardTrigger bot={members[0].bot} presence={presence[members[0].id] ?? null} style={NO_DRAG}>
-                      <BotAvatar bot={members[0].bot} busy={busyOfConv(conv)} />
-                    </BotCardTrigger>
-                  ) : null}
+                <header className="flex h-14 shrink-0 items-center gap-3 px-5" style={DRAG}>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       {!group ? (
                         // a direct chat is headed by the bot; the session is named below, where it is switched
-                        <span className="truncate px-1.5 py-0.5 text-sm font-semibold">{members[0]?.bot.name ?? conv.title}</span>
+                        <span className="truncate px-1.5 py-0.5 text-[16px] leading-6 font-semibold">{members[0]?.bot.name ?? conv.title}</span>
                       ) : renaming === conv.id ? (
-                        <RenameInput conv={conv} style={NO_DRAG} className="text-sm" onDone={() => setRenaming(null)} />
+                        <RenameInput conv={conv} style={NO_DRAG} className="text-[16px]" onDone={() => setRenaming(null)} />
                       ) : (
                         <span
                           onClick={() => setRenaming(conv.id)}
                           title={t("conversation.clickToRename")}
                           style={NO_DRAG}
-                          className="hover:bg-accent cursor-text truncate rounded px-1.5 py-0.5 text-sm font-semibold"
+                          className="hover:bg-accent cursor-text truncate rounded px-1.5 py-0.5 text-[16px] leading-6 font-semibold"
                         >
                           {conv.title}
                         </span>
@@ -1040,7 +1095,7 @@ export default function App() {
                       )}
                     </div>
                     {group ? (
-                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[11px]">
+                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[12px]">
                         <span className="truncate">
                           {`${t("conversation.groupSubtitle", { count: members.length + 1, mode: t(`mode.${conv.mode}`) })}${
                             conv.mode === "leader" ? t("conversation.leaderSuffix", { name: leaderOf(conv)?.bot.name ?? "-" }) : ""
@@ -1051,10 +1106,10 @@ export default function App() {
                       </div>
                     ) : renaming === conv.id ? (
                       <div className="px-1.5">
-                        <RenameInput conv={conv} style={NO_DRAG} className="text-[11px]" onDone={() => setRenaming(null)} />
+                        <RenameInput conv={conv} style={NO_DRAG} className="text-[12px]" onDone={() => setRenaming(null)} />
                       </div>
                     ) : (
-                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[11px]">
+                      <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 px-1.5 text-[12px]">
                         <SessionSwitcher
                           conv={conv}
                           sessions={members[0] ? sessionsOf(members[0].bot.id) : [conv]}
@@ -1123,37 +1178,44 @@ export default function App() {
                       </div>
                     )}
                     {/* the one place text is content: select across messages, quote a passage, copy code */}
-                    <div className="relative cursor-auto space-y-4 px-5 py-4 select-text" ref={transcriptRoot}>
-                      {rows.map((row) =>
-                        row.kind === "message" ? (
-                          // the id is what the outline scrolls to
-                          <div key={row.key} id={`m-${row.message.id}`} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
-                            <MessageCard
-                              conversationId={conv.id}
-                              message={row.message}
-                              group={group}
-                              author={row.message.author_member_id ? memberById.get(row.message.author_member_id) : undefined}
-                              onQuote={quote}
-                              onJump={jump}
-                            />
-                          </div>
-                        ) : (
-                          // a reply points at the turn's answer; before there is one, at where the turn starts
-                          <div key={row.key} id={anchorId(row.turn)} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
-                            <TurnView
-                              conversationId={conv.id}
-                              turn={row.turn}
-                              live={row.live}
-                              stream={row.floor && row.turn.memberId ? streams[row.turn.memberId] : undefined}
-                              thinking={thinking}
-                              author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
-                              group={group}
-                              onQuote={quote}
-                              root={conv.repo_path}
-                            />
-                          </div>
-                        ),
-                      )}
+                    <div className="relative cursor-auto space-y-4 px-6 py-4 select-text" ref={transcriptRoot}>
+                      {timedRows.map(({ row, at }) => (
+                        <Fragment key={row.key}>
+                          {at > 0 && (
+                            <div className="flex justify-center">
+                              <span className="text-muted-foreground/80 text-[12px]">{stamp(i18n, at)}</span>
+                            </div>
+                          )}
+                          {row.kind === "message" ? (
+                            // the id is what the outline scrolls to
+                            <div id={`m-${row.message.id}`} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
+                              <MessageCard
+                                conversationId={conv.id}
+                                message={row.message}
+                                group={group}
+                                author={row.message.author_member_id ? memberById.get(row.message.author_member_id) : undefined}
+                                onQuote={quote}
+                                onJump={jump}
+                              />
+                            </div>
+                          ) : (
+                            // a reply points at the turn's answer; before there is one, at where the turn starts
+                            <div id={anchorId(row.turn)} className={cn(!settledRows.has(row.key) && PAGE_IN)}>
+                              <TurnView
+                                conversationId={conv.id}
+                                turn={row.turn}
+                                live={row.live}
+                                stream={row.floor && row.turn.memberId ? streams[row.turn.memberId] : undefined}
+                                thinking={thinking}
+                                author={row.turn.memberId ? memberById.get(row.turn.memberId) : undefined}
+                                group={group}
+                                onQuote={quote}
+                                root={conv.repo_path}
+                              />
+                            </div>
+                          )}
+                        </Fragment>
+                      ))}
                       <SelectionMenu host={transcriptRoot} onQuote={quote} />
                     </div>
                   </ScrollArea>
