@@ -552,7 +552,7 @@ export default function App() {
     const continued = !hour && by !== null && by === prevBy && at > 0 && at - prevAt <= TIME_GAP;
     prevBy = by;
     if (at > 0) prevAt = at;
-    return { row, at: hour ? at : 0, continued, first: i === 0, hour };
+    return { row, at: hour ? at : 0, continued, first: i === 0 };
   });
 
   const busyByBot = useMemo(() => {
